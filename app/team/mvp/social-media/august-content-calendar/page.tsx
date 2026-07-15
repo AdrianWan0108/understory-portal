@@ -26,7 +26,6 @@ type Post = {
   databaseId: string;
   title: string;
   brief: string;
-  refImageUrl: string | null;
   status: PostStatus;
   postCaption: string;
   slides: Slide[];
@@ -48,7 +47,6 @@ type TaskRow = {
   brief: string;
   status: string;
   post_caption: string;
-  ref_image_url: string | null;
   created_at: string;
   task_slides: TaskSlideRow[] | null;
 };
@@ -65,7 +63,6 @@ function mapTaskRows(rows: TaskRow[]): Post[] {
     databaseId: task.id,
     title: task.title,
     brief: task.brief,
-    refImageUrl: task.ref_image_url,
     status: isPostStatus(task.status) ? task.status : "not_started",
     postCaption: task.post_caption,
     slides: (task.task_slides ?? [])
@@ -135,10 +132,15 @@ const fallbackImages = [
   "https://placehold.co/400x500/E7E0E8/4B3F50?text=Founder+story%0Areference",
 ] as const;
 
-function getPostImage(post: Post) {
-  const rawUrl =
-    post.refImageUrl ?? fallbackImages[(post.id - 1) % fallbackImages.length];
-  return getImagePreviewUrl(rawUrl) ?? rawUrl;
+function getPostPlaceholderImage(post: Post) {
+  return fallbackImages[(post.id - 1) % fallbackImages.length];
+}
+
+function getCardCoverImage(post: Post) {
+  const slideOneLink = post.slides.find(
+    (slide) => slide.slideNumber === 1,
+  )?.imageUrl;
+  return getImagePreviewUrl(slideOneLink);
 }
 
 function extractGoogleDriveFileId(value: string) {
@@ -163,13 +165,8 @@ function getImagePreviewUrl(rawUrl: string | null | undefined) {
   if (!rawUrl) return null;
   const fileId = extractGoogleDriveFileId(rawUrl);
   return fileId
-    ? `https://drive.google.com/uc?export=view&id=${encodeURIComponent(fileId)}`
+    ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w1000`
     : rawUrl;
-}
-
-function getEditableImageLink(rawUrl: string | null | undefined) {
-  if (!rawUrl || rawUrl.startsWith("https://placehold.co/")) return "";
-  return rawUrl;
 }
 
 function Icon({
@@ -358,19 +355,17 @@ function PostCard({
   status,
   onSubmitForReview,
   onCancelSubmission,
-  onImageSave,
-  onClearImage,
   onOpen,
 }: {
   post: Post;
   status: PostStatus;
   onSubmitForReview: () => void;
   onCancelSubmission: () => void;
-  onImageSave: (link: string) => void;
-  onClearImage: () => void;
   onOpen: () => void;
 }) {
-  const savedImageLink = getEditableImageLink(post.refImageUrl);
+  const cardCoverImage = getCardCoverImage(post);
+  const [coverPrimary, coverSecondary] =
+    slidePalettes[(post.id - 1) % slidePalettes.length];
 
   return (
     <article
@@ -382,29 +377,36 @@ function PostCard({
         aria-label={`Open ${post.title}`}
         className="absolute inset-0 z-10 rounded-[24px] focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#6E967F]"
       />
-      <div className="relative aspect-[16/10] overflow-hidden bg-[#E6EBE6]">
-        <PreviewImage
-          src={getPostImage(post)}
-          alt={`Reference image for ${post.title}`}
-          className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.025]"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#1F3328]/30 via-transparent to-transparent" />
+      <div className="relative aspect-[4/5] overflow-hidden bg-[#E6EBE6]">
+        {cardCoverImage ? (
+          <>
+            <PreviewImage
+              src={cardCoverImage}
+              alt={`Cover image for ${post.title}`}
+              className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-[1.025]"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#1F3328]/30 via-transparent to-transparent" />
+          </>
+        ) : (
+          <div
+            role="img"
+            aria-label={`Pending visuals upload for ${post.title}`}
+            className="absolute inset-0 flex items-center justify-center px-8 text-center"
+            style={{
+              backgroundImage: `linear-gradient(145deg, ${coverSecondary} 0%, #F4F6F2 55%, ${coverPrimary} 160%)`,
+            }}
+          >
+            <span className="rounded-full border border-white/55 bg-white/55 px-4 py-2 text-xs font-medium tracking-[0.01em] text-[#5E6D65] backdrop-blur-sm">
+              Pending visuals upload
+            </span>
+          </div>
+        )}
         <span className="absolute left-4 top-4 rounded-full border border-white/60 bg-white/85 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#42554A] backdrop-blur">
           Post {String(post.id).padStart(2, "0")}
         </span>
         <span className="absolute bottom-4 right-4 rounded-full bg-[#294B3B]/90 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur">
           {post.slides.length} slides
         </span>
-      </div>
-
-      <div className="relative z-20 border-b border-[#E8ECE9] bg-[#F8FAF8] px-4 py-3">
-        <DriveLinkInput
-          key={savedImageLink || "empty"}
-          value={savedImageLink || undefined}
-          label={`reference image for ${post.title}`}
-          onSave={onImageSave}
-          onClear={onClearImage}
-        />
       </div>
 
       <div className="p-5 sm:p-6">
@@ -478,7 +480,7 @@ function SlidePreview({
           <>
             <div
               className="absolute inset-0 bg-cover bg-center opacity-20 mix-blend-luminosity"
-              style={{ backgroundImage: `url(${getPostImage(post)})` }}
+              style={{ backgroundImage: `url(${getPostPlaceholderImage(post)})` }}
             />
             <div className="absolute inset-0 bg-gradient-to-b from-black/0 via-black/5 to-black/35" />
             <div
@@ -762,7 +764,6 @@ export default function AugustContentCalendarPage() {
             brief,
             status,
             post_caption,
-            ref_image_url,
             created_at,
             task_slides (
               id,
@@ -875,54 +876,6 @@ export default function AugustContentCalendarPage() {
       return;
     }
 
-    setErrorMessage(null);
-  }
-
-  async function savePostImageLink(postId: number, rawLink: string) {
-    const post = posts.find((candidate) => candidate.id === postId);
-    if (!post) return;
-
-    const { error } = await supabase
-      .from("tasks")
-      .update({ ref_image_url: rawLink })
-      .eq("id", post.databaseId);
-    if (error) {
-      setErrorMessage(
-        `Could not save the post image link: ${error.message}`,
-      );
-      return;
-    }
-
-    setPosts((current) =>
-      current.map((candidate) =>
-        candidate.id === postId
-          ? { ...candidate, refImageUrl: rawLink }
-          : candidate,
-      ),
-    );
-    setErrorMessage(null);
-  }
-
-  async function clearPostImage(postId: number) {
-    const post = posts.find((candidate) => candidate.id === postId);
-    if (!post) return;
-
-    const { error } = await supabase
-      .from("tasks")
-      .update({ ref_image_url: null })
-      .eq("id", post.databaseId);
-    if (error) {
-      setErrorMessage(`Could not clear the post image: ${error.message}`);
-      return;
-    }
-
-    setPosts((current) =>
-      current.map((candidate) =>
-        candidate.id === postId
-          ? { ...candidate, refImageUrl: null }
-          : candidate,
-      ),
-    );
     setErrorMessage(null);
   }
 
@@ -1094,10 +1047,6 @@ export default function AugustContentCalendarPage() {
                       onCancelSubmission={() =>
                         void updateStatus(post.id, "not_started")
                       }
-                      onImageSave={(link) =>
-                        void savePostImageLink(post.id, link)
-                      }
-                      onClearImage={() => void clearPostImage(post.id)}
                       onOpen={() => setSelectedPostId(post.id)}
                     />
                   ))}
