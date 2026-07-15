@@ -193,48 +193,6 @@ function Icon({
   );
 }
 
-function StatusControl({
-  status,
-  onChange,
-}: {
-  status: PostStatus;
-  onChange: (status: "not_started" | "for_review") => void;
-}) {
-  const details = statusDetails[status];
-
-  if (status === "needs_revision" || status === "approved") {
-    return <StatusBadge status={status} />;
-  }
-
-  return (
-    <label className="relative block">
-      <span className="sr-only">Update post status</span>
-      <span className={`pointer-events-none absolute left-3 top-1/2 size-1.5 -translate-y-1/2 rounded-full ${details.dot}`} />
-      <select
-        value={status}
-        onChange={(event) =>
-          onChange(event.target.value as "not_started" | "for_review")
-        }
-        onClick={(event) => event.stopPropagation()}
-        className={`cursor-pointer appearance-none rounded-full border py-2 pl-7 pr-8 text-xs font-semibold outline-none transition focus:ring-2 focus:ring-[#6E967F]/30 ${details.className}`}
-      >
-        <option value="not_started">Not started</option>
-        <option value="for_review">For review</option>
-      </select>
-      <svg
-        aria-hidden="true"
-        className="pointer-events-none absolute right-3 top-1/2 size-3 -translate-y-1/2 text-current"
-        fill="none"
-        viewBox="0 0 12 12"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      >
-        <path d="m3 4.5 3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </label>
-  );
-}
-
 function Logo() {
   return (
     <div className="flex items-center gap-3">
@@ -497,7 +455,6 @@ function PostDetail({
   post,
   status,
   slideImageUrls,
-  onStatusChange,
   onSlideImageUpload,
   onClearSlideImage,
   onClose,
@@ -505,7 +462,6 @@ function PostDetail({
   post: Post;
   status: PostStatus;
   slideImageUrls: Record<string, string>;
-  onStatusChange: (status: "not_started" | "for_review") => void;
   onSlideImageUpload: (slideNumber: number, file: File) => void;
   onClearSlideImage: (slideNumber: number) => void;
   onClose: () => void;
@@ -596,7 +552,7 @@ function PostDetail({
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#939D97]">
               Status
             </p>
-            <StatusControl status={status} onChange={onStatusChange} />
+            <StatusBadge status={status} />
           </div>
         </div>
 
@@ -1129,9 +1085,6 @@ export default function EmiliaTasksPage() {
           post={selectedPost}
           status={statuses[selectedPost.id]}
           slideImageUrls={slideImageUrls}
-          onStatusChange={(status) =>
-            void updateStatus(selectedPost.id, status)
-          }
           onSlideImageUpload={(slideNumber, file) =>
             void uploadSlideImage(selectedPost.id, slideNumber, file)
           }
