@@ -136,7 +136,40 @@ const fallbackImages = [
 ] as const;
 
 function getPostImage(post: Post) {
-  return post.refImageUrl ?? fallbackImages[(post.id - 1) % fallbackImages.length];
+  const rawUrl =
+    post.refImageUrl ?? fallbackImages[(post.id - 1) % fallbackImages.length];
+  return getImagePreviewUrl(rawUrl) ?? rawUrl;
+}
+
+function extractGoogleDriveFileId(value: string) {
+  try {
+    const url = new URL(value.trim());
+    const hostname = url.hostname.toLowerCase();
+    if (
+      hostname !== "drive.google.com" &&
+      hostname !== "docs.google.com"
+    ) {
+      return null;
+    }
+
+    const pathMatch = url.pathname.match(/\/d\/([^/]+)/);
+    return pathMatch?.[1] ?? url.searchParams.get("id");
+  } catch {
+    return null;
+  }
+}
+
+function getImagePreviewUrl(rawUrl: string | null | undefined) {
+  if (!rawUrl) return null;
+  const fileId = extractGoogleDriveFileId(rawUrl);
+  return fileId
+    ? `https://drive.google.com/uc?export=view&id=${encodeURIComponent(fileId)}`
+    : rawUrl;
+}
+
+function getEditableImageLink(rawUrl: string | null | undefined) {
+  if (!rawUrl || rawUrl.startsWith("https://placehold.co/")) return "";
+  return rawUrl;
 }
 
 function Icon({
@@ -149,7 +182,8 @@ function Icon({
     | "close"
     | "warning"
     | "instagram"
-    | "upload";
+    | "check"
+    | "link";
   className?: string;
 }) {
   const paths = {
@@ -169,10 +203,11 @@ function Icon({
         <path d="M17.5 6.5h.01" />
       </>
     ),
-    upload: (
+    check: <path d="m5 12 4 4L19 6" />,
+    link: (
       <>
-        <path d="M12 16V4M7.5 8.5 12 4l4.5 4.5" />
-        <path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5" />
+        <path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
+        <path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" />
       </>
     ),
   };
@@ -190,6 +225,112 @@ function Icon({
     >
       {paths[name]}
     </svg>
+  );
+}
+
+function PreviewImage({
+  src,
+  alt,
+  className,
+}: {
+  src: string;
+  alt: string;
+  className: string;
+}) {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const hasFailed = failedSrc === src;
+
+  if (hasFailed) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center bg-[#EEF2EE] px-6 text-center text-xs leading-5 text-[#5F6F66]">
+        <div className="max-w-[260px]">
+          <Icon name="warning" className="mx-auto mb-2 size-5 text-[#A57731]" />
+          Image couldn&apos;t load — make sure the Google Drive file is shared as
+          &apos;Anyone with the link can view&apos;.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={className}
+      onError={() => setFailedSrc(src)}
+    />
+  );
+}
+
+function DriveLinkInput({
+  value,
+  label,
+  onSave,
+  onClear,
+}: {
+  value?: string;
+  label: string;
+  onSave: (link: string) => void;
+  onClear: () => void;
+}) {
+  const [draft, setDraft] = useState(value ?? "");
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  function submitLink(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedLink = draft.trim();
+    if (!extractGoogleDriveFileId(trimmedLink)) {
+      setValidationError("Paste a valid Google Drive file link.");
+      return;
+    }
+
+    setValidationError(null);
+    onSave(trimmedLink);
+  }
+
+  return (
+    <div>
+      <form onSubmit={submitLink} className="flex items-center gap-2">
+        <label className="min-w-0 flex-1">
+          <span className="sr-only">{label}</span>
+          <span className="relative block">
+            <Icon
+              name="link"
+              className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[#839087]"
+            />
+            <input
+              type="url"
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setValidationError(null);
+              }}
+              placeholder="Paste Google Drive link"
+              className="h-9 w-full rounded-full border border-[#CBD6CE] bg-white pl-8 pr-3 text-[11px] text-[#405349] outline-none transition placeholder:text-[#9BA59F] focus:border-[#7E9E8A] focus:ring-2 focus:ring-[#6E967F]/20"
+            />
+          </span>
+        </label>
+        <button
+          type="submit"
+          aria-label={`Save ${label}`}
+          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#294B3B] text-white shadow-sm transition hover:bg-[#365D49] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#6E967F]"
+        >
+          <Icon name="check" className="size-4" />
+        </button>
+        {value && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="shrink-0 rounded-full border border-[#D8DEDA] bg-white px-3 py-2 text-[11px] font-semibold text-[#68766E] transition hover:border-[#BFC9C2] hover:bg-[#F5F7F5] hover:text-[#3F5147] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#6E967F]"
+          >
+            Clear
+          </button>
+        )}
+      </form>
+      {validationError && (
+        <p className="mt-1.5 text-[10px] text-[#9A5E42]">{validationError}</p>
+      )}
+    </div>
   );
 }
 
@@ -217,7 +358,7 @@ function PostCard({
   status,
   onSubmitForReview,
   onCancelSubmission,
-  onImageUpload,
+  onImageSave,
   onClearImage,
   onOpen,
 }: {
@@ -225,13 +366,11 @@ function PostCard({
   status: PostStatus;
   onSubmitForReview: () => void;
   onCancelSubmission: () => void;
-  onImageUpload: (file: File) => void;
+  onImageSave: (link: string) => void;
   onClearImage: () => void;
   onOpen: () => void;
 }) {
-  const hasUploadedImage = Boolean(
-    post.refImageUrl && !post.refImageUrl.startsWith("https://placehold.co/"),
-  );
+  const savedImageLink = getEditableImageLink(post.refImageUrl);
 
   return (
     <article
@@ -244,44 +383,28 @@ function PostCard({
         className="absolute inset-0 z-10 rounded-[24px] focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#6E967F]"
       />
       <div className="relative aspect-[16/10] overflow-hidden bg-[#E6EBE6]">
-        <img
+        <PreviewImage
           src={getPostImage(post)}
-          alt={`Reference placeholder for ${post.title}`}
+          alt={`Reference image for ${post.title}`}
           className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.025]"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#1F3328]/30 via-transparent to-transparent" />
         <span className="absolute left-4 top-4 rounded-full border border-white/60 bg-white/85 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#42554A] backdrop-blur">
           Post {String(post.id).padStart(2, "0")}
         </span>
-        <div className="absolute right-3 top-3 z-20 flex items-center gap-1.5">
-          <label className="flex cursor-pointer items-center gap-1.5 rounded-full border border-white/60 bg-white px-3 py-2 text-[10px] font-semibold text-[#3E574A] shadow-sm transition hover:bg-[#F6F8F6] focus-within:ring-2 focus-within:ring-[#6E967F]">
-            <Icon name="upload" className="size-3.5" />
-            {hasUploadedImage ? "Replace" : "Upload image"}
-            <input
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                if (file) onImageUpload(file);
-                event.currentTarget.value = "";
-              }}
-            />
-          </label>
-          {hasUploadedImage && (
-            <button
-              type="button"
-              onClick={onClearImage}
-              aria-label={`Clear uploaded image for ${post.title}`}
-              className="flex size-8 items-center justify-center rounded-full border border-white/60 bg-white text-sm font-semibold text-[#65736B] shadow-sm transition hover:bg-[#F6F8F6] hover:text-[#32483C] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#6E967F]"
-            >
-              ×
-            </button>
-          )}
-        </div>
         <span className="absolute bottom-4 right-4 rounded-full bg-[#294B3B]/90 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur">
           {post.slides.length} slides
         </span>
+      </div>
+
+      <div className="relative z-20 border-b border-[#E8ECE9] bg-[#F8FAF8] px-4 py-3">
+        <DriveLinkInput
+          key={savedImageLink || "empty"}
+          value={savedImageLink || undefined}
+          label={`reference image for ${post.title}`}
+          onSave={onImageSave}
+          onClear={onClearImage}
+        />
       </div>
 
       <div className="p-5 sm:p-6">
@@ -326,17 +449,18 @@ function SlidePreview({
   post,
   slide,
   previewUrl,
-  onImageUpload,
+  onImageSave,
   onClearImage,
 }: {
   post: Post;
   slide: Slide;
   previewUrl?: string;
-  onImageUpload: (file: File) => void;
+  onImageSave: (link: string) => void;
   onClearImage: () => void;
 }) {
   const [primary, secondary] = slidePalettes[(post.id - 1) % slidePalettes.length];
   const textParts = slide.onScreenText.split(" / ");
+  const previewImageUrl = getImagePreviewUrl(previewUrl);
 
   return (
     <article className="w-[84vw] max-w-[390px] shrink-0 snap-center sm:w-[390px]">
@@ -344,10 +468,10 @@ function SlidePreview({
         className="relative aspect-[4/5] overflow-hidden rounded-[22px] shadow-[0_18px_45px_rgba(27,49,38,0.16)]"
         style={{ backgroundColor: primary }}
       >
-        {previewUrl ? (
-          <img
-            src={previewUrl}
-            alt={`Uploaded design for slide ${slide.slideNumber} of ${post.title}`}
+        {previewImageUrl ? (
+          <PreviewImage
+            src={previewImageUrl}
+            alt={`Design for slide ${slide.slideNumber} of ${post.title}`}
             className="absolute inset-0 h-full w-full object-cover"
           />
         ) : (
@@ -394,35 +518,13 @@ function SlidePreview({
 
       <div className="mt-5 rounded-[20px] border border-[#E0E5E1] bg-white p-5">
         <div className="mb-4 border-b border-[#E8ECE9] pb-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-[#CBD8CF] bg-[#F3F7F4] px-3.5 py-2 text-xs font-semibold text-[#466252] transition hover:border-[#9EB5A6] hover:bg-[#EAF1EC] focus-within:ring-2 focus-within:ring-[#6E967F]/40">
-              <Icon name="upload" className="size-4" />
-              {previewUrl ? "Replace slide design" : "Upload slide design"}
-              <input
-                type="file"
-                accept="image/*"
-                className="sr-only"
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  if (file) onImageUpload(file);
-                  event.currentTarget.value = "";
-                }}
-              />
-            </label>
-            {previewUrl && (
-              <button
-                type="button"
-                onClick={onClearImage}
-                className="inline-flex items-center gap-1 rounded-full border border-[#D8DEDA] bg-white px-3 py-2 text-xs font-semibold text-[#68766E] transition hover:border-[#BFC9C2] hover:bg-[#F5F7F5] hover:text-[#3F5147] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#6E967F]"
-              >
-                <span aria-hidden="true">×</span>
-                Clear
-              </button>
-            )}
-          </div>
-          <p className="mt-2 max-w-[300px] text-[10px] leading-4 text-[#87928B]">
-            Uploaded image is only visible in this browser session for now
-          </p>
+          <DriveLinkInput
+            key={previewUrl || "empty"}
+            value={previewUrl}
+            label={`image for slide ${slide.slideNumber}`}
+            onSave={onImageSave}
+            onClear={onClearImage}
+          />
         </div>
         {slide.warningFlag && (
           <div className="mb-4 flex items-start gap-2 rounded-xl border border-[#E4C586] bg-[#FFF7E5] px-3 py-2.5 text-xs font-medium leading-5 text-[#805A22]">
@@ -454,15 +556,15 @@ function SlidePreview({
 function PostDetail({
   post,
   status,
-  slideImageUrls,
-  onSlideImageUpload,
+  slideImageLinks,
+  onSlideImageSave,
   onClearSlideImage,
   onClose,
 }: {
   post: Post;
   status: PostStatus;
-  slideImageUrls: Record<string, string>;
-  onSlideImageUpload: (slideNumber: number, file: File) => void;
+  slideImageLinks: Record<string, string>;
+  onSlideImageSave: (slideNumber: number, link: string) => void;
   onClearSlideImage: (slideNumber: number) => void;
   onClose: () => void;
 }) {
@@ -601,9 +703,9 @@ function PostDetail({
                 key={slide.slideNumber}
                 post={post}
                 slide={slide}
-                previewUrl={slideImageUrls[`${post.id}-${slide.slideNumber}`]}
-                onImageUpload={(file) =>
-                  onSlideImageUpload(slide.slideNumber, file)
+                previewUrl={slideImageLinks[`${post.id}-${slide.slideNumber}`]}
+                onImageSave={(link) =>
+                  onSlideImageSave(slide.slideNumber, link)
                 }
                 onClearImage={() => onClearSlideImage(slide.slideNumber)}
               />
@@ -630,11 +732,11 @@ function PostDetail({
   );
 }
 
-export default function EmiliaTasksPage() {
+export default function AugustContentCalendarPage() {
   const [selectedPostId, setSelectedPostId] = useState<number | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [statuses, setStatuses] = useState<Record<number, PostStatus>>({});
-  const [slideImageUrls, setSlideImageUrls] = useState<Record<string, string>>({});
+  const [slideImageLinks, setSlideImageLinks] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [postRailState, setPostRailState] = useState({
@@ -679,7 +781,7 @@ export default function EmiliaTasksPage() {
       if (!isActive) return;
 
       if (error) {
-        setErrorMessage(`Could not load Emilia's tasks: ${error.message}`);
+        setErrorMessage(`Could not load the content calendar: ${error.message}`);
         setIsLoading(false);
         return;
       }
@@ -691,7 +793,7 @@ export default function EmiliaTasksPage() {
           loadedPosts.map((post) => [post.id, post.status]),
         ),
       );
-      setSlideImageUrls(
+      setSlideImageLinks(
         Object.fromEntries(
           loadedPosts.flatMap((post) =>
             post.slides
@@ -776,50 +878,29 @@ export default function EmiliaTasksPage() {
     setErrorMessage(null);
   }
 
-  function makeStoragePath(taskId: string, scope: string, file: File) {
-    const extension = file.name.split(".").pop()?.replace(/[^a-z0-9]/gi, "") || "jpg";
-    return `emilia/${taskId}/${scope}-${crypto.randomUUID()}.${extension.toLowerCase()}`;
-  }
-
-  async function uploadToPostImages(path: string, file: File) {
-    const { error } = await supabase.storage.from("post-images").upload(path, file, {
-      cacheControl: "3600",
-      contentType: file.type || undefined,
-      upsert: false,
-    });
-    if (error) throw error;
-    return supabase.storage.from("post-images").getPublicUrl(path).data.publicUrl;
-  }
-
-  async function uploadPostImage(postId: number, file: File) {
+  async function savePostImageLink(postId: number, rawLink: string) {
     const post = posts.find((candidate) => candidate.id === postId);
     if (!post) return;
 
-    const path = makeStoragePath(post.databaseId, "reference", file);
-    try {
-      const publicUrl = await uploadToPostImages(path, file);
-      const { error } = await supabase
-        .from("tasks")
-        .update({ ref_image_url: publicUrl })
-        .eq("id", post.databaseId);
-      if (error) {
-        await supabase.storage.from("post-images").remove([path]);
-        throw error;
-      }
-
-      setPosts((current) =>
-        current.map((candidate) =>
-          candidate.id === postId
-            ? { ...candidate, refImageUrl: publicUrl }
-            : candidate,
-        ),
-      );
-      setErrorMessage(null);
-    } catch (error) {
+    const { error } = await supabase
+      .from("tasks")
+      .update({ ref_image_url: rawLink })
+      .eq("id", post.databaseId);
+    if (error) {
       setErrorMessage(
-        `Could not upload the post image: ${error instanceof Error ? error.message : "Unknown error"}`,
+        `Could not save the post image link: ${error.message}`,
       );
+      return;
     }
+
+    setPosts((current) =>
+      current.map((candidate) =>
+        candidate.id === postId
+          ? { ...candidate, refImageUrl: rawLink }
+          : candidate,
+      ),
+    );
+    setErrorMessage(null);
   }
 
   async function clearPostImage(postId: number) {
@@ -845,10 +926,10 @@ export default function EmiliaTasksPage() {
     setErrorMessage(null);
   }
 
-  async function uploadSlideImage(
+  async function saveSlideImageLink(
     postId: number,
     slideNumber: number,
-    file: File,
+    rawLink: string,
   ) {
     const post = posts.find((candidate) => candidate.id === postId);
     const slide = post?.slides.find(
@@ -856,44 +937,32 @@ export default function EmiliaTasksPage() {
     );
     if (!post || !slide) return;
 
-    const path = makeStoragePath(
-      post.databaseId,
-      `slide-${slide.slideNumber}`,
-      file,
-    );
-    try {
-      const publicUrl = await uploadToPostImages(path, file);
-      const { error } = await supabase
-        .from("task_slides")
-        .update({ image_url: publicUrl })
-        .eq("id", slide.id);
-      if (error) {
-        await supabase.storage.from("post-images").remove([path]);
-        throw error;
-      }
-
-      const key = `${postId}-${slideNumber}`;
-      setSlideImageUrls((current) => ({ ...current, [key]: publicUrl }));
-      setPosts((current) =>
-        current.map((candidate) =>
-          candidate.id === postId
-            ? {
-                ...candidate,
-                slides: candidate.slides.map((candidateSlide) =>
-                  candidateSlide.id === slide.id
-                    ? { ...candidateSlide, imageUrl: publicUrl }
-                    : candidateSlide,
-                ),
-              }
-            : candidate,
-        ),
-      );
-      setErrorMessage(null);
-    } catch (error) {
-      setErrorMessage(
-        `Could not upload the slide image: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
+    const { error } = await supabase
+      .from("task_slides")
+      .update({ image_url: rawLink })
+      .eq("id", slide.id);
+    if (error) {
+      setErrorMessage(`Could not save the slide image link: ${error.message}`);
+      return;
     }
+
+    const key = `${postId}-${slideNumber}`;
+    setSlideImageLinks((current) => ({ ...current, [key]: rawLink }));
+    setPosts((current) =>
+      current.map((candidate) =>
+        candidate.id === postId
+          ? {
+              ...candidate,
+              slides: candidate.slides.map((candidateSlide) =>
+                candidateSlide.id === slide.id
+                  ? { ...candidateSlide, imageUrl: rawLink }
+                  : candidateSlide,
+              ),
+            }
+          : candidate,
+      ),
+    );
+    setErrorMessage(null);
   }
 
   async function clearSlideImage(postId: number, slideNumber: number) {
@@ -913,7 +982,7 @@ export default function EmiliaTasksPage() {
     }
 
     const key = `${postId}-${slideNumber}`;
-    setSlideImageUrls((current) => {
+    setSlideImageLinks((current) => {
       const next = { ...current };
       delete next[key];
       return next;
@@ -947,17 +1016,13 @@ export default function EmiliaTasksPage() {
   return (
     <div className="min-h-screen bg-[#F4F6F2] text-[#293F34]">
       <header className="border-b border-[#E0E5E0] bg-white px-5 py-4 sm:px-8">
-        <div className="mx-auto flex max-w-[1200px] items-center justify-between">
+        <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-4">
           <Logo />
-          <div className="flex items-center gap-3">
-            <div className="hidden text-right sm:block">
-              <p className="text-xs font-semibold text-[#405449]">Emilia</p>
-              <p className="text-[10px] text-[#8C9690]">Graphic designer</p>
-            </div>
-            <span className="flex size-9 items-center justify-center rounded-full bg-[#E7D7C2] text-sm font-semibold text-[#294B3B]">
-              E
-            </span>
-          </div>
+          <p className="text-right text-[11px] leading-5 text-[#87928B]">
+            Assigned to: <span className="font-medium text-[#5D6C64]">Emilia</span>
+            <span className="mx-1.5 text-[#B3BBB6]">·</span>
+            Graphic designer
+          </p>
         </div>
       </header>
 
@@ -968,7 +1033,7 @@ export default function EmiliaTasksPage() {
               Content production · August 2026
             </p>
             <h1 className="text-3xl font-semibold tracking-[-0.04em] text-[#263E32] sm:text-4xl lg:text-[42px]">
-              Emilia&apos;s tasks — August content
+              MVP — Social media · August content calendar
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[#718078] sm:text-base">
               Open a post to review the copy, visual direction, and captions for every slide.
@@ -979,6 +1044,14 @@ export default function EmiliaTasksPage() {
             {isLoading ? "Loading posts…" : `${posts.length} posts assigned`}
           </div>
         </section>
+
+        <div className="mt-6 flex max-w-3xl items-start gap-2 rounded-2xl border border-[#DDE5DF] bg-white/70 px-4 py-3 text-xs leading-5 text-[#66756D]">
+          <Icon name="link" className="mt-0.5 size-4 shrink-0 text-[#6F8D7B]" />
+          <p>
+            Paste a Google Drive link — make sure it&apos;s shared as
+            &apos;Anyone with the link can view&apos; so it previews correctly here.
+          </p>
+        </div>
 
         {errorMessage && (
           <div
@@ -1021,8 +1094,8 @@ export default function EmiliaTasksPage() {
                       onCancelSubmission={() =>
                         void updateStatus(post.id, "not_started")
                       }
-                      onImageUpload={(file) =>
-                        void uploadPostImage(post.id, file)
+                      onImageSave={(link) =>
+                        void savePostImageLink(post.id, link)
                       }
                       onClearImage={() => void clearPostImage(post.id)}
                       onOpen={() => setSelectedPostId(post.id)}
@@ -1030,7 +1103,7 @@ export default function EmiliaTasksPage() {
                   ))}
               {!isLoading && posts.length === 0 && (
                 <div className="w-full rounded-[24px] border border-dashed border-[#CCD6CE] bg-white px-6 py-12 text-center text-sm text-[#718078]">
-                  No tasks found for Emilia. Run the seed script, then refresh this page.
+                  No assigned tasks found. Run the seed script, then refresh this page.
                 </div>
               )}
             </div>
@@ -1084,9 +1157,9 @@ export default function EmiliaTasksPage() {
           key={selectedPost.id}
           post={selectedPost}
           status={statuses[selectedPost.id]}
-          slideImageUrls={slideImageUrls}
-          onSlideImageUpload={(slideNumber, file) =>
-            void uploadSlideImage(selectedPost.id, slideNumber, file)
+          slideImageLinks={slideImageLinks}
+          onSlideImageSave={(slideNumber, link) =>
+            void saveSlideImageLink(selectedPost.id, slideNumber, link)
           }
           onClearSlideImage={(slideNumber) =>
             void clearSlideImage(selectedPost.id, slideNumber)
