@@ -30,6 +30,7 @@ import {
   WORKSPACE_CLIENTS,
   isWorkspaceClientSlug,
 } from "@/lib/workspace-clients";
+import { projectClientInitial } from "@/lib/project-client-theme";
 import { sendSlackNotification } from "@/lib/slack-notifications";
 import {
   normalizeAssigneeUsernames,
@@ -54,6 +55,14 @@ type PostStatus =
   | "needs_revision"
   | "approved";
 
+type ReferencePlatform = "pinterest" | "instagram" | "other";
+
+type SlideReference = {
+  id: string;
+  url: string;
+  platform: ReferencePlatform;
+};
+
 type Slide = {
   id: string;
   slideNumber: number;
@@ -62,6 +71,7 @@ type Slide = {
   slideCaption?: string;
   warningFlag?: string;
   imageUrl?: string;
+  references: SlideReference[];
 };
 
 type Post = {
@@ -80,6 +90,12 @@ type Post = {
   slides: Slide[];
 };
 
+type SlideReferenceRow = {
+  id: string;
+  url: string;
+  platform: string;
+};
+
 type TaskSlideRow = {
   id: string;
   slide_number: number;
@@ -88,7 +104,25 @@ type TaskSlideRow = {
   slide_caption: string | null;
   warning_flag: string | null;
   image_url: string | null;
+  slide_references: SlideReferenceRow[] | null;
 };
+
+function isReferencePlatform(value: string): value is ReferencePlatform {
+  return value === "pinterest" || value === "instagram" || value === "other";
+}
+
+function detectReferencePlatform(url: string): ReferencePlatform {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    if (hostname.includes("pinterest.") || hostname.includes("pin.it")) {
+      return "pinterest";
+    }
+    if (hostname.includes("instagram.com")) return "instagram";
+    return "other";
+  } catch {
+    return "other";
+  }
+}
 
 type TaskRow = {
   id: string;
@@ -139,6 +173,13 @@ function mapTaskRows(rows: TaskRow[]): Post[] {
         slideCaption: slide.slide_caption ?? "",
         warningFlag: slide.warning_flag ?? undefined,
         imageUrl: slide.image_url ?? undefined,
+        references: (slide.slide_references ?? []).map((reference) => ({
+          id: reference.id,
+          url: reference.url,
+          platform: isReferencePlatform(reference.platform)
+            ? reference.platform
+            : "other",
+        })),
       })),
   }));
 }
@@ -395,6 +436,141 @@ function DriveLinkInput({
   );
 }
 
+declare global {
+  interface Window {
+    PinUtils?: { build: () => void };
+  }
+}
+
+let pinterestWidgetPromise: Promise<void> | null = null;
+
+function loadPinterestWidget(): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  if (window.PinUtils) return Promise.resolve();
+  if (!pinterestWidgetPromise) {
+    pinterestWidgetPromise = new Promise((resolve) => {
+      const script = document.createElement("script");
+      script.src = "https://assets.pinterest.com/js/pinit.js";
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => resolve();
+      document.body.appendChild(script);
+    });
+  }
+  return pinterestWidgetPromise;
+}
+
+function ReferenceInput({ onAdd }: { onAdd: (url: string) => void }) {
+  const [draft, setDraft] = useState("");
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedLink = draft.trim();
+    try {
+      new URL(trimmedLink);
+    } catch {
+      setValidationError("Paste a valid link.");
+      return;
+    }
+    setValidationError(null);
+    onAdd(trimmedLink);
+    setDraft("");
+  }
+
+  return (
+    <div>
+      <form onSubmit={submit} className="flex items-center gap-2">
+        <label className="min-w-0 flex-1">
+          <span className="sr-only">Reference link</span>
+          <span className="relative block">
+            <Icon
+              name="link"
+              className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[#8B7895]"
+            />
+            <input
+              type="url"
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setValidationError(null);
+              }}
+              placeholder="Paste Pinterest or Instagram link"
+              className="h-9 w-full rounded-full border border-[#DED0E7] bg-white pl-8 pr-3 text-[11px] text-[#4F3D69] outline-none transition placeholder:text-[#A18DAA] focus:border-[#7D4698] focus:ring-2 focus:ring-[#7D4698]/20"
+            />
+          </span>
+        </label>
+        <button
+          type="submit"
+          aria-label="Add reference"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#7D4698] text-white shadow-sm transition hover:bg-[#6A3A82] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7D4698]"
+        >
+          <Icon name="check" className="size-4" />
+        </button>
+      </form>
+      {validationError && (
+        <p className="mt-1.5 text-[10px] text-[#9A5E42]">{validationError}</p>
+      )}
+    </div>
+  );
+}
+
+function ReferenceCell({
+  reference,
+  canManage,
+  onDelete,
+}: {
+  reference: SlideReference;
+  canManage: boolean;
+  onDelete: () => void;
+}) {
+  useEffect(() => {
+    if (reference.platform !== "pinterest") return;
+    let cancelled = false;
+    void loadPinterestWidget().then(() => {
+      if (!cancelled) window.PinUtils?.build();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [reference.platform]);
+
+  return (
+    <div className="group relative aspect-square overflow-hidden rounded-xl border border-[#E3D8EA] bg-white">
+      {reference.platform === "pinterest" ? (
+        <a data-pin-do="embedPin" data-pin-width="small" href={reference.url}>
+          {reference.url}
+        </a>
+      ) : (
+        <a
+          href={reference.url}
+          target="_blank"
+          rel="noreferrer"
+          className="flex h-full w-full flex-col items-center justify-center gap-1 px-2 text-center text-[#7D4698] transition hover:bg-[#F5EEFA]"
+        >
+          <Icon
+            name={reference.platform === "instagram" ? "instagram" : "link"}
+            className="size-4"
+          />
+          <span className="text-[9px] font-semibold uppercase tracking-[0.06em]">
+            {reference.platform === "instagram" ? "Instagram" : "Reference"}
+          </span>
+        </a>
+      )}
+      {canManage && (
+        <button
+          type="button"
+          onClick={onDelete}
+          aria-label="Remove reference"
+          className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition group-hover:opacity-100"
+        >
+          <Icon name="close" className="size-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 function PostCard({
   post,
   status,
@@ -548,15 +724,25 @@ function SlidePreview({
   post,
   slide,
   previewUrl,
+  clientLabel,
+  clientInitial,
   onImageSave,
   onClearImage,
+  onEdit,
+  onAddReference,
+  onDeleteReference,
   canManage,
 }: {
   post: Post;
   slide: Slide;
   previewUrl?: string;
+  clientLabel: string;
+  clientInitial: string;
   onImageSave: (link: string) => void;
   onClearImage: () => void;
+  onEdit: () => void;
+  onAddReference: (url: string) => void;
+  onDeleteReference: (referenceId: string) => void;
   canManage: boolean;
 }) {
   const [primary, secondary] = slidePalettes[(post.id - 1) % slidePalettes.length];
@@ -588,10 +774,10 @@ function SlidePreview({
             />
             <div className="absolute left-6 top-6 flex items-center gap-2 text-white/75">
               <span className="flex size-7 items-center justify-center rounded-full border border-white/40 text-[8px] font-semibold tracking-[0.12em]">
-                MV
+                {clientInitial}
               </span>
               <span className="text-[9px] font-semibold uppercase tracking-[0.2em]">
-                Motion Vitality
+                {clientLabel}
               </span>
             </div>
             <div className="absolute inset-x-0 bottom-[11%] px-7 sm:px-8">
@@ -619,14 +805,23 @@ function SlidePreview({
 
       <div className="mt-5 rounded-[20px] border border-[#E3D8EA] bg-white p-5">
         {canManage && (
-        <div className="mb-4 border-b border-[#EEE6F4] pb-4">
-          <DriveLinkInput
-            key={previewUrl || "empty"}
-            value={previewUrl}
-            label={`image for slide ${slide.slideNumber}`}
-            onSave={onImageSave}
-            onClear={onClearImage}
-          />
+        <div className="mb-4 flex items-start gap-2 border-b border-[#EEE6F4] pb-4">
+          <div className="min-w-0 flex-1">
+            <DriveLinkInput
+              key={previewUrl || "empty"}
+              value={previewUrl}
+              label={`image for slide ${slide.slideNumber}`}
+              onSave={onImageSave}
+              onClear={onClearImage}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={onEdit}
+            className="h-9 shrink-0 rounded-full border border-[#DED0E7] bg-white px-3.5 text-[11px] font-semibold text-[#5F4D70] transition hover:border-[#C7B3D2] hover:bg-[#F5EEFA]"
+          >
+            Edit
+          </button>
         </div>
         )}
         {slide.warningFlag && (
@@ -651,6 +846,32 @@ function SlidePreview({
             </p>
           </div>
         )}
+        <div className="mt-4 border-t border-[#EEE6F4] pt-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-[#8B7895]">
+            References
+          </p>
+          {canManage && (
+            <div className="mt-2">
+              <ReferenceInput onAdd={onAddReference} />
+            </div>
+          )}
+          {slide.references.length > 0 ? (
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {slide.references.map((reference) => (
+                <ReferenceCell
+                  key={reference.id}
+                  reference={reference}
+                  canManage={canManage}
+                  onDelete={() => onDeleteReference(reference.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-[11px] text-[#A18DAA]">
+              No references yet.
+            </p>
+          )}
+        </div>
       </div>
     </article>
   );
@@ -660,16 +881,28 @@ function PostDetail({
   post,
   status,
   slideImageLinks,
+  clientLabel,
+  clientInitial,
   onSlideImageSave,
   onClearSlideImage,
+  onAddSlide,
+  onEditSlide,
+  onAddReference,
+  onDeleteReference,
   onClose,
   canManage,
 }: {
   post: Post;
   status: PostStatus;
   slideImageLinks: Record<string, string>;
+  clientLabel: string;
+  clientInitial: string;
   onSlideImageSave: (slideNumber: number, link: string) => void;
   onClearSlideImage: (slideNumber: number) => void;
+  onAddSlide: () => void;
+  onEditSlide: (slide: Slide) => void;
+  onAddReference: (slideId: string, url: string) => void;
+  onDeleteReference: (slideId: string, referenceId: string) => void;
   onClose: () => void;
   canManage: boolean;
 }) {
@@ -764,7 +997,7 @@ function PostDetail({
           </div>
         </div>
 
-        {post.format !== "reel" && post.slides.length > 0 && (
+        {post.format !== "reel" && (
           <section className="py-8 sm:py-10" aria-labelledby="slides-heading">
             <div className="mb-5 flex items-end justify-between gap-4">
               <div>
@@ -779,57 +1012,93 @@ function PostDetail({
                 </h2>
               </div>
               <div className="flex items-center gap-3">
-                <span
-                  aria-live="polite"
-                  className="min-w-10 text-center text-sm font-semibold text-[#4F3D69]"
-                >
-                  {activeSlide + 1} / {post.slides.length}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => scrollToSlide(activeSlide - 1)}
-                  disabled={activeSlide === 0}
-                  className="flex size-10 items-center justify-center rounded-full border border-[#DED0E7] bg-white text-[#4F3D69] shadow-sm transition hover:bg-[#EEE3FA] disabled:cursor-not-allowed disabled:opacity-35"
-                >
-                  <Icon name="arrow" className="size-4" />
-                  <span className="sr-only">Previous slide</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => scrollToSlide(activeSlide + 1)}
-                  disabled={activeSlide === post.slides.length - 1}
-                  className="flex size-10 items-center justify-center rounded-full border border-[#DED0E7] bg-white text-[#4F3D69] shadow-sm transition hover:bg-[#EEE3FA] disabled:cursor-not-allowed disabled:opacity-35"
-                >
-                  <Icon name="chevron" className="size-4" />
-                  <span className="sr-only">Next slide</span>
-                </button>
+                {post.slides.length > 0 && (
+                  <>
+                    <span
+                      aria-live="polite"
+                      className="min-w-10 text-center text-sm font-semibold text-[#4F3D69]"
+                    >
+                      {activeSlide + 1} / {post.slides.length}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => scrollToSlide(activeSlide - 1)}
+                      disabled={activeSlide === 0}
+                      className="flex size-10 items-center justify-center rounded-full border border-[#DED0E7] bg-white text-[#4F3D69] shadow-sm transition hover:bg-[#EEE3FA] disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                      <Icon name="arrow" className="size-4" />
+                      <span className="sr-only">Previous slide</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => scrollToSlide(activeSlide + 1)}
+                      disabled={activeSlide === post.slides.length - 1}
+                      className="flex size-10 items-center justify-center rounded-full border border-[#DED0E7] bg-white text-[#4F3D69] shadow-sm transition hover:bg-[#EEE3FA] disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                      <Icon name="chevron" className="size-4" />
+                      <span className="sr-only">Next slide</span>
+                    </button>
+                  </>
+                )}
+                {canManage && (
+                  <TeamButton type="button" tone="secondary" onClick={onAddSlide}>
+                    + Add slide
+                  </TeamButton>
+                )}
               </div>
             </div>
 
-            <div
-              ref={carouselRef}
-              onScroll={updateActiveSlide}
-              className="-mx-4 flex snap-x snap-mandatory gap-5 overflow-x-auto px-4 pb-7 pt-2 [scrollbar-width:none] sm:-mx-8 sm:gap-6 sm:px-8 [&::-webkit-scrollbar]:hidden"
-            >
-              {post.slides.map((slide) => (
-                <SlidePreview
-                  key={slide.slideNumber}
-                  post={post}
-                  slide={slide}
-                  previewUrl={
-                    slideImageLinks[`${post.id}-${slide.slideNumber}`]
-                  }
-                  onImageSave={(link) =>
-                    onSlideImageSave(slide.slideNumber, link)
-                  }
-                  onClearImage={() => onClearSlideImage(slide.slideNumber)}
-                  canManage={canManage}
-                />
-              ))}
-            </div>
-            <p className="text-center text-[11px] text-[#8B7895] sm:hidden">
-              Swipe to see the next slide
-            </p>
+            {post.slides.length > 0 ? (
+              <>
+                <div
+                  ref={carouselRef}
+                  onScroll={updateActiveSlide}
+                  className="-mx-4 flex snap-x snap-mandatory gap-5 overflow-x-auto px-4 pb-7 pt-2 [scrollbar-width:none] sm:-mx-8 sm:gap-6 sm:px-8 [&::-webkit-scrollbar]:hidden"
+                >
+                  {post.slides.map((slide) => (
+                    <SlidePreview
+                      key={slide.id}
+                      post={post}
+                      slide={slide}
+                      previewUrl={
+                        slideImageLinks[`${post.id}-${slide.slideNumber}`]
+                      }
+                      clientLabel={clientLabel}
+                      clientInitial={clientInitial}
+                      onImageSave={(link) =>
+                        onSlideImageSave(slide.slideNumber, link)
+                      }
+                      onClearImage={() => onClearSlideImage(slide.slideNumber)}
+                      onEdit={() => onEditSlide(slide)}
+                      onAddReference={(url) => onAddReference(slide.id, url)}
+                      onDeleteReference={(referenceId) =>
+                        onDeleteReference(slide.id, referenceId)
+                      }
+                      canManage={canManage}
+                    />
+                  ))}
+                </div>
+                <p className="text-center text-[11px] text-[#8B7895] sm:hidden">
+                  Swipe to see the next slide
+                </p>
+              </>
+            ) : (
+              <div className="rounded-[20px] border border-dashed border-[#DED0E7] bg-white px-6 py-10 text-center text-sm text-[#75647F]">
+                No slides yet.
+                {canManage && (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      onClick={onAddSlide}
+                      className="font-semibold text-[#7D4698] underline underline-offset-2"
+                    >
+                      Add the first one
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </section>
         )}
 
@@ -884,6 +1153,100 @@ function PostDetail({
         </section>
       </main>
     </div>
+  );
+}
+
+function SlideEditorModal({
+  editingSlide,
+  deleteSlideId,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  editingSlide: { postId: number; slide: Slide } | null;
+  deleteSlideId: string | null;
+  onClose: () => void;
+  onSave: (fields: {
+    onScreenText: string;
+    visualNote: string;
+    slideCaption: string;
+    warningFlag: string;
+  }) => void;
+  onDelete: () => void;
+}) {
+  const [onScreenText, setOnScreenText] = useState(
+    editingSlide?.slide.onScreenText ?? "",
+  );
+  const [visualNote, setVisualNote] = useState(
+    editingSlide?.slide.visualNote ?? "",
+  );
+  const [slideCaption, setSlideCaption] = useState(
+    editingSlide?.slide.slideCaption ?? "",
+  );
+  const [warningFlag, setWarningFlag] = useState(
+    editingSlide?.slide.warningFlag ?? "",
+  );
+
+  return (
+    <TeamModal
+      open={Boolean(editingSlide)}
+      title={`Edit slide ${editingSlide?.slide.slideNumber ?? ""}`}
+      description="Separate a headline and subtext in on-screen text with &quot; / &quot;."
+      submitLabel="Save slide"
+      onClose={onClose}
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSave({ onScreenText, visualNote, slideCaption, warningFlag });
+      }}
+    >
+      <div className="grid gap-4">
+        <label className="text-xs font-semibold text-[#341F60]">
+          On-screen text
+          <textarea
+            rows={2}
+            value={onScreenText}
+            onChange={(event) => setOnScreenText(event.target.value)}
+            className={`mt-2 ${teamInputClass}`}
+          />
+        </label>
+        <label className="text-xs font-semibold text-[#341F60]">
+          Visual direction
+          <textarea
+            rows={3}
+            value={visualNote}
+            onChange={(event) => setVisualNote(event.target.value)}
+            className={`mt-2 ${teamInputClass}`}
+          />
+        </label>
+        <label className="text-xs font-semibold text-[#341F60]">
+          Per-slide caption
+          <textarea
+            rows={2}
+            value={slideCaption}
+            onChange={(event) => setSlideCaption(event.target.value)}
+            className={`mt-2 ${teamInputClass}`}
+          />
+        </label>
+        <label className="text-xs font-semibold text-[#341F60]">
+          Warning flag (optional)
+          <input
+            value={warningFlag}
+            onChange={(event) => setWarningFlag(event.target.value)}
+            placeholder="e.g. Needs client approval"
+            className={`mt-2 ${teamInputClass}`}
+          />
+        </label>
+      </div>
+      {editingSlide && (
+        <div className="mt-5 flex justify-end border-t border-[#EEE6F4] pt-4">
+          <TeamButton type="button" tone="danger" onClick={onDelete}>
+            {deleteSlideId === editingSlide.slide.id
+              ? "Confirm delete?"
+              : "Delete slide"}
+          </TeamButton>
+        </div>
+      )}
+    </TeamModal>
   );
 }
 
@@ -1128,7 +1491,13 @@ function AugustContentCalendarContent() {
   const [clientSlug, setClientSlug] =
     useState<keyof typeof WORKSPACE_CLIENTS>(fallbackClientSlug);
   const clientLabel = WORKSPACE_CLIENTS[clientSlug].name;
+  const clientInitial = projectClientInitial(clientSlug);
   const [selectedPostId, setSelectedPostId] = useState<number | null>(null);
+  const [editingSlide, setEditingSlide] = useState<{
+    postId: number;
+    slide: Slide;
+  } | null>(null);
+  const [deleteSlideId, setDeleteSlideId] = useState<string | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [statuses, setStatuses] = useState<Record<number, PostStatus>>({});
   const [slideImageLinks, setSlideImageLinks] = useState<Record<string, string>>({});
@@ -1312,7 +1681,12 @@ function AugustContentCalendarContent() {
               visual_note,
               slide_caption,
               warning_flag,
-              image_url
+              image_url,
+              slide_references (
+                id,
+                url,
+                platform
+              )
             )
           `,
         )
@@ -1470,6 +1844,207 @@ function AugustContentCalendarContent() {
                 candidateSlide.id === slide.id
                   ? { ...candidateSlide, imageUrl: rawLink }
                   : candidateSlide,
+              ),
+            }
+          : candidate,
+      ),
+    );
+    setErrorMessage(null);
+  }
+
+  async function addSlide(postId: number) {
+    if (!canManage) return;
+    const post = posts.find((candidate) => candidate.id === postId);
+    if (!post) return;
+    const nextSlideNumber =
+      post.slides.reduce((max, slide) => Math.max(max, slide.slideNumber), 0) +
+      1;
+
+    const { data, error } = await supabase
+      .from("task_slides")
+      .insert({
+        task_id: post.databaseId,
+        slide_number: nextSlideNumber,
+        on_screen_text: "",
+        visual_note: "",
+      })
+      .select(
+        "id, slide_number, on_screen_text, visual_note, slide_caption, warning_flag, image_url",
+      )
+      .single();
+    if (error || !data) {
+      setErrorMessage(
+        `Could not add the slide: ${error?.message ?? "No slide returned."}`,
+      );
+      return;
+    }
+
+    const newSlide: Slide = {
+      id: data.id,
+      slideNumber: data.slide_number,
+      onScreenText: data.on_screen_text,
+      visualNote: data.visual_note,
+      slideCaption: data.slide_caption ?? "",
+      warningFlag: data.warning_flag ?? undefined,
+      imageUrl: data.image_url ?? undefined,
+      references: [],
+    };
+    setPosts((current) =>
+      current.map((candidate) =>
+        candidate.id === postId
+          ? { ...candidate, slides: [...candidate.slides, newSlide] }
+          : candidate,
+      ),
+    );
+    setErrorMessage(null);
+    setEditingSlide({ postId, slide: newSlide });
+  }
+
+  async function updateSlide(
+    postId: number,
+    slideId: string,
+    fields: {
+      onScreenText: string;
+      visualNote: string;
+      slideCaption: string;
+      warningFlag: string;
+    },
+  ) {
+    if (!canManage) return;
+    const { error } = await supabase
+      .from("task_slides")
+      .update({
+        on_screen_text: fields.onScreenText,
+        visual_note: fields.visualNote,
+        slide_caption: fields.slideCaption || null,
+        warning_flag: fields.warningFlag || null,
+      })
+      .eq("id", slideId);
+    if (error) {
+      setErrorMessage(`Could not save the slide: ${error.message}`);
+      return;
+    }
+
+    setPosts((current) =>
+      current.map((candidate) =>
+        candidate.id === postId
+          ? {
+              ...candidate,
+              slides: candidate.slides.map((slide) =>
+                slide.id === slideId
+                  ? {
+                      ...slide,
+                      onScreenText: fields.onScreenText,
+                      visualNote: fields.visualNote,
+                      slideCaption: fields.slideCaption,
+                      warningFlag: fields.warningFlag || undefined,
+                    }
+                  : slide,
+              ),
+            }
+          : candidate,
+      ),
+    );
+    setErrorMessage(null);
+    setEditingSlide(null);
+  }
+
+  async function deleteSlide(postId: number, slideId: string) {
+    if (!canManage) return;
+    const { error } = await supabase
+      .from("task_slides")
+      .delete()
+      .eq("id", slideId);
+    if (error) {
+      setErrorMessage(`Could not delete the slide: ${error.message}`);
+      return;
+    }
+
+    setPosts((current) =>
+      current.map((candidate) =>
+        candidate.id === postId
+          ? {
+              ...candidate,
+              slides: candidate.slides.filter((slide) => slide.id !== slideId),
+            }
+          : candidate,
+      ),
+    );
+    setErrorMessage(null);
+    setEditingSlide(null);
+  }
+
+  async function addReference(postId: number, slideId: string, url: string) {
+    if (!canManage) return;
+    const platform = detectReferencePlatform(url);
+    const { data, error } = await supabase
+      .from("slide_references")
+      .insert({
+        task_slide_id: slideId,
+        url,
+        platform,
+        created_by: teamProfile?.username,
+      })
+      .select("id, url, platform")
+      .single();
+    if (error || !data) {
+      setErrorMessage(
+        `Could not add the reference: ${error?.message ?? "No reference returned."}`,
+      );
+      return;
+    }
+
+    const newReference: SlideReference = {
+      id: data.id,
+      url: data.url,
+      platform: isReferencePlatform(data.platform) ? data.platform : "other",
+    };
+    setPosts((current) =>
+      current.map((candidate) =>
+        candidate.id === postId
+          ? {
+              ...candidate,
+              slides: candidate.slides.map((slide) =>
+                slide.id === slideId
+                  ? { ...slide, references: [...slide.references, newReference] }
+                  : slide,
+              ),
+            }
+          : candidate,
+      ),
+    );
+    setErrorMessage(null);
+  }
+
+  async function deleteReference(
+    postId: number,
+    slideId: string,
+    referenceId: string,
+  ) {
+    if (!canManage) return;
+    const { error } = await supabase
+      .from("slide_references")
+      .delete()
+      .eq("id", referenceId);
+    if (error) {
+      setErrorMessage(`Could not remove the reference: ${error.message}`);
+      return;
+    }
+
+    setPosts((current) =>
+      current.map((candidate) =>
+        candidate.id === postId
+          ? {
+              ...candidate,
+              slides: candidate.slides.map((slide) =>
+                slide.id === slideId
+                  ? {
+                      ...slide,
+                      references: slide.references.filter(
+                        (reference) => reference.id !== referenceId,
+                      ),
+                    }
+                  : slide,
               ),
             }
           : candidate,
@@ -1832,11 +2407,23 @@ function AugustContentCalendarContent() {
           post={selectedPost}
           status={statuses[selectedPost.id]}
           slideImageLinks={slideImageLinks}
+          clientLabel={clientLabel}
+          clientInitial={clientInitial}
           onSlideImageSave={(slideNumber, link) =>
             void saveSlideImageLink(selectedPost.id, slideNumber, link)
           }
           onClearSlideImage={(slideNumber) =>
             void clearSlideImage(selectedPost.id, slideNumber)
+          }
+          onAddSlide={() => void addSlide(selectedPost.id)}
+          onEditSlide={(slide) =>
+            setEditingSlide({ postId: selectedPost.id, slide })
+          }
+          onAddReference={(slideId, url) =>
+            void addReference(selectedPost.id, slideId, url)
+          }
+          onDeleteReference={(slideId, referenceId) =>
+            void deleteReference(selectedPost.id, slideId, referenceId)
           }
           onClose={() => setSelectedPostId(null)}
           canManage={canManage}
@@ -1848,6 +2435,27 @@ function AugustContentCalendarContent() {
         onChange={setEditor}
         onClose={() => setEditor(null)}
         onSave={() => void savePost()}
+      />
+      <SlideEditorModal
+        key={editingSlide?.slide.id ?? "none"}
+        editingSlide={editingSlide}
+        deleteSlideId={deleteSlideId}
+        onClose={() => {
+          setEditingSlide(null);
+          setDeleteSlideId(null);
+        }}
+        onSave={(fields) => {
+          if (!editingSlide) return;
+          void updateSlide(editingSlide.postId, editingSlide.slide.id, fields);
+        }}
+        onDelete={() => {
+          if (!editingSlide) return;
+          if (deleteSlideId !== editingSlide.slide.id) {
+            setDeleteSlideId(editingSlide.slide.id);
+            return;
+          }
+          void deleteSlide(editingSlide.postId, editingSlide.slide.id);
+        }}
       />
       <TaskPeopleModal
         open={Boolean(postToAssign)}
