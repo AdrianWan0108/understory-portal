@@ -719,12 +719,21 @@ function PostCard({
         members.find((member) => member.team_username === username)?.full_name,
     )
     .filter((name): name is string => Boolean(name));
+  const assignedNames = post.assigneeUsernames
+    .map(
+      (username) =>
+        members.find((member) => member.team_username === username)?.full_name ??
+        username,
+    )
+    .filter(Boolean);
+  const assignmentLabel =
+    assignedNames.join(", ") || post.assignedTo || "Unassigned";
   const [coverPrimary, coverSecondary] =
     slidePalettes[(post.id - 1) % slidePalettes.length];
 
   return (
     <article
-      className="group relative w-[82vw] max-w-[360px] shrink-0 snap-start cursor-pointer overflow-hidden rounded-[24px] border border-[#E3D8EA] bg-white shadow-[0_8px_30px_rgba(52,31,96,0.06)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_16px_42px_rgba(52,31,96,0.11)] sm:w-[360px]"
+      className="group relative w-[78vw] max-w-[310px] shrink-0 snap-start cursor-pointer overflow-hidden rounded-[22px] border border-[#E3D8EA] bg-white shadow-[0_8px_30px_rgba(52,31,96,0.06)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_16px_42px_rgba(52,31,96,0.11)] sm:w-[310px]"
     >
       <button
         type="button"
@@ -760,6 +769,15 @@ function PostCard({
           {SOCIAL_POST_FORMAT_LABELS[post.format]} · Post{" "}
           {String(post.id).padStart(2, "0")}
         </span>
+        <span
+          className={`absolute right-4 top-4 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9px] font-semibold ${statusDetails[status].className}`}
+        >
+          <span className={`size-1.5 rounded-full ${statusDetails[status].dot}`} />
+          {statusDetails[status].label}
+        </span>
+        <span className="absolute bottom-4 left-4 max-w-[58%] truncate rounded-full border border-white/50 bg-white/85 px-2.5 py-1 text-[9px] font-semibold text-[#4F3D69] backdrop-blur-sm">
+          Assigned · {assignmentLabel}
+        </span>
         <span className="absolute bottom-4 right-4 rounded-full bg-[#7D4698]/90 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur">
           {post.format === "carousel"
             ? `${post.slides.length} slides`
@@ -767,39 +785,40 @@ function PostCard({
         </span>
       </div>
 
-      <div className="p-5 sm:p-6">
+      <div className="p-4 sm:p-5">
         <div className="flex items-start justify-between gap-4">
-          <h2 className="text-lg font-semibold tracking-[-0.02em] text-[#341F60] sm:text-xl">
+          <h2 className="text-base font-semibold tracking-[-0.02em] text-[#341F60] sm:text-lg">
             {post.title}
           </h2>
           <span className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-full border border-[#E3D8EA] text-[#75647F] transition group-hover:border-[#C7B3D2] group-hover:bg-[#EEE3FA] group-hover:text-[#7D4698]">
             <Icon name="chevron" className="size-4" />
           </span>
         </div>
-        <p className="mt-3 min-h-[72px] text-sm leading-6 text-[#75647F]">
+        <p className="mt-2 line-clamp-3 min-h-[60px] text-[13px] leading-5 text-[#75647F]">
           {post.brief}
         </p>
-        <div className="relative z-20 mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#F0E9F5] pt-5">
-          <StatusBadge status={status} />
-          {status === "not_started" && (
-            <button
-              type="button"
-              onClick={onSubmitForReview}
-              className="rounded-full bg-[#7D4698] px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#6A3A82] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7D4698]"
-            >
-              Submit for review
-            </button>
-          )}
-          {status === "for_review" && (
-            <button
-              type="button"
-              onClick={onCancelSubmission}
-              className="rounded-full border border-[#D9C28F] bg-white px-4 py-2 text-xs font-semibold text-[#765421] shadow-sm transition hover:border-[#C6A966] hover:bg-[#FFFAF0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C69A48]"
-            >
-              Cancel submission
-            </button>
-          )}
-        </div>
+        {(status === "not_started" || status === "for_review") && (
+          <div className="relative z-20 mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-[#F0E9F5] pt-4">
+            {status === "not_started" && (
+              <button
+                type="button"
+                onClick={onSubmitForReview}
+                className="rounded-full bg-[#7D4698] px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#6A3A82] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7D4698]"
+              >
+                Submit for review
+              </button>
+            )}
+            {status === "for_review" && (
+              <button
+                type="button"
+                onClick={onCancelSubmission}
+                className="rounded-full border border-[#D9C28F] bg-white px-4 py-2 text-xs font-semibold text-[#765421] shadow-sm transition hover:border-[#C6A966] hover:bg-[#FFFAF0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C69A48]"
+              >
+                Cancel submission
+              </button>
+            )}
+          </div>
+        )}
         <div className="relative z-20 mt-4 flex flex-wrap items-center gap-2">
           {canManage ? (
             <>
@@ -889,7 +908,7 @@ function SlidePreview({
     <article
       onDragOver={onDragOver}
       onDrop={onDrop}
-      className={`w-[84vw] max-w-[390px] shrink-0 snap-center rounded-[24px] transition sm:w-[390px] ${
+      className={`w-[78vw] max-w-[330px] shrink-0 snap-center rounded-[22px] transition sm:w-[330px] ${
         isDragTarget
           ? "ring-2 ring-[#7D4698] ring-offset-4 ring-offset-[#FFF9EF]"
           : ""
@@ -1063,6 +1082,7 @@ function SlidePreview({
 function PostDetail({
   post,
   status,
+  members,
   clientLabel,
   clientInitial,
   onSlideImageSave,
@@ -1079,6 +1099,7 @@ function PostDetail({
 }: {
   post: Post;
   status: PostStatus;
+  members: TaskTeamMember[];
   clientLabel: string;
   clientInitial: string;
   onSlideImageSave: (slideNumber: number, link: string) => void;
@@ -1100,6 +1121,15 @@ function PostDetail({
   const [activeSlide, setActiveSlide] = useState(0);
   const [draggedSlideId, setDraggedSlideId] = useState<string | null>(null);
   const [dragTargetSlideId, setDragTargetSlideId] = useState<string | null>(null);
+  const assignedMembers = post.assigneeUsernames
+    .map((username) =>
+      members.find((member) => member.team_username === username),
+    )
+    .filter((member): member is TaskTeamMember => Boolean(member));
+  const assignedLabel =
+    assignedMembers.map((member) => member.full_name).join(", ") ||
+    post.assignedTo ||
+    "Unassigned";
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -1169,22 +1199,58 @@ function PostDetail({
       aria-labelledby="post-detail-title"
       className="fixed inset-0 z-50 overflow-y-auto bg-[#FFF9EF]"
     >
-      <header className="sticky top-0 z-20 border-b border-[#E3D8EA] bg-white/95 px-4 py-3 backdrop-blur sm:px-8">
-        <div className="mx-auto flex max-w-[1320px] items-center justify-between gap-4">
-          <UnderstoryBrand />
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex size-10 items-center justify-center rounded-full border border-[#E0D4E8] bg-white text-[#5F4D70] transition hover:bg-[#EEE3FA] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7D4698]"
-          >
-            <Icon name="close" className="size-5" />
-            <span className="sr-only">Close post details</span>
-          </button>
+      <header className="sticky top-0 z-20 border-b border-[#E3D8EA] bg-white/95 px-4 py-2.5 backdrop-blur sm:px-8">
+        <div className="mx-auto max-w-[1320px]">
+          <div className="flex items-center justify-between gap-4">
+            <UnderstoryBrand />
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex size-9 items-center justify-center rounded-full border border-[#E0D4E8] bg-white text-[#5F4D70] transition hover:bg-[#EEE3FA] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7D4698]"
+            >
+              <Icon name="close" className="size-4" />
+              <span className="sr-only">Close post details</span>
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-[#E3D8EA] bg-[#FAF7FC] px-3 py-2 shadow-sm sm:px-4">
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[#8B7895]">
+                Status
+              </span>
+              <StatusBadge status={status} />
+            </div>
+            <span className="hidden h-6 w-px bg-[#E3D8EA] sm:block" />
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="shrink-0 text-[9px] font-semibold uppercase tracking-[0.14em] text-[#8B7895]">
+                Assigned
+              </span>
+              {assignedMembers.length > 0 && (
+                <span className="flex -space-x-1.5" aria-hidden="true">
+                  {assignedMembers.slice(0, 3).map((member) => (
+                    <span
+                      key={member.team_username}
+                      className="flex size-5 items-center justify-center rounded-full border border-white bg-[#7D4698] text-[8px] font-bold text-white"
+                    >
+                      {member.full_name.trim().charAt(0).toUpperCase()}
+                    </span>
+                  ))}
+                </span>
+              )}
+              <span className="max-w-[220px] truncate text-[11px] font-semibold text-[#4F3D69]">
+                {assignedLabel}
+              </span>
+            </div>
+            <span className="hidden h-6 w-px bg-[#E3D8EA] sm:block" />
+            <p className="text-[10px] font-medium text-[#695677]">
+              {SOCIAL_POST_FORMAT_LABELS[post.format]} · {post.slides.length}{" "}
+              {post.slides.length === 1 ? "slide" : "slides"}
+            </p>
+          </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-[1320px] px-4 py-7 sm:px-8 sm:py-10">
-        <div className="flex flex-col justify-between gap-5 border-b border-[#E0D4E8] pb-8 md:flex-row md:items-end">
+        <div className="border-b border-[#E0D4E8] pb-8">
           <div className="max-w-3xl">
             <div className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8B7895]">
               <Icon name="instagram" className="size-4" />
@@ -1200,12 +1266,6 @@ function PostDetail({
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[#75647F] sm:text-base sm:leading-7">
               {post.brief}
             </p>
-          </div>
-          <div className="shrink-0">
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8B7895]">
-              Status
-            </p>
-            <StatusBadge status={status} />
           </div>
         </div>
 
@@ -2623,6 +2683,13 @@ function AugustContentCalendarContent() {
     });
   }
 
+  const workflowCounts = (Object.keys(statusDetails) as PostStatus[]).map(
+    (status) => ({
+      status,
+      count: posts.filter((post) => statuses[post.id] === status).length,
+    }),
+  );
+
   return (
     <div className="min-h-screen bg-[#FFF9EF] text-[#341F60]">
       <header className="border-b border-[#E3D8EA] bg-white px-5 py-4 sm:px-8">
@@ -2663,13 +2730,13 @@ function AugustContentCalendarContent() {
         </section>
 
         {canManage && (
-        <div className="mt-6 flex max-w-3xl items-start gap-2 rounded-2xl border border-[#E0D4E8] bg-white/70 px-4 py-3 text-xs leading-5 text-[#75647F]">
-          <Icon name="link" className="mt-0.5 size-4 shrink-0 text-[#7D4698]" />
-          <p>
-            Paste a Google Drive link — make sure it&apos;s shared as
-            &apos;Anyone with the link can view&apos; so it previews correctly here.
-          </p>
-        </div>
+          <div className="mt-6 flex max-w-3xl items-start gap-2 rounded-2xl border border-[#E0D4E8] bg-white/70 px-4 py-3 text-xs leading-5 text-[#75647F]">
+            <Icon name="link" className="mt-0.5 size-4 shrink-0 text-[#7D4698]" />
+            <p>
+              Paste a Google Drive link — make sure it&apos;s shared as
+              &apos;Anyone with the link can view&apos; so it previews correctly here.
+            </p>
+          </div>
         )}
 
         {errorMessage && (
@@ -2681,7 +2748,45 @@ function AugustContentCalendarContent() {
           </div>
         )}
 
-        <section aria-label="Assigned posts" className="mt-9">
+        <section
+          aria-label="Workflow status"
+          className="mt-6 rounded-[24px] border border-[#E0D4E8] bg-white p-4 shadow-[0_6px_20px_rgba(52,31,96,0.04)] sm:p-5"
+        >
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8B7895]">
+                Workflow
+              </p>
+              <h2 className="mt-1 text-base font-semibold text-[#341F60]">
+                Post status
+              </h2>
+            </div>
+            <p className="text-xs font-medium text-[#75647F]">
+              {posts.length} {posts.length === 1 ? "post" : "posts"} total
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {workflowCounts.map(({ status, count }) => (
+              <article
+                key={status}
+                className={`min-h-28 rounded-[20px] border p-4 shadow-[0_5px_18px_rgba(52,31,96,0.035)] ${statusDetails[status].className}`}
+              >
+                <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em]">
+                  <span className={`size-2 rounded-full ${statusDetails[status].dot}`} />
+                  {statusDetails[status].label}
+                </div>
+                <p className="mt-4 text-3xl font-semibold tracking-[-0.04em]">
+                  {count}
+                </p>
+                <p className="mt-1 text-[10px] font-medium opacity-75">
+                  {count === 1 ? "post" : "posts"}
+                </p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section aria-label="Assigned posts" className="mt-6">
           {canManage && (
             <div className="mb-4 flex justify-end">
               <TeamButton type="button" onClick={() => openPostEditor()}>
@@ -2699,7 +2804,7 @@ function AugustContentCalendarContent() {
                 ? Array.from({ length: 4 }, (_, index) => (
                     <div
                       key={index}
-                      className="h-[520px] w-[82vw] max-w-[360px] shrink-0 animate-pulse rounded-[24px] border border-[#E5DBEC] bg-white sm:w-[360px]"
+                      className="h-[460px] w-[78vw] max-w-[310px] shrink-0 animate-pulse rounded-[22px] border border-[#E5DBEC] bg-white sm:w-[310px]"
                     >
                       <div className="aspect-[16/10] bg-[#E9DFF1]" />
                       <div className="space-y-4 p-6">
@@ -2785,6 +2890,7 @@ function AugustContentCalendarContent() {
           key={selectedPost.id}
           post={selectedPost}
           status={statuses[selectedPost.id]}
+          members={teamMembers}
           clientLabel={clientLabel}
           clientInitial={clientInitial}
           onSlideImageSave={(slideNumber, link) =>
