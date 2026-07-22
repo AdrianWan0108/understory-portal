@@ -974,7 +974,7 @@ function SlidePreview({
         </span>
       </div>
 
-      <div className="mt-5 rounded-[20px] border border-[#E3D8EA] bg-white p-5">
+      <div className="mt-5 min-w-0 overflow-hidden rounded-[20px] border border-[#E3D8EA] bg-white p-5">
         {canManage && (
           <div className="mb-4 flex items-start gap-2 border-b border-[#EEE6F4] pb-4">
             <div className="min-w-0 flex-1">
@@ -1030,14 +1030,16 @@ function SlidePreview({
           <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-[#8B7895]">
             Visual direction
           </p>
-          <p className="mt-2 text-sm leading-6 text-[#695677]">{slide.visualNote}</p>
+          <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-[#695677] [overflow-wrap:anywhere]">
+            {slide.visualNote}
+          </p>
         </div>
         {slide.slideCaption && (
           <div className="mt-4 border-t border-[#EEE6F4] pt-4">
             <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-[#7D4698]">
               Per-slide caption
             </p>
-            <p className="mt-2 text-sm font-medium leading-6 text-[#341F60]">
+            <p className="mt-2 whitespace-pre-wrap break-words text-sm font-medium leading-6 text-[#341F60] [overflow-wrap:anywhere]">
               {slide.slideCaption}
             </p>
           </div>
