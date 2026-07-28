@@ -127,6 +127,38 @@ export default function TeamHubManagementPage() {
 
         <section className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <Link
+            href="/team-hub/management/finance/sign-in"
+            className="group rounded-[24px] border border-[#D7CBE0] bg-white p-6 shadow-[0_8px_28px_rgba(40,21,79,0.055)] transition hover:-translate-y-1 hover:border-[#7D4698] hover:shadow-[0_14px_34px_rgba(40,21,79,0.11)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7D4698]"
+          >
+            <span className="flex size-11 items-center justify-center rounded-2xl bg-[#341F60] text-[#F4CE45]">
+              <svg
+                aria-hidden="true"
+                className="size-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <path d="M7 9h10M7 13h4M15 13h2M7 16h10" />
+              </svg>
+            </span>
+            <h2 className="mt-5 text-lg font-semibold text-[#341F60]">
+              Finance
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-[#75647F]">
+              Open the secure, read-only Zoho Books dashboard for invoices,
+              expenses, and bills.
+            </p>
+            <span className="mt-5 inline-flex items-center gap-2 text-xs font-semibold text-[#7D4698]">
+              Secure Finance sign-in
+              <span className="transition group-hover:translate-x-1">→</span>
+            </span>
+          </Link>
+
+          <Link
             href="/admin"
             className="group rounded-[24px] border border-[#D7CBE0] bg-white p-6 shadow-[0_8px_28px_rgba(40,21,79,0.055)] transition hover:-translate-y-1 hover:border-[#7D4698] hover:shadow-[0_14px_34px_rgba(40,21,79,0.11)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7D4698]"
           >
