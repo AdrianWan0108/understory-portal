@@ -17,6 +17,12 @@ import {
   validateStaffBudgetInput,
   validateStaffTimeEntryInput,
 } from "../lib/staff-hours-core.ts";
+import {
+  contractorWeeklyAllowance,
+  contractorWeekTotals,
+  payrollWeekWindow,
+  validateContractorTimeEntryInput,
+} from "../lib/payroll-time-logs-core.ts";
 import { createHash } from "node:crypto";
 
 const future = "2099-01-01T00:00:00.000Z";
@@ -214,5 +220,73 @@ test("staff budget progress reports utilization and budget variance", () => {
       remainingHours: -2,
       utilizationPercent: 110,
     },
+  );
+});
+
+test("payroll week windows run Monday through Sunday across month boundaries", () => {
+  assert.deepEqual(payrollWeekWindow("2026-08-01"), {
+    start: "2026-07-27",
+    end: "2026-08-02",
+  });
+});
+
+test("contractor time entries are normalized and validated", () => {
+  assert.deepEqual(
+    validateContractorTimeEntryInput({
+      workDate: "2026-07-30",
+      hours: "2.257",
+      workLabel: "  Campaign reporting  ",
+      notes: "  July wrap-up  ",
+    }),
+    {
+      workDate: "2026-07-30",
+      hours: 2.26,
+      workLabel: "Campaign reporting",
+      notes: "July wrap-up",
+    },
+  );
+  assert.throws(
+    () =>
+      validateContractorTimeEntryInput({
+        workDate: "2026-07-30",
+        hours: 0,
+        workLabel: "Campaign reporting",
+      }),
+    /greater than zero/,
+  );
+});
+
+test("contractor weekly totals flag cap overruns and calculate pay", () => {
+  assert.deepEqual(
+    contractorWeekTotals({
+      loggedHours: 10.5,
+      hourlyRate: 20,
+      weeklyCap: 10,
+    }),
+    {
+      loggedHours: 10.5,
+      estimatedPay: 210,
+      remainingHours: -0.5,
+      isOverCap: true,
+    },
+  );
+});
+
+test("contractors cannot log more than their remaining weekly allowance", () => {
+  assert.deepEqual(
+    contractorWeeklyAllowance({
+      loggedHours: 8,
+      weeklyCap: 10,
+      requestedHours: 2,
+    }),
+    { remainingHours: 2, canLog: true },
+  );
+  assert.deepEqual(
+    contractorWeeklyAllowance({
+      loggedHours: 8,
+      weeklyCap: 10,
+      requestedHours: 2.25,
+    }),
+    { remainingHours: 2, canLog: false },
   );
 });

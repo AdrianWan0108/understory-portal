@@ -14,6 +14,10 @@ import {
   TeamModal,
   teamInputClass,
 } from "../_components/TeamHubUi";
+import TimeLogForm from "./_components/TimeLogForm";
+import WeeklySummary, {
+  type WeeklyTimeSummary,
+} from "./_components/WeeklySummary";
 
 const BUCKET = "payroll-invoices";
 type PayrollStatus = "pending" | "paid";
@@ -74,6 +78,18 @@ export default function TeamHubPayrollPage() {
   const [editor, setEditor] = useState<PayrollEditor | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [timeLogRefreshToken, setTimeLogRefreshToken] = useState(0);
+  const [weeklySummary, setWeeklySummary] =
+    useState<WeeklyTimeSummary | null>(null);
+
+  const isTimeLoggingContractor =
+    username === "Understory_Sure" || username === "Understory_Xiyangcen";
+  const handleWeeklySummaryChange = useCallback(
+    (summary: WeeklyTimeSummary | null) => {
+      setWeeklySummary(summary);
+    },
+    [],
+  );
 
   const loadPayroll = useCallback(async () => {
     if (!isReady || !username || !accessLevel) return;
@@ -102,6 +118,10 @@ export default function TeamHubPayrollPage() {
     void loadPayroll();
   }, [loadPayroll]);
 
+  useEffect(() => {
+    setWeeklySummary(null);
+  }, [username]);
+
   const groups = useMemo(() => {
     const grouped = new Map<string, PayrollRecord[]>();
     records.forEach((record) => {
@@ -124,6 +144,10 @@ export default function TeamHubPayrollPage() {
     (sum, record) => sum + Number(record.amount ?? 0),
     0,
   );
+  const displayedTotal =
+    accessLevel === "owner" || !isTimeLoggingContractor
+      ? grandTotal
+      : weeklySummary?.estimatedPay;
 
   async function saveRecord() {
     if (
@@ -242,10 +266,16 @@ export default function TeamHubPayrollPage() {
             {!isLoading && (
               <div className="rounded-[20px] border border-[#D7CBE0] bg-white px-5 py-4 shadow-[0_6px_20px_rgba(40,21,79,0.05)]">
                 <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#8B7895]">
-                  {accessLevel === "owner" ? "All records total" : "Your total"}
+                  {accessLevel === "owner"
+                    ? "All records total"
+                    : isTimeLoggingContractor
+                      ? "This week's estimated pay"
+                      : "Your total"}
                 </p>
                 <p className="mt-1 text-2xl font-semibold text-[#341F60]">
-                  {formatAmount(grandTotal)}
+                  {displayedTotal === undefined
+                    ? "—"
+                    : formatAmount(displayedTotal)}
                 </p>
               </div>
             )}
@@ -274,6 +304,22 @@ export default function TeamHubPayrollPage() {
           >
             {error}
           </div>
+        )}
+
+        {isTimeLoggingContractor && (
+          <section className="mt-9 grid gap-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
+            <TimeLogForm
+              key={`form-${username}`}
+              onSaved={() =>
+                setTimeLogRefreshToken((current) => current + 1)
+              }
+            />
+            <WeeklySummary
+              key={`summary-${username}`}
+              refreshToken={timeLogRefreshToken}
+              onSummaryChange={handleWeeklySummaryChange}
+            />
+          </section>
         )}
 
         <section className="mt-9 space-y-6">
