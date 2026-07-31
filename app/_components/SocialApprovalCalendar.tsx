@@ -393,6 +393,9 @@ export function SocialApprovalCalendar({
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   const [captionDraft, setCaptionDraft] = useState("");
+  const [slideCaptionDrafts, setSlideCaptionDrafts] = useState<
+    Record<string, string>
+  >({});
   const [scheduleDraft, setScheduleDraft] = useState("");
   const [commentDraft, setCommentDraft] = useState("");
   const [isRequestingChanges, setIsRequestingChanges] = useState(false);
@@ -550,6 +553,14 @@ export function SocialApprovalCalendar({
   function openPost(post: ApprovalPost) {
     setSelectedId(post.id);
     setCaptionDraft(post.post_caption);
+    setSlideCaptionDrafts(
+      Object.fromEntries(
+        post.task_slides.map((slide) => [
+          slide.id,
+          slide.slide_caption ?? "",
+        ]),
+      ),
+    );
     setScheduleDraft(toDateTimeInput(post.scheduled_at));
     setCommentDraft("");
     setIsRequestingChanges(false);
@@ -691,6 +702,26 @@ export function SocialApprovalCalendar({
     const scheduledAt = scheduleDraft
       ? new Date(scheduleDraft).toISOString()
       : null;
+
+    if (post.format === "carousel") {
+      for (const slide of post.task_slides) {
+        const nextCaption = (slideCaptionDrafts[slide.id] ?? "").trim();
+        if (nextCaption === (slide.slide_caption ?? "")) continue;
+
+        const { error: slideSaveError } = await supabase
+          .from("task_slides")
+          .update({ slide_caption: nextCaption || null })
+          .eq("id", slide.id);
+        if (slideSaveError) {
+          setIsSaving(false);
+          setError(
+            `Could not save the caption for slide ${slide.slide_number}: ${slideSaveError.message}`,
+          );
+          return;
+        }
+      }
+    }
+
     const { error: saveError } = await supabase
       .from("tasks")
       .update({
@@ -707,12 +738,23 @@ export function SocialApprovalCalendar({
     updatePost(post.id, {
       post_caption: captionDraft.trim(),
       scheduled_at: scheduledAt,
+      task_slides: post.task_slides.map((slide) => ({
+        ...slide,
+        slide_caption:
+          post.format === "carousel"
+            ? (slideCaptionDrafts[slide.id] ?? "").trim() || null
+            : slide.slide_caption,
+      })),
     });
     if (scheduledAt) {
       const date = new Date(scheduledAt);
       setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
     }
-    setFeedback("Date, time, and final caption saved.");
+    setFeedback(
+      post.format === "carousel"
+        ? "Date, post caption, and individual slide captions saved."
+        : "Date, time, and final caption saved.",
+    );
   }
 
   async function toggleFinalConfirmation(post: ApprovalPost) {
@@ -1605,8 +1647,39 @@ export function SocialApprovalCalendar({
                       className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
                     />
                   </label>
+                  {selectedPost.format === "carousel" &&
+                    selectedPost.task_slides[selectedSlide] && (
+                      <label className="rounded-2xl border border-[var(--primary)]/25 bg-[var(--muted)]/55 p-4 text-xs font-semibold">
+                        Slide {selectedSlide + 1} caption
+                        <textarea
+                          rows={5}
+                          disabled={Boolean(selectedPost.posted_at)}
+                          value={
+                            slideCaptionDrafts[
+                              selectedPost.task_slides[selectedSlide].id
+                            ] ?? ""
+                          }
+                          onChange={(event) => {
+                            const slideId =
+                              selectedPost.task_slides[selectedSlide].id;
+                            setSlideCaptionDrafts((current) => ({
+                              ...current,
+                              [slideId]: event.target.value,
+                            }));
+                          }}
+                          className="mt-2 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-normal leading-6"
+                          placeholder={`Write the caption for slide ${selectedSlide + 1}.`}
+                        />
+                        <span className="mt-2 block text-[11px] font-normal leading-5 text-[var(--foreground)]/45">
+                          Select another slide on the left to give it a different
+                          caption.
+                        </span>
+                      </label>
+                    )}
                   <label className="text-xs font-semibold">
-                    Final caption
+                    {selectedPost.format === "carousel"
+                      ? "Post caption (shown below the whole carousel)"
+                      : "Final caption"}
                     <textarea
                       rows={8}
                       disabled={Boolean(selectedPost.posted_at)}
@@ -1656,13 +1729,29 @@ export function SocialApprovalCalendar({
                   </button>
                 </div>
               ) : (
-                <div className="mt-5">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--foreground)]/40">
-                    Caption
-                  </p>
-                  <p className="mt-2 whitespace-pre-line text-sm leading-6 text-[var(--foreground)]/75">
-                    {selectedPost.post_caption}
-                  </p>
+                <div className="mt-5 space-y-5">
+                  {selectedPost.format === "carousel" &&
+                    selectedPost.task_slides[selectedSlide] && (
+                      <div className="rounded-2xl border border-[var(--border)] bg-[var(--muted)]/50 p-4">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--foreground)]/40">
+                          Slide {selectedSlide + 1} caption
+                        </p>
+                        <p className="mt-2 whitespace-pre-line text-sm leading-6 text-[var(--foreground)]/75">
+                          {selectedPost.task_slides[selectedSlide]
+                            .slide_caption || "No caption added for this slide."}
+                        </p>
+                      </div>
+                    )}
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--foreground)]/40">
+                      {selectedPost.format === "carousel"
+                        ? "Post caption"
+                        : "Caption"}
+                    </p>
+                    <p className="mt-2 whitespace-pre-line text-sm leading-6 text-[var(--foreground)]/75">
+                      {selectedPost.post_caption}
+                    </p>
+                  </div>
                 </div>
               )}
 
