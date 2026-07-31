@@ -221,7 +221,7 @@ export default function ApprovalsPage() {
                   return (
                     <Link
                       key={category.id}
-                      href={`/client/portal/approvals/${category.route_slug}`}
+                      href={`/client-portal/approvals/${category.route_slug}`}
                       className="group flex flex-col gap-4 px-5 py-5 transition hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring sm:flex-row sm:items-center sm:px-6"
                     >
                       <div className="flex min-w-0 flex-1 items-start gap-4">

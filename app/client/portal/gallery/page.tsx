@@ -166,7 +166,7 @@ export default function GalleryPage() {
                       return (
                         <Link
                           key={book.id}
-                          href={`/client/portal/gallery/${book.id}`}
+                          href={`/client-portal/gallery/${book.id}`}
                           aria-label={`Open ${book.title} album`}
                           className={`group relative aspect-[2/3] w-40 shrink-0 overflow-hidden rounded-r-xl rounded-l-sm border border-foreground/10 shadow-[8px_10px_24px_rgba(52,31,96,0.12)] transition duration-300 hover:-translate-y-2 hover:shadow-[10px_18px_32px_rgba(52,31,96,0.18)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring sm:w-44 ${style.cover}`}
                         >

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function ClientPortalPage() {
-  redirect("/client/portal/dashboard");
+  redirect("/client-portal/dashboard");
 }

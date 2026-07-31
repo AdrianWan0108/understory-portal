@@ -223,7 +223,7 @@ export default function GalleryAlbumPage() {
     <main className="min-h-screen px-5 py-10 sm:px-8 sm:py-14 lg:px-12">
       <div className="mx-auto max-w-6xl">
         <Link
-          href="/client/portal/gallery"
+          href="/client-portal/gallery"
           className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3.5 py-2 text-xs font-semibold text-secondary-foreground transition hover:border-input hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           <BackIcon />

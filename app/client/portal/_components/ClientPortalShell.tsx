@@ -30,39 +30,39 @@ const navigation: Array<{
   ownerOnly?: boolean;
 }> = [
   {
-    href: "/client/portal/dashboard",
+    href: "/client-portal/dashboard",
     label: "Dashboard",
     icon: "dashboard",
   },
   {
-    href: "/client/portal/projects",
+    href: "/client-portal/projects",
     label: "Projects",
     icon: "projects",
   },
   {
-    href: "/client/portal/approvals",
+    href: "/client-portal/approvals",
     label: "Approvals",
     icon: "approvals",
   },
   {
-    href: "/client/portal/gallery",
+    href: "/client-portal/gallery",
     label: "Gallery",
     icon: "gallery",
   },
   {
-    href: "/client/portal/invoices",
+    href: "/client-portal/invoices",
     label: "Invoices",
     icon: "invoices",
     ownerOnly: true,
   },
   {
-    href: "/client/portal/documents",
+    href: "/client-portal/documents",
     label: "Documents",
     icon: "documents",
     ownerOnly: true,
   },
   {
-    href: "/client/portal/assets",
+    href: "/client-portal/assets",
     label: "Asset upload",
     icon: "assets",
   },
@@ -457,10 +457,10 @@ function ClientPortalShellContent({
 
   const isRestrictedRoute =
     accessLevel !== "owner" &&
-    (pathname === "/client/portal/invoices" ||
-      pathname.startsWith("/client/portal/invoices/") ||
-      pathname === "/client/portal/documents" ||
-      pathname.startsWith("/client/portal/documents/"));
+    (pathname === "/client-portal/invoices" ||
+      pathname.startsWith("/client-portal/invoices/") ||
+      pathname === "/client-portal/documents" ||
+      pathname.startsWith("/client-portal/documents/"));
 
   return (
     <div

@@ -4,6 +4,20 @@ const nextConfig: NextConfig = {
   experimental: {
     authInterrupts: true,
   },
+  async redirects() {
+    return [
+      {
+        source: "/client/portal",
+        destination: "/client-portal",
+        permanent: true,
+      },
+      {
+        source: "/client/portal/:path*",
+        destination: "/client-portal/:path*",
+        permanent: true,
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       {
