@@ -538,8 +538,8 @@ export function SocialApprovalCalendar({
     .filter((post) => post.scheduled_at)
     .sort(
       (a, b) =>
-        new Date(a.scheduled_at!).getTime() -
-        new Date(b.scheduled_at!).getTime(),
+        new Date(b.scheduled_at!).getTime() -
+        new Date(a.scheduled_at!).getTime(),
     );
   const readyUnsent = posts.filter(
     (post) =>
@@ -897,8 +897,9 @@ export function SocialApprovalCalendar({
                 Feed preview
               </h2>
               <p className="mt-1 text-xs text-[var(--foreground)]/50">
-                Scheduled posts in the order they’ll publish, Instagram-grid
-                style — plan how the feed will look before sending it out.
+                Scheduled posts with the newest publish date first,
+                Instagram-grid style — plan how the feed will look before
+                sending it out.
               </p>
             </div>
             {scheduledPosts.length === 0 ? (
