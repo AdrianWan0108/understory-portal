@@ -70,6 +70,8 @@ type ApprovalPost = {
   final_confirmed_at: string | null;
   sent_to_client_at: string | null;
   sent_to_client_by: string | null;
+  posted_at: string | null;
+  posted_by: string | null;
   assigned_to: string | null;
   assignee_usernames: string[];
   task_slides: Slide[];
@@ -124,6 +126,12 @@ const reviewStyles: Record<
 };
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+const CLIENT_REVIEWER_KEYS_BY_SLUG: Record<string, string[]> = {
+  mvp: ["MVP_Gary", "MVP_Dorothy"],
+  boardwalk: ["Boardwalk_Sarah"],
+};
+const INTERNAL_REVIEWER_KEYS = ["Understory_Karen"];
 
 function isReviewStatus(value: unknown): value is ReviewStatus {
   return value === "approved" || value === "pending" || value === "changes";
@@ -248,6 +256,37 @@ function overallStatus(
   return "pending";
 }
 
+function approvalStatusForReviewerKeys(
+  reviews: Record<string, ReviewDecision>,
+  reviewerKeys: string[],
+): ReviewStatus {
+  if (
+    Object.values(reviews).some((review) => review.status === "changes")
+  ) {
+    return "changes";
+  }
+
+  const requiredStatuses = reviewerKeys.map(
+    (reviewerKey) => reviews[reviewerKey]?.status ?? "pending",
+  );
+  if (
+    requiredStatuses.length > 0 &&
+    requiredStatuses.every((status) => status === "approved")
+  ) {
+    return "approved";
+  }
+
+  if (
+    reviewerKeys.length === 0 &&
+    Object.keys(reviews).length > 0 &&
+    Object.values(reviews).every((review) => review.status === "approved")
+  ) {
+    return "approved";
+  }
+
+  return "pending";
+}
+
 function isReadyForClient(post: ApprovalPost, reviewers: ApprovalReviewer[]) {
   return (
     overallStatus(post, "internal", reviewers) === "approved" &&
@@ -290,6 +329,16 @@ function statusIcon(status: ReviewStatus) {
   return "·";
 }
 
+function PostedStamp({ className = "" }: { className?: string }) {
+  return (
+    <span
+      className={`pointer-events-none inline-flex -rotate-6 items-center justify-center rounded-md border-2 border-[#2F8A57]/80 bg-[#EAF7EF]/75 px-2 py-1 text-[9px] font-black uppercase tracking-[0.16em] text-[#267149] shadow-sm backdrop-blur-[1px] ${className}`}
+    >
+      Posted
+    </span>
+  );
+}
+
 function formatLabel(format: string | null) {
   if (!format) return "Post";
   return format
@@ -328,6 +377,9 @@ export function SocialApprovalCalendar({
   const [resolvedClientId, setResolvedClientId] = useState<string | null>(null);
   const [resolvedClientName, setResolvedClientName] = useState(
     clientName ?? "Client",
+  );
+  const [resolvedClientSlug, setResolvedClientSlug] = useState<string | null>(
+    clientSlug ?? null,
   );
   const [workspaceTitle, setWorkspaceTitle] = useState("Internal Approval");
   const [posts, setPosts] = useState<ApprovalPost[]>([]);
@@ -390,6 +442,7 @@ export function SocialApprovalCalendar({
           : workspace.clients;
         clientId = workspace.client_id;
         nextClientName = clientRecord?.name ?? "Client";
+        setResolvedClientSlug(clientRecord?.slug ?? null);
         setWorkspaceTitle(workspace.title);
       } else {
         if (!clientSlug) {
@@ -415,6 +468,7 @@ export function SocialApprovalCalendar({
         }
         clientId = client.id;
         nextClientName = client.name;
+        setResolvedClientSlug(clientSlug);
       }
 
       setResolvedClientId(clientId);
@@ -440,6 +494,8 @@ export function SocialApprovalCalendar({
             final_confirmed_at,
             sent_to_client_at,
             sent_to_client_by,
+            posted_at,
+            posted_by,
             assigned_to,
             assignee_usernames,
             task_slides (
@@ -501,20 +557,61 @@ export function SocialApprovalCalendar({
     setFeedback(null);
   }
 
-  const counts = useMemo(
+  const internalCounts = useMemo(
     () => ({
       pending: posts.filter(
-        (post) => overallStatus(post, mode, requiredReviewers) === "pending",
+        (post) =>
+          !post.posted_at &&
+          approvalStatusForReviewerKeys(
+            post.internal_approvals,
+            INTERNAL_REVIEWER_KEYS,
+          ) === "pending",
       ).length,
       changes: posts.filter(
-        (post) => overallStatus(post, mode, requiredReviewers) === "changes",
+        (post) =>
+          !post.posted_at &&
+          approvalStatusForReviewerKeys(
+            post.internal_approvals,
+            INTERNAL_REVIEWER_KEYS,
+          ) === "changes",
       ).length,
       approved: posts.filter(
-        (post) => overallStatus(post, mode, requiredReviewers) === "approved",
+        (post) =>
+          !post.posted_at &&
+          approvalStatusForReviewerKeys(
+            post.internal_approvals,
+            INTERNAL_REVIEWER_KEYS,
+          ) === "approved",
       ).length,
     }),
-    [mode, posts, requiredReviewers],
+    [posts],
   );
+  const externalCounts = useMemo(() => {
+    const reviewerKeys = resolvedClientSlug
+      ? (CLIENT_REVIEWER_KEYS_BY_SLUG[resolvedClientSlug] ?? [])
+      : [];
+    const sentPosts = posts.filter(
+      (post) => post.sent_to_client_at && !post.posted_at,
+    );
+
+    return {
+      pending: sentPosts.filter(
+        (post) =>
+          approvalStatusForReviewerKeys(post.client_approvals, reviewerKeys) ===
+          "pending",
+      ).length,
+      changes: sentPosts.filter(
+        (post) =>
+          approvalStatusForReviewerKeys(post.client_approvals, reviewerKeys) ===
+          "changes",
+      ).length,
+      approved: sentPosts.filter(
+        (post) =>
+          approvalStatusForReviewerKeys(post.client_approvals, reviewerKeys) ===
+          "approved",
+      ).length,
+    };
+  }, [posts, resolvedClientSlug]);
 
   const year = visibleMonth.getFullYear();
   const month = visibleMonth.getMonth();
@@ -533,7 +630,9 @@ export function SocialApprovalCalendar({
     postsByDate.set(key, [...(postsByDate.get(key) ?? []), post]);
   });
 
-  const unscheduledPosts = posts.filter((post) => !post.scheduled_at);
+  const unscheduledPosts = posts.filter(
+    (post) => !post.scheduled_at && !post.posted_at,
+  );
   const scheduledPosts = posts
     .filter((post) => post.scheduled_at)
     .sort(
@@ -543,6 +642,7 @@ export function SocialApprovalCalendar({
     );
   const readyUnsent = posts.filter(
     (post) =>
+      !post.posted_at &&
       !post.sent_to_client_at &&
       isReadyForClient(post, requiredReviewers),
   );
@@ -558,7 +658,7 @@ export function SocialApprovalCalendar({
   }
 
   async function reschedulePost(post: ApprovalPost, dateKey: string) {
-    if (mode !== "internal" || isSaving) return;
+    if (mode !== "internal" || post.posted_at || isSaving) return;
     const [targetYear, targetMonth, targetDay] = dateKey
       .split("-")
       .map(Number);
@@ -585,7 +685,7 @@ export function SocialApprovalCalendar({
   }
 
   async function savePlanning(post: ApprovalPost) {
-    if (mode !== "internal" || isSaving) return;
+    if (mode !== "internal" || post.posted_at || isSaving) return;
     setIsSaving(true);
     setError(null);
     const scheduledAt = scheduleDraft
@@ -616,7 +716,14 @@ export function SocialApprovalCalendar({
   }
 
   async function toggleFinalConfirmation(post: ApprovalPost) {
-    if (mode !== "internal" || !currentReviewer || isSaving) return;
+    if (
+      mode !== "internal" ||
+      post.posted_at ||
+      !currentReviewer ||
+      isSaving
+    ) {
+      return;
+    }
     const nextConfirmed = !post.final_confirmed;
     const timestamp = new Date().toISOString();
     setIsSaving(true);
@@ -793,6 +900,41 @@ export function SocialApprovalCalendar({
     );
   }
 
+  async function setPostedState(post: ApprovalPost, isPosted: boolean) {
+    if (
+      mode !== "internal" ||
+      !canSendToClient ||
+      !currentReviewer ||
+      isSaving
+    ) {
+      return;
+    }
+
+    const postedAt = isPosted ? new Date().toISOString() : null;
+    const postedBy = isPosted ? currentReviewer.name : null;
+    setIsSaving(true);
+    setError(null);
+    const { error: saveError } = await supabase
+      .from("tasks")
+      .update({ posted_at: postedAt, posted_by: postedBy })
+      .eq("id", post.id);
+    setIsSaving(false);
+
+    if (saveError) {
+      setError(
+        `Could not ${isPosted ? "archive" : "restore"} this post: ${saveError.message}`,
+      );
+      return;
+    }
+
+    updatePost(post.id, { posted_at: postedAt, posted_by: postedBy });
+    setFeedback(
+      isPosted
+        ? `${post.title} marked as posted and archived.`
+        : `${post.title} restored to the active approval workflow.`,
+    );
+  }
+
   const monthLabel = new Intl.DateTimeFormat("en-CA", {
     month: "long",
     year: "numeric",
@@ -838,53 +980,113 @@ export function SocialApprovalCalendar({
           </p>
         )}
 
-        <section
-          aria-label="Approval summary"
-          className="mt-8 grid gap-3 sm:grid-cols-3"
-        >
-          {[
-            {
-              count: counts.pending,
-              label: "Awaiting review",
-              detail: "At least one decision is missing",
-              color: "text-[#9A773F]",
-              dot: "bg-[#9A773F]",
-            },
-            {
-              count: counts.changes,
-              label: "Changes requested",
-              detail: "Blocked until revisions are reviewed",
-              color: "text-[#A15E4C]",
-              dot: "bg-[#A15E4C]",
-            },
-            {
-              count: counts.approved,
-              label: "Fully approved",
-              detail: `${requiredReviewers.map((item) => item.name).join(" and ")} approved`,
-              color: "text-[var(--primary)]",
-              dot: "bg-[var(--primary)]",
-            },
-          ].map((item) => (
-            <article
-              key={item.label}
-              className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-[0_4px_18px_rgba(49,75,62,0.025)] sm:p-6"
+        <section aria-labelledby="internal-approval-summary" className="mt-8">
+          <div className="mb-3 flex items-center gap-3">
+            <h2
+              id="internal-approval-summary"
+              className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--foreground)]/55"
             >
-              <div className="flex items-end justify-between gap-4">
-                <p
-                  className={`${fraunces.className} text-4xl font-medium ${item.color}`}
-                >
-                  {isLoading ? "—" : item.count}
+              Internal approval
+            </h2>
+            <span className="h-px flex-1 bg-[var(--border)]" />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {[
+              {
+                count: internalCounts.pending,
+                label: "Awaiting review",
+                detail: "Waiting for the internal decision",
+                color: "text-[#9A773F]",
+                dot: "bg-[#9A773F]",
+              },
+              {
+                count: internalCounts.changes,
+                label: "Changes requested",
+                detail: "Internal revisions are required",
+                color: "text-[#A15E4C]",
+                dot: "bg-[#A15E4C]",
+              },
+              {
+                count: internalCounts.approved,
+                label: "Approved",
+                detail: "Approved by the internal team",
+                color: "text-[var(--primary)]",
+                dot: "bg-[var(--primary)]",
+              },
+            ].map((item) => (
+              <article
+                key={item.label}
+                className="rounded-2xl border border-[var(--border)] bg-white p-5 shadow-[0_4px_18px_rgba(49,75,62,0.025)] sm:p-6"
+              >
+                <div className="flex items-end justify-between gap-4">
+                  <p
+                    className={`${fraunces.className} text-4xl font-medium ${item.color}`}
+                  >
+                    {isLoading ? "—" : item.count}
+                  </p>
+                  <span className={`mb-2 size-2 rounded-full ${item.dot}`} />
+                </div>
+                <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em]">
+                  {item.label}
                 </p>
-                <span className={`mb-2 size-2 rounded-full ${item.dot}`} />
-              </div>
-              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em]">
-                {item.label}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-[var(--foreground)]/45">
-                {item.detail}
-              </p>
-            </article>
-          ))}
+                <p className="mt-1 text-xs leading-5 text-[var(--foreground)]/45">
+                  {item.detail}
+                </p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section aria-labelledby="external-approval-summary" className="mt-6">
+          <div className="mb-3 flex items-center gap-3">
+            <h2
+              id="external-approval-summary"
+              className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#5A3584]"
+            >
+              External approval
+            </h2>
+            <span className="h-px flex-1 bg-[#D9C8E8]" />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {[
+              {
+                count: externalCounts.pending,
+                label: "Awaiting review",
+                detail: "Client reviewing content",
+                dot: "bg-[#F4C96A]",
+              },
+              {
+                count: externalCounts.changes,
+                label: "Changes requested",
+                detail: "Client revisions are required",
+                dot: "bg-[#F3A58E]",
+              },
+              {
+                count: externalCounts.approved,
+                label: "Approved",
+                detail: "Client approval complete",
+                dot: "bg-[#9ED0AE]",
+              },
+            ].map((item) => (
+              <article
+                key={item.label}
+                className="rounded-2xl border border-[#5D3A86] bg-[#3F236F] p-5 text-white shadow-[0_8px_24px_rgba(63,35,111,0.16)] sm:p-6"
+              >
+                <div className="flex items-end justify-between gap-4">
+                  <p className={`${fraunces.className} text-4xl font-medium`}>
+                    {isLoading ? "—" : item.count}
+                  </p>
+                  <span className={`mb-2 size-2 rounded-full ${item.dot}`} />
+                </div>
+                <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em]">
+                  {item.label}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-white/65">
+                  {item.detail}
+                </p>
+              </article>
+            ))}
+          </div>
         </section>
 
         <div className="mt-10 grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] xl:items-start">
@@ -961,6 +1163,9 @@ export function SocialApprovalCalendar({
                           <rect x="9" y="9" width="13" height="13" rx="2" />
                           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                         </svg>
+                      )}
+                      {post.posted_at && (
+                        <PostedStamp className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 px-3 py-1.5 text-[10px]" />
                       )}
                     </button>
                   );
@@ -1100,7 +1305,7 @@ export function SocialApprovalCalendar({
                             <button
                               key={post.id}
                               type="button"
-                              draggable={mode === "internal"}
+                              draggable={mode === "internal" && !post.posted_at}
                               onClick={() => openPost(post)}
                               onDragStart={(event) => {
                                 event.dataTransfer.setData(
@@ -1114,8 +1319,10 @@ export function SocialApprovalCalendar({
                                 setDraggingPostId(null);
                                 setDragOverDateKey(null);
                               }}
-                              className={`w-full overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)] text-left shadow-sm transition hover:border-[var(--primary)] ${
-                                mode === "internal" ? "cursor-grab active:cursor-grabbing" : ""
+                              className={`relative w-full overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)] text-left shadow-sm transition hover:border-[var(--primary)] ${
+                                mode === "internal" && !post.posted_at
+                                  ? "cursor-grab active:cursor-grabbing"
+                                  : ""
                               } ${draggingPostId === post.id ? "opacity-40" : ""}`}
                             >
                               <div
@@ -1134,6 +1341,9 @@ export function SocialApprovalCalendar({
                                   </div>
                                 )}
                               </div>
+                              {post.posted_at && (
+                                <PostedStamp className="absolute right-1.5 top-1.5 z-10" />
+                              )}
                               <div className="p-2.5">
                                 <span className="block truncate text-[10px] font-semibold">
                                   {post.title}
@@ -1144,13 +1354,21 @@ export function SocialApprovalCalendar({
                                     minute: "2-digit",
                                   }).format(new Date(post.scheduled_at!))}
                                 </span>
-                                <span className="mt-2 flex items-center gap-1.5 text-[9px]">
-                                  <span
-                                    className={`size-1.5 rounded-full ${reviewStyles[status].dot}`}
-                                  />
-                                  {reviewStyles[status].label}
-                                </span>
-                                {mode === "internal" &&
+                                {post.posted_at ? (
+                                  <span className="mt-2 flex items-center gap-1.5 text-[9px] font-semibold text-[#267149]">
+                                    <span className="size-1.5 rounded-full bg-[#3A9B63]" />
+                                    Archived
+                                  </span>
+                                ) : (
+                                  <span className="mt-2 flex items-center gap-1.5 text-[9px]">
+                                    <span
+                                      className={`size-1.5 rounded-full ${reviewStyles[status].dot}`}
+                                    />
+                                    {reviewStyles[status].label}
+                                  </span>
+                                )}
+                                {!post.posted_at &&
+                                  mode === "internal" &&
                                   hasClientChangesRequested(post) && (
                                     <span className="mt-1 flex items-center gap-1.5 text-[9px] font-semibold text-[#A15E4C]">
                                       <span className="size-1.5 rounded-full bg-[#A15E4C]" />
@@ -1250,7 +1468,7 @@ export function SocialApprovalCalendar({
               ×
             </button>
 
-            <div className="bg-[var(--muted)] p-4 sm:p-6">
+            <div className="relative bg-[var(--muted)] p-4 sm:p-6">
               {selectedReelVideoUrls ? (
                 <div className="relative flex aspect-[4/5] items-center justify-center overflow-hidden rounded-2xl bg-black shadow-sm">
                   <iframe
@@ -1322,6 +1540,9 @@ export function SocialApprovalCalendar({
                   ))}
                 </div>
               )}
+              {selectedPost.posted_at && (
+                <PostedStamp className="absolute right-8 top-8 z-10 px-4 py-2 text-xs" />
+              )}
             </div>
 
             <div className="p-5 sm:p-7 md:p-8">
@@ -1330,20 +1551,29 @@ export function SocialApprovalCalendar({
                   {formatLabel(selectedPost.format)} ·{" "}
                   {formatDate(selectedPost.scheduled_at, true)}
                 </p>
-                <span
-                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-                    reviewStyles[
-                      overallStatus(selectedPost, mode, requiredReviewers)
-                    ].pill
-                  }`}
-                >
-                  {
-                    reviewStyles[
-                      overallStatus(selectedPost, mode, requiredReviewers)
-                    ].label
-                  }
-                </span>
-                {selectedPost.sent_to_client_at && mode === "internal" && (
+                {selectedPost.posted_at ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EAF5ED] px-2.5 py-1 text-[10px] font-semibold text-[#267149]">
+                    <span className="size-1.5 rounded-full bg-[#3A9B63]" />
+                    Archived
+                  </span>
+                ) : (
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                      reviewStyles[
+                        overallStatus(selectedPost, mode, requiredReviewers)
+                      ].pill
+                    }`}
+                  >
+                    {
+                      reviewStyles[
+                        overallStatus(selectedPost, mode, requiredReviewers)
+                      ].label
+                    }
+                  </span>
+                )}
+                {selectedPost.sent_to_client_at &&
+                  !selectedPost.posted_at &&
+                  mode === "internal" && (
                   <span className="rounded-full bg-[#EDF2FF] px-2.5 py-1 text-[10px] font-semibold text-[#405A91]">
                     Sent to client
                   </span>
@@ -1369,6 +1599,7 @@ export function SocialApprovalCalendar({
                     Planned publishing date and time
                     <input
                       type="datetime-local"
+                      disabled={Boolean(selectedPost.posted_at)}
                       value={scheduleDraft}
                       onChange={(event) => setScheduleDraft(event.target.value)}
                       className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
@@ -1378,6 +1609,7 @@ export function SocialApprovalCalendar({
                     Final caption
                     <textarea
                       rows={8}
+                      disabled={Boolean(selectedPost.posted_at)}
                       value={captionDraft}
                       onChange={(event) => setCaptionDraft(event.target.value)}
                       className="mt-2 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm leading-6"
@@ -1385,7 +1617,7 @@ export function SocialApprovalCalendar({
                   </label>
                   <button
                     type="button"
-                    disabled={isSaving}
+                    disabled={Boolean(selectedPost.posted_at) || isSaving}
                     onClick={() => void savePlanning(selectedPost)}
                     className="w-fit rounded-full border border-[var(--border)] px-4 py-2 text-xs font-semibold hover:bg-[var(--muted)] disabled:opacity-50"
                   >
@@ -1393,7 +1625,11 @@ export function SocialApprovalCalendar({
                   </button>
                   <button
                     type="button"
-                    disabled={!currentReviewer || isSaving}
+                    disabled={
+                      Boolean(selectedPost.posted_at) ||
+                      !currentReviewer ||
+                      isSaving
+                    }
                     aria-pressed={selectedPost.final_confirmed}
                     onClick={() => void toggleFinalConfirmation(selectedPost)}
                     className={`flex items-start gap-3 rounded-2xl border p-4 text-left transition ${
@@ -1535,7 +1771,7 @@ export function SocialApprovalCalendar({
                   </div>
                 )}
 
-              {currentReviewer && (
+              {currentReviewer && !selectedPost.posted_at && (
                 <div className="mt-5 border-t border-[var(--border)] pt-5">
                   <div className="flex flex-wrap gap-2.5">
                     <button
@@ -1593,17 +1829,50 @@ export function SocialApprovalCalendar({
 
               {mode === "internal" && canSendToClient && (
                 <div className="mt-6 border-t border-[var(--border)] pt-5">
-                  {selectedPost.sent_to_client_at ? (
-                    <p className="rounded-full bg-[var(--muted)] px-4 py-3 text-center text-xs font-semibold text-[var(--foreground)]/70">
-                      Sent by {selectedPost.sent_to_client_by ?? "the team"} on{" "}
-                      {formatDate(selectedPost.sent_to_client_at, true)}
-                    </p>
+                  {selectedPost.posted_at ? (
+                    <div className="rounded-2xl border border-[#A8CFB5] bg-[#EAF5ED] p-4 text-center">
+                      <p className="text-xs font-semibold text-[#267149]">
+                        Archived as posted by {selectedPost.posted_by ?? "the team"}{" "}
+                        on {formatDate(selectedPost.posted_at, true)}
+                      </p>
+                      <button
+                        type="button"
+                        disabled={!currentReviewer || isSaving}
+                        onClick={() =>
+                          void setPostedState(selectedPost, false)
+                        }
+                        className="mt-3 rounded-full border border-[#76A98A] bg-white px-4 py-2 text-xs font-semibold text-[#267149] transition hover:bg-[#F6FBF8] disabled:opacity-40"
+                      >
+                        {isSaving ? "Restoring…" : "Restore to active"}
+                      </button>
+                    </div>
                   ) : (
-                    <p className="text-center text-[11px] leading-5 text-[var(--foreground)]/45">
-                      {isReadyForClient(selectedPost, requiredReviewers)
-                        ? "Ready — this post will go out with the rest of its month when you use “Send [month] to client” on the calendar."
-                        : "Add the date and time, confirm the final content, and get Karen’s approval so this post is included in that month’s client send."}
-                    </p>
+                    <>
+                      {selectedPost.sent_to_client_at ? (
+                        <p className="rounded-full bg-[var(--muted)] px-4 py-3 text-center text-xs font-semibold text-[var(--foreground)]/70">
+                          Sent by {selectedPost.sent_to_client_by ?? "the team"}{" "}
+                          on {formatDate(selectedPost.sent_to_client_at, true)}
+                        </p>
+                      ) : (
+                        <p className="text-center text-[11px] leading-5 text-[var(--foreground)]/45">
+                          {isReadyForClient(selectedPost, requiredReviewers)
+                            ? "Ready — this post will go out with the rest of its month when you use “Send [month] to client” on the calendar."
+                            : "Add the date and time, confirm the final content, and get Karen’s approval so this post is included in that month’s client send."}
+                        </p>
+                      )}
+                      {selectedPost.sent_to_client_at && (
+                        <button
+                          type="button"
+                          disabled={!currentReviewer || isSaving}
+                          onClick={() =>
+                            void setPostedState(selectedPost, true)
+                          }
+                          className="mt-4 w-full rounded-full bg-[#2F8A57] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#267149] disabled:opacity-40"
+                        >
+                          {isSaving ? "Archiving…" : "Mark as posted"}
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               )}
