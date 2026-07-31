@@ -2,8 +2,15 @@
 
 import { Fraunces } from "next/font/google";
 import { useEffect, useMemo, useState } from "react";
-import { extractGoogleDriveFileId } from "@/lib/google-drive";
+import {
+  extractGoogleDriveFileId,
+  resolveGoogleDriveFileUrls,
+} from "@/lib/google-drive";
 import { sendSlackNotification } from "@/lib/slack-notifications";
+import {
+  normalizeReelDetails,
+  type ReelDetails,
+} from "@/lib/social-content";
 import { supabase } from "@/lib/supabase";
 import { TEAM_IDENTITIES } from "@/lib/team-auth";
 
@@ -51,6 +58,7 @@ type ApprovalPost = {
   client_id: string;
   title: string;
   format: string | null;
+  reel_details: ReelDetails;
   post_caption: string;
   scheduled_at: string | null;
   internal_review_submitted_at: string | null;
@@ -72,12 +80,14 @@ type TaskRow = Omit<
   | "internal_approvals"
   | "client_approvals"
   | "approval_history"
+  | "reel_details"
   | "assignee_usernames"
   | "task_slides"
 > & {
   internal_approvals: unknown;
   client_approvals: unknown;
   approval_history: unknown;
+  reel_details: unknown;
   assignee_usernames: string[] | null;
   task_slides: Slide[] | null;
 };
@@ -184,6 +194,7 @@ function mapPost(row: TaskRow): ApprovalPost {
     internal_approvals: normalizeReviews(row.internal_approvals),
     client_approvals: normalizeReviews(row.client_approvals),
     approval_history: normalizeHistory(row.approval_history),
+    reel_details: normalizeReelDetails(row.reel_details),
     assignee_usernames: row.assignee_usernames ?? [],
     task_slides: [...(row.task_slides ?? [])].sort(
       (a, b) => a.slide_number - b.slide_number,
@@ -295,6 +306,14 @@ function visualPreviewUrl(value: string | null | undefined) {
         driveFileId,
       )}&sz=w1600`
     : value;
+}
+
+function postVisualPreviewUrl(post: ApprovalPost) {
+  return visualPreviewUrl(
+    post.format === "reel"
+      ? post.reel_details.videoUrl || post.task_slides[0]?.image_url
+      : post.task_slides[0]?.image_url,
+  );
 }
 
 export function SocialApprovalCalendar({
@@ -409,6 +428,7 @@ export function SocialApprovalCalendar({
             client_id,
             title,
             format,
+            reel_details,
             post_caption,
             scheduled_at,
             internal_review_submitted_at,
@@ -466,6 +486,10 @@ export function SocialApprovalCalendar({
 
   const selectedPost =
     posts.find((post) => post.id === selectedId) ?? null;
+  const selectedReelVideoUrls =
+    selectedPost?.format === "reel"
+      ? resolveGoogleDriveFileUrls(selectedPost.reel_details.videoUrl)
+      : null;
 
   function openPost(post: ApprovalPost) {
     setSelectedId(post.id);
@@ -885,9 +909,7 @@ export function SocialApprovalCalendar({
             ) : (
               <div className="grid grid-cols-3 gap-0.5 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:gap-px">
                 {scheduledPosts.map((post) => {
-                  const previewUrl = visualPreviewUrl(
-                    post.task_slides[0]?.image_url,
-                  );
+                  const previewUrl = postVisualPreviewUrl(post);
                   return (
                     <button
                       key={post.id}
@@ -1072,9 +1094,7 @@ export function SocialApprovalCalendar({
                             mode,
                             requiredReviewers,
                           );
-                          const previewUrl = visualPreviewUrl(
-                            post.task_slides[0]?.image_url,
-                          );
+                          const previewUrl = postVisualPreviewUrl(post);
                           return (
                             <button
                               key={post.id}
@@ -1230,43 +1250,60 @@ export function SocialApprovalCalendar({
             </button>
 
             <div className="bg-[var(--muted)] p-4 sm:p-6">
-              <div
-                className="relative flex aspect-[4/5] items-center justify-center overflow-hidden rounded-2xl bg-[var(--background)] bg-cover bg-center shadow-sm"
-                style={
-                  visualPreviewUrl(
+              {selectedReelVideoUrls ? (
+                <div className="relative flex aspect-[4/5] items-center justify-center overflow-hidden rounded-2xl bg-black shadow-sm">
+                  <iframe
+                    src={selectedReelVideoUrls.previewUrl}
+                    title={`${selectedPost.title} Reel video`}
+                    loading="lazy"
+                    allow="autoplay; fullscreen"
+                    allowFullScreen
+                    className="h-full w-full"
+                  />
+                  <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-[var(--foreground)]/75 px-2.5 py-1 text-[10px] font-semibold text-white">
+                    Reel · Video
+                  </span>
+                </div>
+              ) : (
+                <div
+                  className="relative flex aspect-[4/5] items-center justify-center overflow-hidden rounded-2xl bg-[var(--background)] bg-cover bg-center shadow-sm"
+                  style={
+                    visualPreviewUrl(
+                      selectedPost.task_slides[selectedSlide]?.image_url,
+                    )
+                      ? {
+                          backgroundImage: `url("${visualPreviewUrl(
+                            selectedPost.task_slides[selectedSlide]?.image_url,
+                          )!.replaceAll('"', "%22")}")`,
+                        }
+                      : undefined
+                  }
+                >
+                  {!visualPreviewUrl(
                     selectedPost.task_slides[selectedSlide]?.image_url,
-                  )
-                    ? {
-                        backgroundImage: `url("${visualPreviewUrl(
-                          selectedPost.task_slides[selectedSlide]?.image_url,
-                        )!.replaceAll('"', "%22")}")`,
-                      }
-                    : undefined
-                }
-              >
-                {!visualPreviewUrl(
-                  selectedPost.task_slides[selectedSlide]?.image_url,
-                ) && (
-                  <div className="max-w-sm p-8 text-center">
-                    <p className={`${fraunces.className} text-2xl font-medium`}>
-                      {selectedPost.task_slides[selectedSlide]?.on_screen_text ||
-                        selectedPost.title}
-                    </p>
-                    <p className="mt-4 text-xs text-[var(--foreground)]/45">
-                      Final visual pending
-                    </p>
-                  </div>
-                )}
-                <span className="absolute left-3 top-3 rounded-full bg-[var(--foreground)]/75 px-2.5 py-1 text-[10px] font-semibold text-white">
-                  {formatLabel(selectedPost.format)}
-                  {selectedPost.task_slides.length > 0
-                    ? ` · Slide ${selectedSlide + 1} of ${
-                        selectedPost.task_slides.length
-                      }`
-                    : ""}
-                </span>
-              </div>
-              {selectedPost.task_slides.length > 1 && (
+                  ) && (
+                    <div className="max-w-sm p-8 text-center">
+                      <p className={`${fraunces.className} text-2xl font-medium`}>
+                        {selectedPost.task_slides[selectedSlide]
+                          ?.on_screen_text || selectedPost.title}
+                      </p>
+                      <p className="mt-4 text-xs text-[var(--foreground)]/45">
+                        Final visual pending
+                      </p>
+                    </div>
+                  )}
+                  <span className="absolute left-3 top-3 rounded-full bg-[var(--foreground)]/75 px-2.5 py-1 text-[10px] font-semibold text-white">
+                    {formatLabel(selectedPost.format)}
+                    {selectedPost.task_slides.length > 0
+                      ? ` · Slide ${selectedSlide + 1} of ${
+                          selectedPost.task_slides.length
+                        }`
+                      : ""}
+                  </span>
+                </div>
+              )}
+              {selectedPost.format !== "reel" &&
+                selectedPost.task_slides.length > 1 && (
                 <div className="mt-3 grid grid-cols-4 gap-2">
                   {selectedPost.task_slides.map((slide, index) => (
                     <button

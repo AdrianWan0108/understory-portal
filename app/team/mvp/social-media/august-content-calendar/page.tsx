@@ -31,6 +31,10 @@ import {
   isWorkspaceClientSlug,
 } from "@/lib/workspace-clients";
 import { projectClientInitial } from "@/lib/project-client-theme";
+import {
+  extractGoogleDriveFileId,
+  resolveGoogleDriveFileUrls,
+} from "@/lib/google-drive";
 import { sendSlackNotification } from "@/lib/slack-notifications";
 import {
   normalizeAssigneeUsernames,
@@ -234,28 +238,17 @@ const slidePalettes = [
 ] as const;
 
 function getCardCoverImage(post: Post) {
+  if (post.format === "reel") {
+    const fallbackCover = [...post.slides].sort(
+      (first, second) => first.slideNumber - second.slideNumber,
+    )[0]?.imageUrl;
+    return getImagePreviewUrl(post.reelDetails.videoUrl || fallbackCover);
+  }
+
   const coverLink = [...post.slides].sort(
     (first, second) => first.slideNumber - second.slideNumber,
   )[0]?.imageUrl;
   return getImagePreviewUrl(coverLink);
-}
-
-function extractGoogleDriveFileId(value: string) {
-  try {
-    const url = new URL(value.trim());
-    const hostname = url.hostname.toLowerCase();
-    if (
-      hostname !== "drive.google.com" &&
-      hostname !== "docs.google.com"
-    ) {
-      return null;
-    }
-
-    const pathMatch = url.pathname.match(/\/d\/([^/]+)/);
-    return pathMatch?.[1] ?? url.searchParams.get("id");
-  } catch {
-    return null;
-  }
 }
 
 function getImagePreviewUrl(rawUrl: string | null | undefined) {
@@ -457,6 +450,125 @@ function SlideImageInput({
         <p className="mt-1.5 text-[10px] text-[#9A5E42]">{validationError}</p>
       )}
     </div>
+  );
+}
+
+function ReelVideoCard({
+  videoUrl,
+  canManage,
+  onSave,
+  onClear,
+}: {
+  videoUrl: string;
+  canManage: boolean;
+  onSave: (link: string) => void;
+  onClear: () => void;
+}) {
+  const urls = resolveGoogleDriveFileUrls(videoUrl);
+  const [draft, setDraft] = useState(videoUrl);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  function submitLink(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedLink = draft.trim();
+    if (!resolveGoogleDriveFileUrls(trimmedLink)) {
+      setValidationError("Paste a valid Google Drive file link.");
+      return;
+    }
+
+    setValidationError(null);
+    onSave(trimmedLink);
+  }
+
+  return (
+    <article className="rounded-[24px] border border-[var(--border)] bg-[var(--card)] p-5 sm:col-span-2 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-[var(--primary)]">
+            Reel video
+          </p>
+          <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+            Play the final Reel directly from Google Drive.
+          </p>
+        </div>
+        {urls && (
+          <a
+            href={urls.openUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-full border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[11px] font-semibold text-[var(--foreground)] transition hover:border-[var(--primary)]"
+          >
+            Open in Google Drive ↗
+          </a>
+        )}
+      </div>
+
+      {urls ? (
+        <div className="mt-4 aspect-video overflow-hidden rounded-2xl border border-[var(--border)] bg-black shadow-sm">
+          <iframe
+            src={urls.previewUrl}
+            title="Reel video preview"
+            loading="lazy"
+            allow="autoplay; fullscreen"
+            allowFullScreen
+            className="h-full w-full"
+          />
+        </div>
+      ) : (
+        <div className="mt-4 flex aspect-video items-center justify-center rounded-2xl border border-dashed border-[var(--border)] bg-[var(--muted)] px-6 text-center">
+          <p className="max-w-sm text-sm text-[var(--muted-foreground)]">
+            No video added yet. Paste a publicly shared Google Drive video link
+            below to make the Reel playable here.
+          </p>
+        </div>
+      )}
+
+      {canManage && (
+        <form onSubmit={submitLink} className="mt-4">
+          <label
+            htmlFor="reel-video-link"
+            className="text-xs font-semibold text-[var(--foreground)]"
+          >
+            Google Drive video link
+          </label>
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              id="reel-video-link"
+              type="url"
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setValidationError(null);
+              }}
+              placeholder="Paste Google Drive video link"
+              className={`min-w-0 flex-1 ${teamInputClass}`}
+            />
+            <div className="flex shrink-0 items-center gap-2">
+              <TeamButton type="submit" themed>
+                Save video
+              </TeamButton>
+              {videoUrl && (
+                <TeamButton
+                  type="button"
+                  tone="secondary"
+                  themed
+                  onClick={() => {
+                    setDraft("");
+                    setValidationError(null);
+                    onClear();
+                  }}
+                >
+                  Clear
+                </TeamButton>
+              )}
+            </div>
+          </div>
+          {validationError && (
+            <p className="mt-2 text-xs text-[#9A5E42]">{validationError}</p>
+          )}
+        </form>
+      )}
+    </article>
   );
 }
 
@@ -1087,6 +1199,8 @@ function PostDetail({
   members,
   clientLabel,
   clientInitial,
+  onReelVideoSave,
+  onClearReelVideo,
   onSlideImageSave,
   onReferenceImageUpload,
   onClearSlideImage,
@@ -1104,6 +1218,8 @@ function PostDetail({
   members: TaskTeamMember[];
   clientLabel: string;
   clientInitial: string;
+  onReelVideoSave: (link: string) => void;
+  onClearReelVideo: () => void;
   onSlideImageSave: (slideNumber: number, link: string) => void;
   onReferenceImageUpload: (
     slideId: string,
@@ -1406,6 +1522,12 @@ function PostDetail({
 
         {post.format === "reel" && (
           <section className="grid gap-4 py-8 sm:grid-cols-2 sm:py-10">
+            <ReelVideoCard
+              videoUrl={post.reelDetails.videoUrl}
+              canManage={canManage}
+              onSave={onReelVideoSave}
+              onClear={onClearReelVideo}
+            />
             <article className="rounded-[22px] border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6">
               <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-[var(--primary)]">
                 Hook
@@ -1584,7 +1706,12 @@ function PostEditorModal({
       description="Choose the post format, then capture the shared production details."
       submitLabel={editor?.post ? "Save changes" : "Add task"}
       isSaving={isSaving}
-      submitDisabled={!editor?.title.trim()}
+      submitDisabled={
+        !editor?.title.trim() ||
+        (editor.format === "reel" &&
+          Boolean(editor.reelDetails.videoUrl.trim()) &&
+          !resolveGoogleDriveFileUrls(editor.reelDetails.videoUrl))
+      }
       themed
       onClose={onClose}
       onSubmit={(event) => {
@@ -1679,6 +1806,30 @@ function PostEditorModal({
               <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--primary)]">
                 Reel details
               </p>
+              <label className="text-xs font-semibold text-[#341F60]">
+                Google Drive video link
+                <input
+                  type="url"
+                  value={editor.reelDetails.videoUrl}
+                  onChange={(event) =>
+                    onChange({
+                      ...editor,
+                      reelDetails: {
+                        ...editor.reelDetails,
+                        videoUrl: event.target.value,
+                      },
+                    })
+                  }
+                  className={`mt-2 ${teamInputClass}`}
+                  placeholder="Paste Google Drive video link"
+                />
+                {editor.reelDetails.videoUrl.trim() &&
+                  !resolveGoogleDriveFileUrls(editor.reelDetails.videoUrl) && (
+                    <span className="mt-2 block text-[11px] font-normal text-[#9A5E42]">
+                      Paste a valid Google Drive file link.
+                    </span>
+                  )}
+              </label>
               <label className="text-xs font-semibold text-[#341F60]">
                 Hook
                 <input
@@ -2196,6 +2347,55 @@ function AugustContentCalendarContent() {
     return true;
   }
 
+  async function saveReelVideoLink(postId: number, rawLink: string) {
+    if (!canManage || !resolveGoogleDriveFileUrls(rawLink)) return;
+    const post = posts.find((candidate) => candidate.id === postId);
+    if (!post || post.format !== "reel") return;
+
+    const reelDetails = {
+      ...post.reelDetails,
+      videoUrl: rawLink.trim(),
+    };
+    const { error } = await supabase
+      .from("tasks")
+      .update({ reel_details: reelDetails })
+      .eq("id", post.databaseId);
+    if (error) {
+      setErrorMessage(`Could not save the Reel video link: ${error.message}`);
+      return;
+    }
+
+    setPosts((current) =>
+      current.map((candidate) =>
+        candidate.id === postId ? { ...candidate, reelDetails } : candidate,
+      ),
+    );
+    setErrorMessage(null);
+  }
+
+  async function clearReelVideo(postId: number) {
+    if (!canManage) return;
+    const post = posts.find((candidate) => candidate.id === postId);
+    if (!post || post.format !== "reel") return;
+
+    const reelDetails = { ...post.reelDetails, videoUrl: "" };
+    const { error } = await supabase
+      .from("tasks")
+      .update({ reel_details: reelDetails })
+      .eq("id", post.databaseId);
+    if (error) {
+      setErrorMessage(`Could not clear the Reel video link: ${error.message}`);
+      return;
+    }
+
+    setPosts((current) =>
+      current.map((candidate) =>
+        candidate.id === postId ? { ...candidate, reelDetails } : candidate,
+      ),
+    );
+    setErrorMessage(null);
+  }
+
   async function uploadReferenceImage(
     postId: number,
     slideId: string,
@@ -2681,6 +2881,7 @@ function AugustContentCalendarContent() {
               hook: editor.reelDetails.hook.trim(),
               script: editor.reelDetails.script.trim(),
               cta: editor.reelDetails.cta.trim(),
+              videoUrl: editor.reelDetails.videoUrl.trim(),
             }
           : null,
       status: editor.status,
@@ -2950,6 +3151,10 @@ function AugustContentCalendarContent() {
           members={teamMembers}
           clientLabel={clientLabel}
           clientInitial={clientInitial}
+          onReelVideoSave={(link) =>
+            void saveReelVideoLink(selectedPost.id, link)
+          }
+          onClearReelVideo={() => void clearReelVideo(selectedPost.id)}
           onSlideImageSave={(slideNumber, link) =>
             void saveSlideImageLink(selectedPost.id, slideNumber, link)
           }

@@ -12,12 +12,14 @@ export type ReelDetails = {
   hook: string;
   script: string;
   cta: string;
+  videoUrl: string;
 };
 
 export const EMPTY_REEL_DETAILS: ReelDetails = {
   hook: "",
   script: "",
   cta: "",
+  videoUrl: "",
 };
 
 export type SocialResearchEntry = {
@@ -134,6 +136,7 @@ export function normalizeReelDetails(value: unknown): ReelDetails {
     hook: typeof record.hook === "string" ? record.hook : "",
     script: typeof record.script === "string" ? record.script : "",
     cta: typeof record.cta === "string" ? record.cta : "",
+    videoUrl: typeof record.videoUrl === "string" ? record.videoUrl : "",
   };
 }
 
