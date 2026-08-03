@@ -491,7 +491,6 @@ function LiveWebsitePreview({
   const [confirmDeletePinId, setConfirmDeletePinId] = useState<string | null>(
     null,
   );
-  const previewCanvasHeight = 3200;
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -716,18 +715,15 @@ function LiveWebsitePreview({
           </span>
         </div>
 
-        <div className="h-[calc(100%_-_2.5rem)] overflow-y-auto overscroll-contain bg-white">
-          <div
-            className="relative w-full"
-            style={{ height: previewCanvasHeight }}
-          >
+        <div className="h-[calc(100%_-_2.5rem)] overflow-hidden bg-white">
+          <div className="relative h-full w-full">
             <iframe
               title="Live website preview"
               src={url}
               onLoad={() => setPreviewState("loaded")}
-              className="pointer-events-none absolute inset-0 h-full w-full bg-white lg:h-[150%] lg:w-[150%] lg:origin-top-left lg:scale-[0.6666667]"
+              className="absolute inset-0 h-full w-full bg-white lg:h-[150%] lg:w-[150%] lg:origin-top-left lg:scale-[0.6666667]"
               referrerPolicy="strict-origin-when-cross-origin"
-              scrolling="no"
+              scrolling="yes"
             />
 
             {previewState === "loading" && (
