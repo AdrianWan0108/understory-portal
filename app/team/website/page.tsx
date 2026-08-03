@@ -272,9 +272,11 @@ function formatTaskDate(value: string) {
 function TaskListRow({
   task,
   onOpen,
+  isSelected,
 }: {
   task: WebsiteTask;
   onOpen: () => void;
+  isSelected: boolean;
 }) {
   const column = columns.find((candidate) => candidate.id === task.column_status);
 
@@ -282,6 +284,7 @@ function TaskListRow({
     <article
       tabIndex={0}
       role="button"
+      aria-current={isSelected ? "page" : undefined}
       onClick={onOpen}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -289,35 +292,35 @@ function TaskListRow({
           onOpen();
         }
       }}
-      className="group flex cursor-pointer flex-col gap-4 border-b border-[#E9E0EF] px-4 py-5 outline-none transition last:border-b-0 hover:bg-[#FCF8FF] focus-visible:relative focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#7D4698] sm:flex-row sm:items-center sm:justify-between sm:px-6"
+      className={`group cursor-pointer border-b border-[#E9E0EF] px-4 py-3.5 outline-none transition last:border-b-0 focus-visible:relative focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#7D4698] ${
+        isSelected
+          ? "bg-[#EEE3FA]"
+          : "bg-white hover:bg-[#FCF8FF]"
+      }`}
     >
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <h3 className="text-sm font-semibold leading-5 text-[#341F60] sm:text-[15px]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold leading-5 text-[#341F60]">
             {task.title}
           </h3>
-          {task.priority === "high" && <PriorityBadge priority="high" />}
+          <p className="mt-1 truncate text-[10px] text-[#8B7895]">
+            Added {formatTaskDate(task.created_at)}
+          </p>
         </div>
-        <p className="mt-1.5 text-xs text-[#8B7895]">
-          Website team · Added {formatTaskDate(task.created_at)}
-        </p>
-      </div>
-
-      <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
         <span
-          className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em]"
-          style={{ backgroundColor: column?.tint, color: column?.text }}
+          className="mt-1 size-2 shrink-0 rounded-full"
+          title={column?.label}
+          style={{ backgroundColor: column?.dot }}
+        />
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span
+          className="truncate text-[9px] font-semibold uppercase tracking-[0.08em]"
+          style={{ color: column?.text }}
         >
-          <span
-            className="size-1.5 rounded-full"
-            style={{ backgroundColor: column?.dot }}
-          />
           {column?.label}
         </span>
-        <span className="flex size-8 items-center justify-center rounded-full border border-[#E3D8EA] bg-white text-[#9B88A5] transition group-hover:border-[#BBA9C6] group-hover:text-[#7D4698]">
-          <Icon name="arrow" className="size-3.5" />
-          <span className="sr-only">Open task</span>
-        </span>
+        {task.priority === "high" && <PriorityBadge priority="high" />}
       </div>
     </article>
   );
@@ -903,7 +906,7 @@ function LiveWebsitePreview({
               title="Live website preview"
               src={url}
               onLoad={() => setPreviewState("loaded")}
-              className="pointer-events-auto absolute inset-0 h-full w-full bg-white lg:h-[150%] lg:w-[150%] lg:[zoom:0.6666667]"
+              className="pointer-events-auto absolute inset-0 h-full w-full bg-white lg:h-[150%] lg:w-[150%] lg:origin-top-left lg:scale-[0.6666667]"
               referrerPolicy="strict-origin-when-cross-origin"
               scrolling="yes"
             />
@@ -1127,6 +1130,7 @@ function TaskDetailPanel({
   canManage,
   actorName,
   actorAvatarUrl,
+  embedded = false,
 }: {
   task: WebsiteTask;
   onClose: () => void;
@@ -1142,6 +1146,7 @@ function TaskDetailPanel({
   canManage: boolean;
   actorName: string;
   actorAvatarUrl: string | null;
+  embedded?: boolean;
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
@@ -1199,7 +1204,7 @@ function TaskDetailPanel({
       priority,
     });
     setIsSaving(false);
-    if (didSave) onClose();
+    if (didSave && !embedded) onClose();
   }
 
   async function saveLiveUrl(event: React.FormEvent<HTMLFormElement>) {
@@ -1275,15 +1280,25 @@ function TaskDetailPanel({
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
+      role={embedded ? "region" : "dialog"}
+      aria-modal={embedded ? undefined : "true"}
       aria-labelledby="task-detail-title"
-      className="fixed inset-0 z-50 flex justify-end bg-[#341F60]/30 backdrop-blur-sm"
+      className={
+        embedded
+          ? "min-w-0"
+          : "fixed inset-0 z-50 flex justify-end bg-[#341F60]/30 backdrop-blur-sm"
+      }
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (!embedded && event.target === event.currentTarget) onClose();
       }}
     >
-      <aside className="h-full w-full max-w-[1100px] overflow-y-auto border-l border-[#E0D4E8] bg-white p-5 shadow-[-18px_0_60px_rgba(52,31,96,0.16)] sm:p-8 lg:p-10">
+      <aside
+        className={
+          embedded
+            ? "w-full rounded-[24px] border border-[#E0D4E8] bg-white p-5 shadow-[0_8px_30px_rgba(52,31,96,0.07)] sm:p-7 lg:p-8"
+            : "h-full w-full max-w-[1100px] overflow-y-auto border-l border-[#E0D4E8] bg-white p-5 shadow-[-18px_0_60px_rgba(52,31,96,0.16)] sm:p-8 lg:p-10"
+        }
+      >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <span
@@ -1303,14 +1318,16 @@ function TaskDetailPanel({
               {task.title}
             </h2>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex size-9 shrink-0 items-center justify-center rounded-full border border-[#E0D4E8] text-[#75647F] hover:bg-[#EEE3FA]"
-          >
-            <Icon name="close" className="size-4" />
-            <span className="sr-only">Close</span>
-          </button>
+          {!embedded && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex size-9 shrink-0 items-center justify-center rounded-full border border-[#E0D4E8] text-[#75647F] hover:bg-[#EEE3FA]"
+            >
+              <Icon name="close" className="size-4" />
+              <span className="sr-only">Close</span>
+            </button>
+          )}
         </div>
 
         <section className="mt-6 rounded-2xl border border-[#E5DBEC] bg-[#FCF8FF] p-4">
@@ -1551,13 +1568,15 @@ function TaskDetailPanel({
                 {isDeleting ? "Deleting…" : "Delete"}
               </button>
               <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-full border border-[#DED0E7] px-4 py-2.5 text-xs font-semibold text-[#75647F] hover:bg-[#F5EEFA]"
-                >
-                  Cancel
-                </button>
+                {!embedded && (
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="rounded-full border border-[#DED0E7] px-4 py-2.5 text-xs font-semibold text-[#75647F] hover:bg-[#F5EEFA]"
+                  >
+                    Cancel
+                  </button>
+                )}
                 <button
                   type="submit"
                   disabled={isSaving || !title.trim()}
@@ -1609,7 +1628,6 @@ function WebsiteDevelopmentDashboard() {
     value: slug,
     label: WORKSPACE_CLIENTS[slug].name,
   }));
-  const selectedTask = tasks.find((task) => task.id === selectedTaskId);
   const statusCounts = useMemo(
     () =>
       Object.fromEntries(
@@ -1627,6 +1645,11 @@ function WebsiteDevelopmentDashboard() {
         : tasks.filter((task) => task.column_status === statusFilter),
     [statusFilter, tasks],
   );
+  const selectedTask =
+    filteredTasks.find((task) => task.id === selectedTaskId) ??
+    filteredTasks[0] ??
+    null;
+  const activeTaskId = selectedTask?.id ?? null;
 
   useEffect(() => {
     let isActive = true;
@@ -1733,7 +1756,11 @@ function WebsiteDevelopmentDashboard() {
       })) as WebsiteTask[];
 
       setTasks(loadedTasks);
-      setSelectedTaskId(null);
+      setSelectedTaskId(
+        loadedTasks.some((task) => task.id === requestedTaskId)
+          ? requestedTaskId
+          : (loadedTasks[0]?.id ?? null),
+      );
       setErrorMessage(null);
       setIsLoadingTasks(false);
     }
@@ -1742,7 +1769,7 @@ function WebsiteDevelopmentDashboard() {
     return () => {
       isActive = false;
     };
-  }, [currentClientId, hasTeamProfile, isTeamProfileReady]);
+  }, [currentClientId, hasTeamProfile, isTeamProfileReady, requestedTaskId]);
 
   async function updateTaskStatus(
     taskId: string,
@@ -1969,100 +1996,122 @@ function WebsiteDevelopmentDashboard() {
         </section>
 
         <section
-          aria-label={`${WORKSPACE_CLIENTS[selectedClient].name} website pages`}
-          className="mt-8"
+          aria-label={`${WORKSPACE_CLIENTS[selectedClient].name} website workspace`}
+          className="mt-8 grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start"
         >
-          <div className="mb-4 flex items-end justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-[#341F60]">Pages</h2>
-              <p className="mt-1 text-xs text-[#8B7895]">
-                {WORKSPACE_CLIENTS[selectedClient].name} website work, ordered by date added.
-              </p>
-            </div>
-            {canManage && (
-            <button
-              type="button"
-              onClick={() => setAddTaskColumn("needs_content")}
-              disabled={!currentClientId}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#7D4698] px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-[#6A3A82] disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              <Icon name="plus" className="size-3.5" />
-              Add task
-            </button>
-            )}
-          </div>
-
-          <div
-            aria-label="Filter pages by status"
-            className="mb-4 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            <button
-              type="button"
-              onClick={() => setStatusFilter("all")}
-              className={`shrink-0 rounded-full border px-3.5 py-2 text-[11px] font-semibold transition ${
-                statusFilter === "all"
-                  ? "border-[#7D4698] bg-[#7D4698] text-white"
-                  : "border-[#DED0E7] bg-white text-[#695677] hover:bg-[#EEE3FA]"
-              }`}
-            >
-              All · {tasks.length}
-            </button>
-            {columns.map((status) => (
-              <button
-                key={status.id}
-                type="button"
-                onClick={() => setStatusFilter(status.id)}
-                className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[11px] font-semibold transition ${
-                  statusFilter === status.id
-                    ? "border-[#7D4698] bg-[#EEE3FA] text-[#5F3378]"
-                    : "border-[#DED0E7] bg-white text-[#695677] hover:bg-[#F7F1FB]"
-                }`}
-              >
-                <span
-                  className="size-1.5 rounded-full"
-                  style={{ backgroundColor: status.dot }}
-                />
-                {status.label} · {statusCounts[status.id]}
-              </button>
-            ))}
-          </div>
-
-          <div className="overflow-hidden rounded-[22px] border border-[#E3D8EA] bg-white shadow-[0_7px_24px_rgba(52,31,96,0.05)]">
-            {isLoadingTasks ? (
-              <div className="divide-y divide-[#E9E0EF]">
-                {Array.from({ length: 3 }, (_, index) => (
-                  <div key={index} className="flex items-center gap-4 px-6 py-5">
-                    <div className="min-w-0 flex-1">
-                      <div className="h-4 w-52 max-w-full animate-pulse rounded bg-[#E9DFF1]" />
-                      <div className="mt-2 h-3 w-36 animate-pulse rounded bg-[#F1E8F8]" />
-                    </div>
-                    <div className="h-7 w-28 animate-pulse rounded-full bg-[#F2EAFB]" />
-                  </div>
-                ))}
-              </div>
-            ) : filteredTasks.length > 0 ? (
-              filteredTasks.map((task) => (
-                <TaskListRow
-                  key={task.id}
-                  task={task}
-                  onOpen={() => setSelectedTaskId(task.id)}
-                />
-              ))
+          <div className="order-2 min-w-0 xl:order-1">
+            {selectedTask ? (
+              <TaskDetailPanel
+                key={selectedTask.id}
+                task={selectedTask}
+                onClose={() => setSelectedTaskId(null)}
+                onSave={(values) => updateTask(selectedTask.id, values)}
+                onSaveLiveUrl={(liveUrl) =>
+                  updateLiveUrl(selectedTask.id, liveUrl)
+                }
+                onChangeStatus={(status) =>
+                  updateTaskStatus(selectedTask.id, status)
+                }
+                onMarkReady={() =>
+                  updateTaskStatus(selectedTask.id, "needs_content")
+                }
+                onDelete={() => deleteTask(selectedTask.id)}
+                canManage={canManage}
+                actorName={teamProfile?.name ?? "Team member"}
+                actorAvatarUrl={teamProfile?.avatarUrl ?? null}
+                embedded
+              />
             ) : (
-              <div className="px-5 py-14 text-center">
-                <p className="text-sm font-semibold text-[#5F4D70]">
-                  {statusFilter === "all"
-                    ? "No website pages yet."
-                    : "No pages match this status."}
-                </p>
-                <p className="mt-1 text-xs text-[#8B7895]">
-                  {statusFilter === "all"
-                    ? `Add the first task for ${WORKSPACE_CLIENTS[selectedClient].name}.`
-                    : "Choose another status or add a new task."}
-                </p>
+              <div className="flex min-h-80 items-center justify-center rounded-[24px] border border-dashed border-[#D8CBE1] bg-white px-6 text-center shadow-[0_8px_30px_rgba(52,31,96,0.04)]">
+                <div>
+                  <p className="text-sm font-semibold text-[#5F4D70]">
+                    Select a page to review
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-[#8B7895]">
+                    Its live preview, comment pins, status, and details will appear here.
+                  </p>
+                </div>
               </div>
             )}
           </div>
+
+          <aside className="order-1 overflow-hidden rounded-[22px] border border-[#E3D8EA] bg-white shadow-[0_7px_24px_rgba(52,31,96,0.05)] xl:order-2 xl:sticky xl:top-20">
+            <div className="border-b border-[#E9E0EF] p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-[#341F60]">Pages</h2>
+                  <p className="mt-0.5 text-[10px] text-[#8B7895]">
+                    Choose a page to review
+                  </p>
+                </div>
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={() => setAddTaskColumn("needs_content")}
+                    disabled={!currentClientId}
+                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#7D4698] text-white shadow-sm transition hover:bg-[#6A3A82] disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    <Icon name="plus" className="size-3.5" />
+                    <span className="sr-only">Add page</span>
+                  </button>
+                )}
+              </div>
+
+              <label className="mt-3 block">
+                <span className="sr-only">Filter pages by status</span>
+                <select
+                  value={statusFilter}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setStatusFilter(
+                      value === "all" || isColumnStatus(value) ? value : "all",
+                    );
+                  }}
+                  className="w-full rounded-xl border border-[#DED0E7] bg-[#FCF8FF] px-3 py-2.5 text-[11px] font-semibold text-[#695677] outline-none focus:border-[#7D4698] focus:ring-2 focus:ring-[#7D4698]/20"
+                >
+                  <option value="all">All pages · {tasks.length}</option>
+                  {columns.map((status) => (
+                    <option key={status.id} value={status.id}>
+                      {status.label} · {statusCounts[status.id]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="max-h-[70vh] overflow-y-auto">
+              {isLoadingTasks ? (
+                <div className="divide-y divide-[#E9E0EF]">
+                  {Array.from({ length: 4 }, (_, index) => (
+                    <div key={index} className="px-4 py-4">
+                      <div className="h-3.5 w-40 max-w-full animate-pulse rounded bg-[#E9DFF1]" />
+                      <div className="mt-2 h-2.5 w-24 animate-pulse rounded bg-[#F1E8F8]" />
+                    </div>
+                  ))}
+                </div>
+              ) : filteredTasks.length > 0 ? (
+                filteredTasks.map((task) => (
+                  <TaskListRow
+                    key={task.id}
+                    task={task}
+                    isSelected={task.id === activeTaskId}
+                    onOpen={() => setSelectedTaskId(task.id)}
+                  />
+                ))
+              ) : (
+                <div className="px-4 py-10 text-center">
+                  <p className="text-xs font-semibold text-[#5F4D70]">
+                    {statusFilter === "all"
+                      ? "No website pages yet."
+                      : "No pages match this status."}
+                  </p>
+                  <p className="mt-1 text-[10px] leading-4 text-[#8B7895]">
+                    Choose another status or add a page.
+                  </p>
+                </div>
+              )}
+            </div>
+          </aside>
         </section>
 
         {requestedTaskId && <TaskItemsEditor taskId={requestedTaskId} />}
@@ -2082,26 +2131,6 @@ function WebsiteDevelopmentDashboard() {
           }
           onClose={() => setAddTaskColumn(null)}
           onCreate={(values) => createTask(addTaskColumn, values)}
-        />
-      )}
-
-      {selectedTask && (
-        <TaskDetailPanel
-          key={selectedTask.id}
-          task={selectedTask}
-          onClose={() => setSelectedTaskId(null)}
-          onSave={(values) => updateTask(selectedTask.id, values)}
-          onSaveLiveUrl={(liveUrl) => updateLiveUrl(selectedTask.id, liveUrl)}
-          onChangeStatus={(status) =>
-            updateTaskStatus(selectedTask.id, status)
-          }
-          onMarkReady={() =>
-            updateTaskStatus(selectedTask.id, "needs_content")
-          }
-          onDelete={() => deleteTask(selectedTask.id)}
-          canManage={canManage}
-          actorName={teamProfile?.name ?? "Team member"}
-          actorAvatarUrl={teamProfile?.avatarUrl ?? null}
         />
       )}
 
