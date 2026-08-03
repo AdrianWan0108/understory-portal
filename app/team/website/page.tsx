@@ -725,7 +725,7 @@ function LiveWebsitePreview({
               title="Live website preview"
               src={url}
               onLoad={() => setPreviewState("loaded")}
-              className="pointer-events-none absolute inset-0 h-full w-full bg-white"
+              className="pointer-events-none absolute inset-0 h-full w-full bg-white lg:h-[150%] lg:w-[150%] lg:origin-top-left lg:scale-[0.6666667]"
               referrerPolicy="strict-origin-when-cross-origin"
               scrolling="no"
             />
