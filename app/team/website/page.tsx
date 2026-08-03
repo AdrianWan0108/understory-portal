@@ -507,11 +507,17 @@ function LiveWebsitePreview({
   actorName: string;
   actorAvatarUrl: string | null;
 }) {
+  // Keep the iframe and its pins on the same tall canvas. The preview viewport
+  // scrolls this canvas, so every pin remains attached to its page position.
+  // At desktop sizes the iframe is rendered at 2x width, then scaled down to
+  // show the site's wide layout without making the review canvas enormous.
+  const previewCanvasHeight = 1600;
   const [previewState, setPreviewState] = useState<
     "loading" | "loaded" | "failed"
   >("loading");
   const [pins, setPins] = useState<PageCommentPin[]>([]);
   const [isLoadingPins, setIsLoadingPins] = useState(true);
+  const [isInteractiveMode, setIsInteractiveMode] = useState(false);
   const [isPinMode, setIsPinMode] = useState(false);
   const [pendingPin, setPendingPin] = useState<{
     xPercent: number;
@@ -867,11 +873,31 @@ function LiveWebsitePreview({
               : `${pins.length} comment pin${pins.length === 1 ? "" : "s"}`}
           </p>
         </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button
+            type="button"
+            aria-pressed={isInteractiveMode}
+            onClick={() => {
+              setIsInteractiveMode((current) => !current);
+              setIsPinMode(false);
+              setPendingPin(null);
+              setSelectedPinId(null);
+              setConfirmDeletePinId(null);
+            }}
+            className={`rounded-full border px-4 py-2.5 text-xs font-semibold transition ${
+              isInteractiveMode
+                ? "border-[#7D4698] bg-[#F5EEFA] text-[#5F3378]"
+                : "border-[#DED0E7] bg-white text-[#695677] hover:bg-[#F8F3FB]"
+            }`}
+          >
+            {isInteractiveMode ? "Review comments" : "Interact with site"}
+          </button>
         {canManage && (
           <button
             type="button"
             aria-pressed={isPinMode}
             onClick={() => {
+              setIsInteractiveMode(false);
               setIsPinMode((current) => !current);
               setPendingPin(null);
               setSelectedPinId(null);
@@ -888,9 +914,10 @@ function LiveWebsitePreview({
             {isPinMode ? "Click preview to place pin" : "Add comment pin"}
           </button>
         )}
+        </div>
       </div>
 
-      <div className="relative mx-auto h-[620px] w-full max-w-[960px] overflow-hidden rounded-2xl border border-[#CDBAD9] bg-white shadow-[0_18px_45px_rgba(52,31,96,0.14)] sm:h-[680px]">
+      <div className="relative mx-auto w-full max-w-[960px] overflow-hidden rounded-2xl border border-[#CDBAD9] bg-white shadow-[0_18px_45px_rgba(52,31,96,0.14)]">
         <div className="flex h-10 items-center gap-2 border-b border-[#DED0E7] bg-[#F5EEFA] px-4">
           <span className="size-2.5 rounded-full bg-[#D9A4C5]" />
           <span className="size-2.5 rounded-full bg-[#F4CE45]" />
@@ -900,24 +927,36 @@ function LiveWebsitePreview({
           </span>
         </div>
 
-        <div className="h-[calc(100%_-_2.5rem)] overflow-hidden bg-white">
-          <div className="relative h-full w-full">
+        <div className="relative h-[520px] bg-white sm:h-[600px] lg:aspect-video lg:h-auto">
+          <div
+            className={`absolute inset-0 overscroll-contain ${
+              isInteractiveMode ? "overflow-hidden" : "overflow-y-auto"
+            }`}
+          >
+            <div
+              className="relative w-full"
+              style={{
+                height: isInteractiveMode ? "100%" : previewCanvasHeight,
+              }}
+            >
             <iframe
               title="Live website preview"
               src={url}
               onLoad={() => setPreviewState("loaded")}
-              className="pointer-events-auto absolute inset-0 h-full w-full bg-white lg:h-[150%] lg:w-[150%] lg:origin-top-left lg:scale-[0.6666667]"
+              className={`absolute inset-0 h-full w-full bg-white lg:h-[200%] lg:w-[200%] lg:origin-top-left lg:scale-50 ${
+                isInteractiveMode ? "pointer-events-auto" : "pointer-events-none"
+              }`}
               referrerPolicy="strict-origin-when-cross-origin"
-              scrolling="yes"
+              scrolling={isInteractiveMode ? "yes" : "no"}
             />
 
             {previewState === "loading" && (
-              <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-[640px] items-center justify-center bg-white/90 text-xs font-medium text-[#75647F]">
+              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-white/90 text-xs font-medium text-[#75647F]">
                 Loading live preview…
               </div>
             )}
 
-            {isPinMode && (
+            {!isInteractiveMode && isPinMode && (
               <div
                 role="button"
                 tabIndex={0}
@@ -933,7 +972,7 @@ function LiveWebsitePreview({
               />
             )}
 
-            {pins.map((pin) => (
+            {!isInteractiveMode && pins.map((pin) => (
               <button
                 key={pin.id}
                 type="button"
@@ -971,7 +1010,7 @@ function LiveWebsitePreview({
               </button>
             ))}
 
-            {pendingPin && (
+            {!isInteractiveMode && pendingPin && (
               <>
                 <span
                   className="pointer-events-none absolute z-30 flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center overflow-hidden rounded-full border-2 border-white shadow-[0_4px_14px_rgba(52,31,96,0.28)]"
@@ -1031,7 +1070,7 @@ function LiveWebsitePreview({
               </>
             )}
 
-            {pins.map((pin) =>
+            {!isInteractiveMode && pins.map((pin) =>
               selectedPinId === pin.id ? (
                 <div
                   key={`popover-${pin.id}`}
@@ -1097,6 +1136,7 @@ function LiveWebsitePreview({
                 </div>
               ) : null,
             )}
+            </div>
           </div>
         </div>
       </div>

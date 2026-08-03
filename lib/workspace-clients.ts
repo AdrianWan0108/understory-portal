@@ -5,6 +5,7 @@ export const WORKSPACE_CLIENTS = {
     name: "Red House Vision Centre",
     slug: "red-house",
   },
+  uglint: { name: "Uglint", slug: "uglint" },
 } as const;
 
 export type WorkspaceClientSlug = keyof typeof WORKSPACE_CLIENTS;

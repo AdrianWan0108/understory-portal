@@ -1,4 +1,5 @@
 import {
+  WORKSPACE_CLIENTS,
   isWorkspaceClientSlug,
   type WorkspaceClientSlug,
 } from "@/lib/workspace-clients";
@@ -17,9 +18,7 @@ export function projectClientTheme(
 }
 
 export function projectClientInitial(client: WorkspaceClientSlug) {
-  if (client === "mvp") return "M";
-  if (client === "boardwalk") return "B";
-  return "R";
+  return WORKSPACE_CLIENTS[client].name.trim().charAt(0).toUpperCase();
 }
 
 export function readStoredProjectClient(): WorkspaceClientSlug | null {
