@@ -114,6 +114,29 @@
   --ring: var(--primary);
 }
 
+[data-theme="red-house"] {
+  --red-house-red: #AD0217;
+  --red-house-coral: #CB4C46;
+  --red-house-white: #FFFFFF;
+  --red-house-mist: #B7D0E1;
+  --red-house-blue: #91AEC4;
+  --background: #F7F9FB;
+  --foreground: #4A111A;
+  --card: var(--red-house-white);
+  --card-foreground: #4A111A;
+  --primary: var(--red-house-red);
+  --primary-foreground: var(--red-house-white);
+  --secondary: var(--red-house-coral);
+  --secondary-foreground: var(--red-house-white);
+  --muted: #EAF1F6;
+  --muted-foreground: #5B6670;
+  --accent: var(--red-house-blue);
+  --accent-foreground: #263642;
+  --border: var(--red-house-mist);
+  --input: var(--red-house-mist);
+  --ring: var(--red-house-red);
+}
+
 /*
  * Projects owns client theming at its route layout. These compatibility
  * mappings bring the older Calendar and Website workspaces, which still use

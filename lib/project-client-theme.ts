@@ -9,12 +9,16 @@ export const PROJECTS_CLIENT_STORAGE_KEY = "understory-projects-client";
 export const projectInputClass =
   "w-full rounded-xl border border-[var(--input)] bg-[var(--card)] px-3.5 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--muted)]";
 
-export type ProjectClientTheme = "mvp" | "boardwalk";
+export type ProjectClientTheme = "mvp" | "boardwalk" | "red-house";
 
 export function projectClientTheme(
   client: WorkspaceClientSlug,
 ): ProjectClientTheme | undefined {
-  return client === "mvp" || client === "boardwalk" ? client : undefined;
+  return client === "mvp" ||
+    client === "boardwalk" ||
+    client === "red-house"
+    ? client
+    : undefined;
 }
 
 export function projectClientInitial(client: WorkspaceClientSlug) {
