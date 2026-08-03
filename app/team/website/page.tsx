@@ -77,6 +77,11 @@ type WebsitePreviewMetrics = {
   viewportHeight: number;
 };
 
+type PinActionRequest = {
+  pinId: string;
+  requestId: number;
+};
+
 type ClientRow = {
   id: string;
   name: string;
@@ -524,6 +529,8 @@ function LiveWebsitePreview({
   actorName,
   actorAvatarUrl,
   onPinsChange,
+  focusPinRequest,
+  deletedPinRequest,
 }: {
   taskId: string;
   url: string;
@@ -531,10 +538,13 @@ function LiveWebsitePreview({
   actorName: string;
   actorAvatarUrl: string | null;
   onPinsChange: (pins: PageCommentPin[]) => void;
+  focusPinRequest: PinActionRequest | null;
+  deletedPinRequest: PinActionRequest | null;
 }) {
   const desktopViewportWidth = 1920;
   const desktopViewportHeight = 1080;
   const teamMembers = useTaskTeamMembers();
+  const previewRootRef = useRef<HTMLDivElement>(null);
   const previewViewportRef = useRef<HTMLDivElement>(null);
   const previewFrameRef = useRef<HTMLIFrameElement>(null);
   const [previewState, setPreviewState] = useState<
@@ -667,6 +677,53 @@ function LiveWebsitePreview({
   useEffect(() => {
     onPinsChange(pins);
   }, [onPinsChange, pins]);
+
+  useEffect(() => {
+    if (!deletedPinRequest) return;
+    const timeout = window.setTimeout(() => {
+      setPins((current) =>
+        current.filter((pin) => pin.id !== deletedPinRequest.pinId),
+      );
+      setSelectedPinId((current) =>
+        current === deletedPinRequest.pinId ? null : current,
+      );
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [deletedPinRequest]);
+
+  useEffect(() => {
+    if (!focusPinRequest || previewState !== "loaded") return;
+    const pin = pins.find((candidate) => candidate.id === focusPinRequest.pinId);
+    if (!pin) return;
+
+    previewRootRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    const documentY = (pin.y_percent / 100) * previewMetrics.scrollHeight;
+    previewFrameRef.current?.contentWindow?.postMessage(
+      {
+        type: "understory-preview-scroll-to",
+        taskId,
+        top: Math.max(0, documentY - previewMetrics.viewportHeight / 2),
+      },
+      "*",
+    );
+    const timeout = window.setTimeout(() => {
+      setSelectedPinId(pin.id);
+      setPendingPin(null);
+      setIsPinMode(false);
+      setConfirmDeletePinId(null);
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [
+    focusPinRequest,
+    pins,
+    previewMetrics.scrollHeight,
+    previewMetrics.viewportHeight,
+    previewState,
+    taskId,
+  ]);
 
   useEffect(() => {
     if (!confirmDeletePinId) return;
@@ -976,7 +1033,7 @@ function LiveWebsitePreview({
   }
 
   return (
-    <div>
+    <div ref={previewRootRef}>
       <div className="mx-auto mb-3 flex w-full max-w-[960px] flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-xs font-semibold text-[#4F3D69]">Live preview</p>
@@ -1296,6 +1353,12 @@ function TaskDetailPanel({
   const [commentError, setCommentError] = useState<string | null>(null);
   const [isLoadingComments, setIsLoadingComments] = useState(true);
   const [isAddingComment, setIsAddingComment] = useState(false);
+  const [busyFeedbackId, setBusyFeedbackId] = useState<string | null>(null);
+  const [focusPinRequest, setFocusPinRequest] =
+    useState<PinActionRequest | null>(null);
+  const [deletedPinRequest, setDeletedPinRequest] =
+    useState<PinActionRequest | null>(null);
+  const pinActionRequestIdRef = useRef(0);
   const [isSavingUrl, setIsSavingUrl] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [isMarkingReady, setIsMarkingReady] = useState(false);
@@ -1416,6 +1479,63 @@ function TaskDetailPanel({
     }
     setCommentDraft("");
     setCommentError(null);
+  }
+
+  async function deleteComment(commentId: string) {
+    if (!window.confirm("Delete this comment? This cannot be undone.")) return;
+
+    setBusyFeedbackId(commentId);
+    const { error } = await supabase
+      .from("page_comments")
+      .delete()
+      .eq("id", commentId)
+      .eq("task_id", task.id);
+    setBusyFeedbackId(null);
+
+    if (error) {
+      setCommentError(`Could not delete the comment: ${error.message}`);
+      return;
+    }
+
+    setComments((current) =>
+      current.filter((comment) => comment.id !== commentId),
+    );
+    setCommentError(null);
+  }
+
+  async function deletePinnedComment(pinId: string) {
+    if (!window.confirm("Delete this pinned comment? This cannot be undone.")) {
+      return;
+    }
+
+    setBusyFeedbackId(pinId);
+    const { error } = await supabase
+      .from("page_comment_pins")
+      .delete()
+      .eq("id", pinId)
+      .eq("task_id", task.id);
+    setBusyFeedbackId(null);
+
+    if (error) {
+      setCommentError(`Could not delete the pinned comment: ${error.message}`);
+      return;
+    }
+
+    setCommentPins((current) => current.filter((pin) => pin.id !== pinId));
+    pinActionRequestIdRef.current += 1;
+    setDeletedPinRequest({
+      pinId,
+      requestId: pinActionRequestIdRef.current,
+    });
+    setCommentError(null);
+  }
+
+  function jumpToPin(pinId: string) {
+    pinActionRequestIdRef.current += 1;
+    setFocusPinRequest({
+      pinId,
+      requestId: pinActionRequestIdRef.current,
+    });
   }
 
   async function markReady() {
@@ -1562,6 +1682,8 @@ function TaskDetailPanel({
               actorName={actorName}
               actorAvatarUrl={actorAvatarUrl}
               onPinsChange={setCommentPins}
+              focusPinRequest={focusPinRequest}
+              deletedPinRequest={deletedPinRequest}
             />
             <div className="mt-3 text-center">
               <a
@@ -1619,7 +1741,28 @@ function TaskDetailPanel({
                 return (
                   <article
                     key={`${item.kind}-${feedback.id}`}
-                    className="rounded-2xl border border-[#E5DBEC] bg-[#FCF8FF] p-4"
+                    role={item.kind === "pin" ? "button" : undefined}
+                    tabIndex={item.kind === "pin" ? 0 : undefined}
+                    onClick={
+                      item.kind === "pin"
+                        ? () => jumpToPin(item.pin.id)
+                        : undefined
+                    }
+                    onKeyDown={
+                      item.kind === "pin"
+                        ? (event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              jumpToPin(item.pin.id);
+                            }
+                          }
+                        : undefined
+                    }
+                    className={`rounded-2xl border border-[#E5DBEC] bg-[#FCF8FF] p-4 ${
+                      item.kind === "pin"
+                        ? "cursor-pointer transition hover:border-[#BFA6CF] hover:bg-[#F8F1FC] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7D4698]"
+                        : ""
+                    }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
@@ -1642,9 +1785,42 @@ function TaskDetailPanel({
                           </span>
                         )}
                       </div>
-                      <time className="text-[10px] text-[#8B7895]">
-                        {formatCommentDate(feedback.created_at)}
-                      </time>
+                      <div className="flex items-center gap-2">
+                        <time className="text-[10px] text-[#8B7895]">
+                          {formatCommentDate(feedback.created_at)}
+                        </time>
+                        {item.kind === "pin" && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              jumpToPin(item.pin.id);
+                            }}
+                            className="inline-flex items-center gap-1 rounded-full border border-[#D8C6E4] bg-white px-2.5 py-1.5 text-[10px] font-semibold text-[#5F3378] transition hover:bg-[#EEE3FA]"
+                          >
+                            <Icon name="pin" className="size-3" />
+                            View pin
+                          </button>
+                        )}
+                        {canManage && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void (item.kind === "comment"
+                                ? deleteComment(item.comment.id)
+                                : deletePinnedComment(item.pin.id));
+                            }}
+                            disabled={busyFeedbackId === feedback.id}
+                            aria-label={`Delete ${
+                              item.kind === "pin" ? "pinned comment" : "comment"
+                            } by ${feedback.author}`}
+                            className="flex size-7 items-center justify-center rounded-full border border-[#E6C4B8] bg-[#FFF1EA] text-[#A1533A] transition hover:bg-[#FFE4D9] disabled:opacity-45"
+                          >
+                            <Icon name="trash" className="size-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#695677]">
                       {feedback.comment}
