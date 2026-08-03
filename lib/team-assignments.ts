@@ -1,5 +1,9 @@
 import { TEAM_IDENTITIES } from "@/lib/team-auth";
 
+export const DEFAULT_TASK_WATCHER_USERNAMES = Object.values(TEAM_IDENTITIES)
+  .filter((member) => member.accessLevel === "owner")
+  .map((member) => member.username);
+
 export function teamUsernameForName(name: string | null | undefined) {
   if (!name) return null;
   const normalizedName = name.trim().toLocaleLowerCase();

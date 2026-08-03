@@ -316,6 +316,7 @@ function LoadingRows({ count = 3 }: { count?: number }) {
 export default function TeamHubDashboardPage() {
   const { username, name, title, accessLevel, isReady } = useTeamIdentity();
   const [assignedTasks, setAssignedTasks] = useState<AssignedTask[]>([]);
+  const [mentionedTasks, setMentionedTasks] = useState<AssignedTask[]>([]);
   const [activities, setActivities] = useState<ActivityRow[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [decisions, setDecisions] = useState<DecisionItem[]>([]);
@@ -342,6 +343,10 @@ export default function TeamHubDashboardPage() {
         projectAssignedResult,
         socialAssignedResult,
         itemAssignedResult,
+        projectMentionsResult,
+        itemMentionsResult,
+        websiteMentionsResult,
+        socialMentionsResult,
         activityResult,
         meetingsResult,
         websiteReviewResult,
@@ -380,6 +385,34 @@ export default function TeamHubDashboardPage() {
             isOwner ? "watcher_usernames" : "assignee_usernames",
             [activeUsername],
           )
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("division_tasks")
+          .select(
+            "id, client_id, division, title, status, template_type, assignee_usernames, created_at",
+          )
+          .contains("mentioned_usernames", [activeUsername])
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("division_task_items")
+          .select(
+            "id, title, completed, assignee_usernames, created_at, division_tasks!inner(id, client_id, division, template_type)",
+          )
+          .contains("mentioned_usernames", [activeUsername])
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("website_tasks")
+          .select(
+            "id, client_id, title, column_status, assigned_to, created_at",
+          )
+          .contains("mentioned_usernames", [activeUsername])
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("tasks")
+          .select(
+            "id, client_id, title, status, assigned_to, assignee_usernames, created_at",
+          )
+          .contains("mentioned_usernames", [activeUsername])
           .order("created_at", { ascending: false }),
         supabase
           .from("team_activity_log")
@@ -513,6 +546,96 @@ export default function TeamHubDashboardPage() {
               .map(teamNameForUsername)
               .filter((value): value is string => Boolean(value)),
           }];
+        }),
+      ].sort(
+        (first, second) =>
+          new Date(second.createdAt).getTime() -
+          new Date(first.createdAt).getTime(),
+      );
+
+      const projectMentions = (projectMentionsResult.data ??
+        []) as DivisionTaskRow[];
+      const itemMentions = (itemMentionsResult.data ??
+        []) as unknown as DivisionTaskItemRow[];
+      const websiteMentions = (websiteMentionsResult.data ??
+        []) as WebsiteTaskRow[];
+      const socialMentions = (socialMentionsResult.data ??
+        []) as SocialTaskRow[];
+      const nextMentionedTasks: AssignedTask[] = [
+        ...projectMentions.map((task) => {
+          const client = clientDetails(task.client_id);
+          return {
+            id: `mention-project-${task.id}`,
+            source: "project" as const,
+            title: task.title,
+            clientName: client.name,
+            clientSlug: client.slug,
+            status: task.status,
+            href: divisionTaskHref(task, client.slug),
+            createdAt: task.created_at,
+            assigneeNames: task.assignee_usernames
+              .map(teamNameForUsername)
+              .filter((value): value is string => Boolean(value)),
+          };
+        }),
+        ...itemMentions.flatMap((item) => {
+          const parent = item.division_tasks;
+          if (!parent) return [];
+          const client = clientDetails(parent.client_id);
+          return [
+            {
+              id: `mention-item-${item.id}`,
+              source: "item" as const,
+              title: item.title,
+              clientName: client.name,
+              clientSlug: client.slug,
+              status: item.completed ? "done" : "not_started",
+              href: divisionTaskHref(
+                {
+                  ...parent,
+                  title: item.title,
+                  status: item.completed ? "done" : "not_started",
+                  assignee_usernames: item.assignee_usernames,
+                  created_at: item.created_at,
+                },
+                client.slug,
+              ),
+              createdAt: item.created_at,
+              assigneeNames: item.assignee_usernames
+                .map(teamNameForUsername)
+                .filter((value): value is string => Boolean(value)),
+            },
+          ];
+        }),
+        ...websiteMentions.map((task) => {
+          const client = clientDetails(task.client_id);
+          return {
+            id: `mention-website-${task.id}`,
+            source: "website" as const,
+            title: task.title,
+            clientName: client.name,
+            clientSlug: client.slug,
+            status: task.column_status,
+            href: `${taskHref("website", client.slug)}&task=${encodeURIComponent(task.id)}`,
+            createdAt: task.created_at,
+            assigneeNames: task.assigned_to ? [task.assigned_to] : [],
+          };
+        }),
+        ...socialMentions.map((task) => {
+          const client = clientDetails(task.client_id);
+          return {
+            id: `mention-social-${task.id}`,
+            source: "social" as const,
+            title: task.title,
+            clientName: client.name,
+            clientSlug: client.slug,
+            status: task.status,
+            href: `${taskHref("social", client.slug)}?post=${encodeURIComponent(task.id)}`,
+            createdAt: task.created_at,
+            assigneeNames: task.assignee_usernames
+              .map(teamNameForUsername)
+              .filter((value): value is string => Boolean(value)),
+          };
         }),
       ].sort(
         (first, second) =>
@@ -655,6 +778,10 @@ export default function TeamHubDashboardPage() {
         projectAssignedResult.error && "project assignments",
         socialAssignedResult.error && "social-media assignments",
         itemAssignedResult.error && "task item assignments",
+        projectMentionsResult.error && "project mentions",
+        itemMentionsResult.error && "task item mentions",
+        websiteMentionsResult.error && "website task mentions",
+        socialMentionsResult.error && "social-media mentions",
         activityResult.error && "project updates",
         meetingsResult.error && "upcoming meetings",
         websiteReviewResult.error && "website review items",
@@ -665,6 +792,7 @@ export default function TeamHubDashboardPage() {
       ].filter((warning): warning is string => Boolean(warning));
 
       setAssignedTasks(nextAssignedTasks);
+      setMentionedTasks(nextMentionedTasks);
       setActivities(nextActivities);
       setActivityTodayCount(
         allRelevantActivities.filter((activity) => isToday(activity.created_at))
@@ -773,6 +901,45 @@ export default function TeamHubDashboardPage() {
         )}
 
         <div className="mt-8 grid gap-6 xl:grid-cols-3">
+          <Card
+            id="mentions"
+            title={`Mentions${isLoading ? "" : ` (${mentionedTasks.length})`}`}
+            eyebrow="Someone tagged you"
+          >
+            {isLoading ? (
+              <LoadingRows />
+            ) : mentionedTasks.length > 0 ? (
+              <div className="space-y-3">
+                {mentionedTasks.map((task) => (
+                  <Link
+                    key={task.id}
+                    href={task.href}
+                    className="group flex items-center gap-3 rounded-2xl border border-[#E5DBEA] bg-[#FFFDF8] px-4 py-3.5 transition hover:border-[#BFA9CC] hover:bg-[#FAF5FC] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7D4698]"
+                  >
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#FFF1B7] text-sm font-bold text-[#725A00]">
+                      @
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-[#341F60]">
+                        {task.title}
+                      </span>
+                      <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-[#8B7895]">
+                        <span>{task.clientName}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{formatStatus(task.status)}</span>
+                      </span>
+                    </span>
+                    <span className="text-[#AA98B4] transition group-hover:translate-x-0.5 group-hover:text-[#7D4698]">
+                      →
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <EmptyState>No one has mentioned you in a task yet.</EmptyState>
+            )}
+          </Card>
+
           <Card
             id="assigned-tasks"
             title={isOwner ? "Tasks you’re watching" : "Tasks assigned to you"}

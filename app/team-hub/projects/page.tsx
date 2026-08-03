@@ -21,6 +21,7 @@ import {
   type DivisionTaskTemplate,
 } from "@/lib/division-tasks";
 import { supabase } from "@/lib/supabase";
+import { DEFAULT_TASK_WATCHER_USERNAMES } from "@/lib/team-assignments";
 import {
   projectClientInitial,
   projectInputClass,
@@ -35,6 +36,11 @@ import {
   TeamModal,
 } from "../_components/TeamHubUi";
 import { useProjectTheme } from "./_components/ProjectThemeProvider";
+import {
+  TaskMentionInput,
+  TaskMentionTextarea,
+  extractMentionedUsernames,
+} from "./_components/TaskMentionTextarea";
 
 type DivisionTask = {
   id: string;
@@ -50,6 +56,7 @@ type DivisionTask = {
   figjam_embed_url: string | null;
   assignee_usernames: string[];
   watcher_usernames: string[];
+  mentioned_usernames: string[];
   created_at: string;
 };
 
@@ -301,7 +308,7 @@ export default function TeamHubProjectsPage() {
       const { data, error: taskError } = await supabase
         .from("division_tasks")
         .select(
-          "id, client_id, division, title, description, status, template_type, content_brief_data, filming_card_data, research_entries, figjam_embed_url, assignee_usernames, watcher_usernames, created_at",
+          "id, client_id, division, title, description, status, template_type, content_brief_data, filming_card_data, research_entries, figjam_embed_url, assignee_usernames, watcher_usernames, mentioned_usernames, created_at",
         )
         .eq("client_id", clientRecord.id)
         .eq("division", division)
@@ -350,6 +357,10 @@ export default function TeamHubProjectsPage() {
 
     setIsSaving(true);
     setError(null);
+    const mentionedUsernames = extractMentionedUsernames(
+      `${title}\n${description}`,
+      teamMembers,
+    );
     const { data, error: insertError } = await supabase
       .from("division_tasks")
       .insert({
@@ -365,9 +376,16 @@ export default function TeamHubProjectsPage() {
             : null,
         filming_card_data: null,
         research_entries: [],
+        mentioned_usernames: mentionedUsernames,
+        watcher_usernames: Array.from(
+          new Set([
+            ...DEFAULT_TASK_WATCHER_USERNAMES,
+            ...mentionedUsernames,
+          ]),
+        ),
       })
       .select(
-        "id, client_id, division, title, description, status, template_type, content_brief_data, filming_card_data, research_entries, figjam_embed_url, assignee_usernames, watcher_usernames, created_at",
+        "id, client_id, division, title, description, status, template_type, content_brief_data, filming_card_data, research_entries, figjam_embed_url, assignee_usernames, watcher_usernames, mentioned_usernames, created_at",
       )
       .single();
     setIsSaving(false);
@@ -763,22 +781,24 @@ export default function TeamHubProjectsPage() {
         <div className="grid gap-4">
           <label className="text-xs font-semibold text-[var(--foreground)]">
             Task title
-            <input
+            <TaskMentionInput
               autoFocus
               value={title}
-              onChange={(event) => setTitle(event.target.value)}
+              onChange={setTitle}
+              members={teamMembers}
               className={`mt-2 ${projectInputClass}`}
-              placeholder="Task title"
+              placeholder="Task title — type @ to mention someone"
             />
           </label>
           <label className="text-xs font-semibold text-[var(--foreground)]">
             Description
-            <textarea
+            <TaskMentionTextarea
               rows={4}
               value={description}
-              onChange={(event) => setDescription(event.target.value)}
+              onChange={setDescription}
+              members={teamMembers}
               className={`mt-2 resize-y ${projectInputClass}`}
-              placeholder="What does this task cover?"
+              placeholder="What does this task cover? Type @ to mention someone."
             />
           </label>
           {selectedTemplate !== "analytics_results_hub" && (

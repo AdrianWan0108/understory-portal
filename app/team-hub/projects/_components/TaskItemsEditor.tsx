@@ -4,13 +4,21 @@ import { useEffect, useState } from "react";
 import { useTeamIdentity } from "@/app/team-hub/_components/TeamIdentity";
 import { TeamButton, TeamModal } from "@/app/team-hub/_components/TeamHubUi";
 import { projectInputClass } from "@/lib/project-client-theme";
-import { teamNameForUsername } from "@/lib/team-assignments";
+import {
+  DEFAULT_TASK_WATCHER_USERNAMES,
+  teamNameForUsername,
+} from "@/lib/team-assignments";
 import { supabase } from "@/lib/supabase";
 import {
   TaskPeopleButton,
   TaskPeopleModal,
   useTaskTeamMembers,
 } from "./TaskPeoplePicker";
+import {
+  TaskMentionInput,
+  TaskMentionTextarea,
+  extractMentionedUsernames,
+} from "./TaskMentionTextarea";
 
 type TaskItem = {
   id: string;
@@ -20,6 +28,7 @@ type TaskItem = {
   completed: boolean;
   assignee_usernames: string[];
   watcher_usernames: string[];
+  mentioned_usernames: string[];
   created_at: string;
 };
 
@@ -49,7 +58,7 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
       const { data, error: loadError } = await supabase
         .from("division_task_items")
         .select(
-          "id, division_task_id, title, description, completed, assignee_usernames, watcher_usernames, created_at",
+          "id, division_task_id, title, description, completed, assignee_usernames, watcher_usernames, mentioned_usernames, created_at",
         )
         .eq("division_task_id", taskId)
         .order("created_at", { ascending: true });
@@ -75,15 +84,26 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
     setIsSaving(true);
     setError(null);
 
+    const mentionedUsernames = extractMentionedUsernames(
+      `${title}\n${description}`,
+      members,
+    );
     const { data, error: insertError } = await supabase
       .from("division_task_items")
       .insert({
         division_task_id: taskId,
         title: title.trim(),
         description: description.trim() || null,
+        mentioned_usernames: mentionedUsernames,
+        watcher_usernames: Array.from(
+          new Set([
+            ...DEFAULT_TASK_WATCHER_USERNAMES,
+            ...mentionedUsernames,
+          ]),
+        ),
       })
       .select(
-        "id, division_task_id, title, description, completed, assignee_usernames, watcher_usernames, created_at",
+        "id, division_task_id, title, description, completed, assignee_usernames, watcher_usernames, mentioned_usernames, created_at",
       )
       .single();
     setIsSaving(false);
@@ -129,9 +149,20 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
   async function saveEdit() {
     if (!itemToEdit || !editTitle.trim() || isSaving) return;
     setIsSaving(true);
+    const mentionedUsernames = extractMentionedUsernames(
+      `${editTitle}\n${editDescription}`,
+      members,
+    );
     const values = {
       title: editTitle.trim(),
       description: editDescription.trim() || null,
+      mentioned_usernames: mentionedUsernames,
+      watcher_usernames: Array.from(
+        new Set([
+          ...itemToEdit.watcher_usernames,
+          ...mentionedUsernames,
+        ]),
+      ),
       updated_at: new Date().toISOString(),
     };
     const { error: updateError } = await supabase
@@ -230,20 +261,22 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
       <form onSubmit={addItem} className="mt-5 grid gap-3 rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4">
         <label className="text-xs font-semibold text-[var(--foreground)]">
           Item
-          <input
+          <TaskMentionInput
             value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            placeholder="Type an item"
+            onChange={setTitle}
+            members={members}
+            placeholder="Type an item or @mention someone"
             className={`mt-2 ${projectInputClass}`}
           />
         </label>
         <label className="text-xs font-semibold text-[var(--foreground)]">
           Description
-          <textarea
+          <TaskMentionTextarea
             rows={3}
             value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="Describe what needs to be done"
+            onChange={setDescription}
+            members={members}
+            placeholder="Describe what needs to be done. Type @ to mention someone."
             className={`mt-2 resize-y ${projectInputClass}`}
           />
         </label>
@@ -312,8 +345,26 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
         onSubmit={(event) => { event.preventDefault(); void saveEdit(); }}
       >
         <div className="grid gap-4">
-          <label className="text-xs font-semibold text-[var(--foreground)]">Item<input value={editTitle} onChange={(event) => setEditTitle(event.target.value)} className={`mt-2 ${projectInputClass}`} /></label>
-          <label className="text-xs font-semibold text-[var(--foreground)]">Description<textarea rows={4} value={editDescription} onChange={(event) => setEditDescription(event.target.value)} className={`mt-2 resize-y ${projectInputClass}`} /></label>
+          <label className="text-xs font-semibold text-[var(--foreground)]">
+            Item
+            <TaskMentionInput
+              value={editTitle}
+              onChange={setEditTitle}
+              members={members}
+              className={`mt-2 ${projectInputClass}`}
+            />
+          </label>
+          <label className="text-xs font-semibold text-[var(--foreground)]">
+            Description
+            <TaskMentionTextarea
+              rows={4}
+              value={editDescription}
+              onChange={setEditDescription}
+              members={members}
+              placeholder="Type @ to mention someone."
+              className={`mt-2 resize-y ${projectInputClass}`}
+            />
+          </label>
         </div>
       </TeamModal>
 

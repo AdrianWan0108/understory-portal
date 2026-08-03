@@ -27,6 +27,11 @@ import {
   type TaskTeamMember,
 } from "@/app/team-hub/projects/_components/TaskPeoplePicker";
 import {
+  extractMentionedUsernames,
+  TaskMentionInput,
+  TaskMentionTextarea,
+} from "@/app/team-hub/projects/_components/TaskMentionTextarea";
+import {
   WORKSPACE_CLIENTS,
   isWorkspaceClientSlug,
 } from "@/lib/workspace-clients";
@@ -36,6 +41,7 @@ import {
   resolveGoogleDriveFileUrls,
 } from "@/lib/google-drive";
 import { sendSlackNotification } from "@/lib/slack-notifications";
+import { appendSocialTaskMention } from "@/lib/project-mentions";
 import {
   normalizeAssigneeUsernames,
   teamNameForUsername,
@@ -94,6 +100,7 @@ type Post = {
   assignedTo: string | null;
   assigneeUsernames: string[];
   watcherUsernames: string[];
+  mentionedUsernames: string[];
   slides: Slide[];
 };
 
@@ -143,6 +150,7 @@ type TaskRow = {
   assigned_to: string | null;
   assignee_usernames: string[] | null;
   watcher_usernames: string[] | null;
+  mentioned_usernames: string[] | null;
   created_at: string;
   task_slides: TaskSlideRow[] | null;
 };
@@ -170,6 +178,7 @@ function mapTaskRows(rows: TaskRow[]): Post[] {
       task.assigned_to,
     ),
     watcherUsernames: task.watcher_usernames ?? [],
+    mentionedUsernames: task.mentioned_usernames ?? [],
     slides: (task.task_slides ?? [])
       .sort((a, b) => a.slide_number - b.slide_number)
       .map((slide) => ({
@@ -1583,12 +1592,16 @@ function PostDetail({
 function SlideEditorModal({
   editingSlide,
   deleteSlideId,
+  teamMembers,
+  onMention,
   onClose,
   onSave,
   onDelete,
 }: {
   editingSlide: { postId: number; slide: Slide } | null;
   deleteSlideId: string | null;
+  teamMembers: TaskTeamMember[];
+  onMention: (username: string) => void;
   onClose: () => void;
   onSave: (fields: {
     onScreenText: string;
@@ -1626,36 +1639,44 @@ function SlideEditorModal({
       <div className="grid gap-4">
         <label className="text-xs font-semibold text-[#341F60]">
           On-screen text
-          <textarea
+          <TaskMentionTextarea
             rows={2}
             value={onScreenText}
-            onChange={(event) => setOnScreenText(event.target.value)}
+            onChange={setOnScreenText}
+            members={teamMembers}
+            onMention={onMention}
             className={`mt-2 ${teamInputClass}`}
           />
         </label>
         <label className="text-xs font-semibold text-[#341F60]">
           Visual direction
-          <textarea
+          <TaskMentionTextarea
             rows={3}
             value={visualNote}
-            onChange={(event) => setVisualNote(event.target.value)}
+            onChange={setVisualNote}
+            members={teamMembers}
+            onMention={onMention}
             className={`mt-2 ${teamInputClass}`}
           />
         </label>
         <label className="text-xs font-semibold text-[#341F60]">
           Per-slide caption
-          <textarea
+          <TaskMentionTextarea
             rows={2}
             value={slideCaption}
-            onChange={(event) => setSlideCaption(event.target.value)}
+            onChange={setSlideCaption}
+            members={teamMembers}
+            onMention={onMention}
             className={`mt-2 ${teamInputClass}`}
           />
         </label>
         <label className="text-xs font-semibold text-[#341F60]">
           Warning flag (optional)
-          <input
+          <TaskMentionInput
             value={warningFlag}
-            onChange={(event) => setWarningFlag(event.target.value)}
+            onChange={setWarningFlag}
+            members={teamMembers}
+            onMention={onMention}
             placeholder="e.g. Needs client approval"
             className={`mt-2 ${teamInputClass}`}
           />
@@ -1692,12 +1713,16 @@ function PostEditorModal({
   onChange,
   onClose,
   onSave,
+  teamMembers,
+  onMention,
 }: {
   editor: PostEditorState | null;
   isSaving: boolean;
   onChange: (editor: PostEditorState) => void;
   onClose: () => void;
   onSave: () => void;
+  teamMembers: TaskTeamMember[];
+  onMention: (username: string) => void;
 }) {
   return (
     <TeamModal
@@ -1759,44 +1784,48 @@ function PostEditorModal({
           </fieldset>
           <label className="block text-xs font-semibold text-[#341F60]">
             Title
-            <input
+            <TaskMentionInput
               value={editor.title}
-              onChange={(event) =>
-                onChange({ ...editor, title: event.target.value })
-              }
+              onChange={(value) => onChange({ ...editor, title: value })}
+              members={teamMembers}
+              onMention={onMention}
               className={`mt-2 ${teamInputClass}`}
             />
           </label>
           <label className="block text-xs font-semibold text-[#341F60]">
             Brief
-            <textarea
+            <TaskMentionTextarea
               rows={4}
               value={editor.brief}
-              onChange={(event) =>
-                onChange({ ...editor, brief: event.target.value })
-              }
+              onChange={(value) => onChange({ ...editor, brief: value })}
+              members={teamMembers}
+              onMention={onMention}
               className={`mt-2 resize-none ${teamInputClass}`}
             />
           </label>
           <label className="block text-xs font-semibold text-[#341F60]">
             Post caption
-            <textarea
+            <TaskMentionTextarea
               rows={5}
               value={editor.postCaption}
-              onChange={(event) =>
-                onChange({ ...editor, postCaption: event.target.value })
+              onChange={(value) =>
+                onChange({ ...editor, postCaption: value })
               }
+              members={teamMembers}
+              onMention={onMention}
               className={`mt-2 resize-none ${teamInputClass}`}
             />
           </label>
           <label className="block text-xs font-semibold text-[#341F60]">
             Visual note
-            <textarea
+            <TaskMentionTextarea
               rows={4}
               value={editor.visualNote}
-              onChange={(event) =>
-                onChange({ ...editor, visualNote: event.target.value })
+              onChange={(value) =>
+                onChange({ ...editor, visualNote: value })
               }
+              members={teamMembers}
+              onMention={onMention}
               className={`mt-2 resize-none ${teamInputClass}`}
               placeholder="Describe the overall visual direction."
             />
@@ -1832,52 +1861,58 @@ function PostEditorModal({
               </label>
               <label className="text-xs font-semibold text-[#341F60]">
                 Hook
-                <input
+                <TaskMentionInput
                   value={editor.reelDetails.hook}
-                  onChange={(event) =>
+                  onChange={(value) =>
                     onChange({
                       ...editor,
                       reelDetails: {
                         ...editor.reelDetails,
-                        hook: event.target.value,
+                        hook: value,
                       },
                     })
                   }
+                  members={teamMembers}
+                  onMention={onMention}
                   className={`mt-2 ${teamInputClass}`}
                   placeholder="Opening line or first-frame hook"
                 />
               </label>
               <label className="text-xs font-semibold text-[#341F60]">
                 Script
-                <textarea
+                <TaskMentionTextarea
                   rows={7}
                   value={editor.reelDetails.script}
-                  onChange={(event) =>
+                  onChange={(value) =>
                     onChange({
                       ...editor,
                       reelDetails: {
                         ...editor.reelDetails,
-                        script: event.target.value,
+                        script: value,
                       },
                     })
                   }
+                  members={teamMembers}
+                  onMention={onMention}
                   className={`mt-2 resize-y ${teamInputClass}`}
                   placeholder="Write the Reel script."
                 />
               </label>
               <label className="text-xs font-semibold text-[#341F60]">
                 CTA
-                <input
+                <TaskMentionInput
                   value={editor.reelDetails.cta}
-                  onChange={(event) =>
+                  onChange={(value) =>
                     onChange({
                       ...editor,
                       reelDetails: {
                         ...editor.reelDetails,
-                        cta: event.target.value,
+                        cta: value,
                       },
                     })
                   }
+                  members={teamMembers}
+                  onMention={onMention}
                   className={`mt-2 ${teamInputClass}`}
                   placeholder="What should the viewer do next?"
                 />
@@ -1937,6 +1972,7 @@ function AugustContentCalendarContent() {
     /^\/team-hub\/projects\/([0-9a-f-]{36})\/calendar$/i,
   )?.[1];
   const requestedCalendarId = searchParams.get("calendar") ?? pathCalendarId;
+  const requestedPostId = searchParams.get("post");
   const routeClientSlug = pathname.split("/")[2] ?? null;
   const fallbackClientSlug = isWorkspaceClientSlug(routeClientSlug)
     ? routeClientSlug
@@ -2126,6 +2162,7 @@ function AugustContentCalendarContent() {
             assigned_to,
             assignee_usernames,
             watcher_usernames,
+            mentioned_usernames,
             created_at,
             task_slides (
               id,
@@ -2149,7 +2186,9 @@ function AugustContentCalendarContent() {
         ? query.eq("division_task_id", activeCalendarId)
         : query.is("division_task_id", null);
       if (activeProfile.accessLevel === "staff") {
-        query = query.contains("assignee_usernames", [activeProfile.username]);
+        query = query.or(
+          `assignee_usernames.cs.{${activeProfile.username}},mentioned_usernames.cs.{${activeProfile.username}}`,
+        );
       }
       const { data, error } = await query;
 
@@ -2163,6 +2202,10 @@ function AugustContentCalendarContent() {
 
       const loadedPosts = mapTaskRows((data ?? []) as unknown as TaskRow[]);
       setPosts(loadedPosts);
+      const requestedPost = loadedPosts.find(
+        (post) => post.databaseId === requestedPostId,
+      );
+      if (requestedPost) setSelectedPostId(requestedPost.id);
       setStatuses(
         Object.fromEntries(
           loadedPosts.map((post) => [post.id, post.status]),
@@ -2180,6 +2223,7 @@ function AugustContentCalendarContent() {
     fallbackClientSlug,
     isTeamProfileReady,
     requestedCalendarId,
+    requestedPostId,
     teamProfile,
   ]);
 
@@ -2868,6 +2912,30 @@ function AugustContentCalendarContent() {
     if (!canManage || !editor || !clientId || !editor.title.trim()) return;
     setIsSavingPost(true);
     const initialUsername = teamUsernameForName(editor.assignedTo);
+    const mentionedUsernames = extractMentionedUsernames(
+      [
+        editor.title,
+        editor.brief,
+        editor.postCaption,
+        editor.visualNote,
+        editor.reelDetails.hook,
+        editor.reelDetails.script,
+        editor.reelDetails.cta,
+      ].join("\n"),
+      teamMembers,
+    );
+    const savedMentionedUsernames = Array.from(
+      new Set([
+        ...(editor.post?.mentionedUsernames ?? []),
+        ...mentionedUsernames,
+      ]),
+    );
+    const savedWatcherUsernames = Array.from(
+      new Set([
+        ...(editor.post?.watcherUsernames ?? []),
+        ...mentionedUsernames,
+      ]),
+    );
     const payload = {
       client_id: clientId,
       title: editor.title.trim(),
@@ -2886,6 +2954,8 @@ function AugustContentCalendarContent() {
           : null,
       status: editor.status,
       division_task_id: calendarTaskId,
+      mentioned_usernames: savedMentionedUsernames,
+      watcher_usernames: savedWatcherUsernames,
       ...(editor.post
         ? {}
         : {
@@ -3188,11 +3258,24 @@ function AugustContentCalendarContent() {
         onChange={setEditor}
         onClose={() => setEditor(null)}
         onSave={() => void savePost()}
+        teamMembers={teamMembers}
+        onMention={(username) => {
+          if (editor?.post) {
+            void appendSocialTaskMention(editor.post.databaseId, username);
+          }
+        }}
       />
       <SlideEditorModal
         key={editingSlide?.slide.id ?? "none"}
         editingSlide={editingSlide}
         deleteSlideId={deleteSlideId}
+        teamMembers={teamMembers}
+        onMention={(username) => {
+          const post = posts.find(
+            (candidate) => candidate.id === editingSlide?.postId,
+          );
+          if (post) void appendSocialTaskMention(post.databaseId, username);
+        }}
         onClose={() => {
           setEditingSlide(null);
           setDeleteSlideId(null);

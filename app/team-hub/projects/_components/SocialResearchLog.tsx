@@ -18,8 +18,14 @@ import {
   type SocialResearchEntry,
 } from "@/lib/social-content";
 import { projectInputClass } from "@/lib/project-client-theme";
+import { appendDivisionTaskMention } from "@/lib/project-mentions";
 import { supabase } from "@/lib/supabase";
 import { TeamButton, TeamModal } from "../../_components/TeamHubUi";
+import {
+  TaskMentionInput,
+  TaskMentionTextarea,
+} from "./TaskMentionTextarea";
+import { useTaskTeamMembers } from "./TaskPeoplePicker";
 
 type ResearchDraft = {
   reference_link: string;
@@ -110,6 +116,7 @@ export function SocialResearchLog({
   clientId: string;
 }) {
   const router = useRouter();
+  const teamMembers = useTaskTeamMembers();
   const { accessLevel } = useTeamIdentity();
   const isOwner = accessLevel === "owner";
   const [entries, setEntries] = useState<SocialResearchEntry[]>([]);
@@ -741,13 +748,17 @@ export function SocialResearchLog({
 
           <label className="text-xs font-semibold text-[var(--foreground)]">
             Hook
-            <input
+            <TaskMentionInput
               value={draft.hook}
-              onChange={(event) =>
+              onChange={(value) =>
                 setDraft((current) => ({
                   ...current,
-                  hook: event.target.value,
+                  hook: value,
                 }))
+              }
+              members={teamMembers}
+              onMention={(username) =>
+                void appendDivisionTaskMention(taskId, username)
               }
               className={`mt-2 ${projectInputClass}`}
               placeholder="What is the opening line or frame?"
@@ -782,14 +793,18 @@ export function SocialResearchLog({
 
           <label className="text-xs font-semibold text-[var(--foreground)]">
             Hook explanation
-            <textarea
+            <TaskMentionTextarea
               rows={4}
               value={draft.hook_explanation}
-              onChange={(event) =>
+              onChange={(value) =>
                 setDraft((current) => ({
                   ...current,
-                  hook_explanation: event.target.value,
+                  hook_explanation: value,
                 }))
+              }
+              members={teamMembers}
+              onMention={(username) =>
+                void appendDivisionTaskMention(taskId, username)
               }
               className={`mt-2 resize-y ${projectInputClass}`}
               placeholder="Explain how the hook earns attention."
@@ -798,13 +813,17 @@ export function SocialResearchLog({
 
           <label className="text-xs font-semibold text-[var(--foreground)]">
             Storytelling approach
-            <input
+            <TaskMentionInput
               value={draft.storytelling_approach}
-              onChange={(event) =>
+              onChange={(value) =>
                 setDraft((current) => ({
                   ...current,
-                  storytelling_approach: event.target.value,
+                  storytelling_approach: value,
                 }))
+              }
+              members={teamMembers}
+              onMention={(username) =>
+                void appendDivisionTaskMention(taskId, username)
               }
               className={`mt-2 ${projectInputClass}`}
               placeholder="Myth-busting, before/after, personal story…"
@@ -813,14 +832,18 @@ export function SocialResearchLog({
 
           <label className="text-xs font-semibold text-[var(--foreground)]">
             Why it worked
-            <textarea
+            <TaskMentionTextarea
               rows={5}
               value={draft.why_it_worked}
-              onChange={(event) =>
+              onChange={(value) =>
                 setDraft((current) => ({
                   ...current,
-                  why_it_worked: event.target.value,
+                  why_it_worked: value,
                 }))
+              }
+              members={teamMembers}
+              onMention={(username) =>
+                void appendDivisionTaskMention(taskId, username)
               }
               className={`mt-2 resize-y ${projectInputClass}`}
               placeholder="Neutral analysis of what made the content effective."
@@ -829,13 +852,17 @@ export function SocialResearchLog({
 
           <label className="text-xs font-semibold text-[var(--foreground)]">
             CTA
-            <input
+            <TaskMentionInput
               value={draft.cta}
-              onChange={(event) =>
+              onChange={(value) =>
                 setDraft((current) => ({
                   ...current,
-                  cta: event.target.value,
+                  cta: value,
                 }))
+              }
+              members={teamMembers}
+              onMention={(username) =>
+                void appendDivisionTaskMention(taskId, username)
               }
               className={`mt-2 ${projectInputClass}`}
               placeholder="Optional call-to-action"
@@ -877,13 +904,17 @@ export function SocialResearchLog({
           {draft.used_trending_audio && (
             <label className="text-xs font-semibold text-[var(--foreground)]">
               Audio name
-              <input
+              <TaskMentionInput
                 value={draft.audio_name}
-                onChange={(event) =>
+                onChange={(value) =>
                   setDraft((current) => ({
                     ...current,
-                    audio_name: event.target.value,
+                    audio_name: value,
                   }))
+                }
+                members={teamMembers}
+                onMention={(username) =>
+                  void appendDivisionTaskMention(taskId, username)
                 }
                 className={`mt-2 ${projectInputClass}`}
                 placeholder="Optional audio or sound name"

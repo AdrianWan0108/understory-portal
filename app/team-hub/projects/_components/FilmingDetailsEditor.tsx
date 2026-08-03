@@ -8,10 +8,16 @@ import {
 } from "@/lib/division-tasks";
 import { resolveGoogleDriveFileUrls } from "@/lib/google-drive";
 import { projectInputClass } from "@/lib/project-client-theme";
+import { appendDivisionTaskMention } from "@/lib/project-mentions";
 import { resolveInstagramEmbedUrl } from "@/lib/social-content";
 import { supabase } from "@/lib/supabase";
 import type { WorkspaceClientSlug } from "@/lib/workspace-clients";
 import { TeamButton } from "../../_components/TeamHubUi";
+import {
+  TaskMentionInput,
+  TaskMentionTextarea,
+} from "./TaskMentionTextarea";
+import { useTaskTeamMembers } from "./TaskPeoplePicker";
 
 type SourceReference = {
   id: string;
@@ -97,6 +103,7 @@ export function FilmingDetailsEditor({
   clientSlug: WorkspaceClientSlug;
   initialData: unknown;
 }) {
+  const teamMembers = useTaskTeamMembers();
   const [card, setCard] = useState<FilmingCardData>(() =>
     normalizeFilmingCardData(initialData),
   );
@@ -429,17 +436,16 @@ export function FilmingDetailsEditor({
             ))}
           </div>
           <div className="mt-3 flex max-w-md gap-2">
-            <input
+            <TaskMentionInput
               value={customParticipant}
-              onChange={(event) => setCustomParticipant(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  addParticipant();
-                }
-              }}
+              onChange={setCustomParticipant}
+              members={teamMembers}
+              onMention={(username) =>
+                void appendDivisionTaskMention(taskId, username)
+              }
+              onEnter={addParticipant}
               className={projectInputClass}
-              placeholder="Add another participant"
+              placeholder="Add a participant or type @ to mention"
             />
             <TeamButton
               type="button"
@@ -454,10 +460,14 @@ export function FilmingDetailsEditor({
 
         <label className="text-xs font-semibold text-[var(--foreground)] lg:col-span-2">
           Script
-          <textarea
+          <TaskMentionTextarea
             rows={8}
             value={card.script}
-            onChange={(event) => updateField("script", event.target.value)}
+            onChange={(value) => updateField("script", value)}
+            members={teamMembers}
+            onMention={(username) =>
+              void appendDivisionTaskMention(taskId, username)
+            }
             className={`mt-2 resize-y ${projectInputClass}`}
             placeholder="Write or refine the filming script."
           />
@@ -465,11 +475,13 @@ export function FilmingDetailsEditor({
 
         <label className="text-xs font-semibold text-[var(--foreground)] lg:col-span-2">
           Prep work needed
-          <textarea
+          <TaskMentionTextarea
             rows={6}
             value={card.prep_work}
-            onChange={(event) =>
-              updateField("prep_work", event.target.value)
+            onChange={(value) => updateField("prep_work", value)}
+            members={teamMembers}
+            onMention={(username) =>
+              void appendDivisionTaskMention(taskId, username)
             }
             className={`mt-2 resize-y ${projectInputClass}`}
             placeholder="Equipment, location, wardrobe, props, shot list…"

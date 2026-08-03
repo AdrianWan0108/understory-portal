@@ -6,10 +6,13 @@ import {
   type ContentBriefData,
 } from "@/lib/division-tasks";
 import { projectInputClass } from "@/lib/project-client-theme";
+import { appendDivisionTaskMention } from "@/lib/project-mentions";
 import { supabase } from "@/lib/supabase";
 import type { WorkspaceClientSlug } from "@/lib/workspace-clients";
 import { TeamButton } from "../../_components/TeamHubUi";
 import { FilmingDetailsEditor } from "./FilmingDetailsEditor";
+import { TaskMentionTextarea } from "./TaskMentionTextarea";
+import { useTaskTeamMembers } from "./TaskPeoplePicker";
 
 export function ContentBriefEditor({
   taskId,
@@ -22,6 +25,7 @@ export function ContentBriefEditor({
   initialData: unknown;
   initialFilmingData: unknown;
 }) {
+  const teamMembers = useTaskTeamMembers();
   const [brief, setBrief] = useState<ContentBriefData>(() =>
     normalizeContentBriefData(initialData),
   );
@@ -100,11 +104,13 @@ export function ContentBriefEditor({
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
         <label className="text-xs font-semibold text-[var(--foreground)]">
           Campaign goal
-          <textarea
+          <TaskMentionTextarea
             rows={4}
             value={brief.campaign_goal}
-            onChange={(event) =>
-              updateField("campaign_goal", event.target.value)
+            onChange={(value) => updateField("campaign_goal", value)}
+            members={teamMembers}
+            onMention={(username) =>
+              void appendDivisionTaskMention(taskId, username)
             }
             className={`mt-2 resize-y ${projectInputClass}`}
             placeholder="What should this campaign achieve?"
@@ -112,11 +118,13 @@ export function ContentBriefEditor({
         </label>
         <label className="text-xs font-semibold text-[var(--foreground)]">
           Target audience
-          <textarea
+          <TaskMentionTextarea
             rows={4}
             value={brief.target_audience}
-            onChange={(event) =>
-              updateField("target_audience", event.target.value)
+            onChange={(value) => updateField("target_audience", value)}
+            members={teamMembers}
+            onMention={(username) =>
+              void appendDivisionTaskMention(taskId, username)
             }
             className={`mt-2 resize-y ${projectInputClass}`}
             placeholder="Who are we trying to reach?"
@@ -124,11 +132,13 @@ export function ContentBriefEditor({
         </label>
         <label className="text-xs font-semibold text-[var(--foreground)]">
           Key messages
-          <textarea
+          <TaskMentionTextarea
             rows={6}
             value={brief.key_messages}
-            onChange={(event) =>
-              updateField("key_messages", event.target.value)
+            onChange={(value) => updateField("key_messages", value)}
+            members={teamMembers}
+            onMention={(username) =>
+              void appendDivisionTaskMention(taskId, username)
             }
             className={`mt-2 resize-y ${projectInputClass}`}
             placeholder="List the main messages, one per line."
@@ -136,11 +146,13 @@ export function ContentBriefEditor({
         </label>
         <label className="text-xs font-semibold text-[var(--foreground)]">
           Content pillars / themes
-          <textarea
+          <TaskMentionTextarea
             rows={6}
             value={brief.content_pillars}
-            onChange={(event) =>
-              updateField("content_pillars", event.target.value)
+            onChange={(value) => updateField("content_pillars", value)}
+            members={teamMembers}
+            onMention={(username) =>
+              void appendDivisionTaskMention(taskId, username)
             }
             className={`mt-2 resize-y ${projectInputClass}`}
             placeholder="Education, community, product, behind the scenes…"

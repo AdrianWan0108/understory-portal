@@ -31,6 +31,11 @@ import { FigJamTaskBoard } from "../_components/FigJamTaskBoard";
 import { useProjectTheme } from "../_components/ProjectThemeProvider";
 import { SocialResearchLog } from "../_components/SocialResearchLog";
 import { TaskItemsEditor } from "../_components/TaskItemsEditor";
+import {
+  TaskMentionTextarea,
+  extractMentionedUsernames,
+} from "../_components/TaskMentionTextarea";
+import { useTaskTeamMembers } from "../_components/TaskPeoplePicker";
 
 type DivisionTask = {
   id: string;
@@ -43,6 +48,8 @@ type DivisionTask = {
   content_brief_data: unknown;
   filming_card_data: unknown;
   figjam_embed_url: string | null;
+  watcher_usernames: string[];
+  mentioned_usernames: string[];
   created_at: string;
 };
 
@@ -50,11 +57,15 @@ export default function DivisionTaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>();
   const router = useRouter();
   const { setClient: setThemeClient } = useProjectTheme();
+  const teamMembers = useTaskTeamMembers();
   const [task, setTask] = useState<DivisionTask | null>(null);
   const [clientSlug, setClientSlug] =
     useState<WorkspaceClientSlug | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingStatus, setIsSavingStatus] = useState(false);
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [isSavingDescription, setIsSavingDescription] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -66,7 +77,7 @@ export default function DivisionTaskDetailPage() {
       const { data, error: taskError } = await supabase
         .from("division_tasks")
         .select(
-          "id, client_id, division, title, description, status, template_type, content_brief_data, filming_card_data, figjam_embed_url, created_at",
+          "id, client_id, division, title, description, status, template_type, content_brief_data, filming_card_data, figjam_embed_url, watcher_usernames, mentioned_usernames, created_at",
         )
         .eq("id", taskId)
         .single();
@@ -154,6 +165,43 @@ export default function DivisionTaskDetailPage() {
     }
   }
 
+  async function saveDescription() {
+    if (!task || isSavingDescription) return;
+    const description = descriptionDraft.trim() || null;
+    const mentionedUsernames = extractMentionedUsernames(
+      descriptionDraft,
+      teamMembers,
+    );
+    const watcherUsernames = Array.from(
+      new Set([...task.watcher_usernames, ...mentionedUsernames]),
+    );
+    setIsSavingDescription(true);
+    setError(null);
+
+    const { error: updateError } = await supabase
+      .from("division_tasks")
+      .update({
+        description,
+        mentioned_usernames: mentionedUsernames,
+        watcher_usernames: watcherUsernames,
+      })
+      .eq("id", task.id);
+    setIsSavingDescription(false);
+
+    if (updateError) {
+      setError(`Could not update the description: ${updateError.message}`);
+      return;
+    }
+
+    setTask({
+      ...task,
+      description,
+      mentioned_usernames: mentionedUsernames,
+      watcher_usernames: watcherUsernames,
+    });
+    setIsEditingDescription(false);
+  }
+
   if (isLoading) {
     return (
       <main className="px-5 py-10 sm:px-8 sm:py-14 lg:px-12">
@@ -212,9 +260,53 @@ export default function DivisionTaskDetailPage() {
                   <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
                     {task.title}
                   </h1>
-                  <p className="mt-4 max-w-3xl text-sm leading-7 text-[var(--muted-foreground)]">
-                    {task.description || "No description has been added yet."}
-                  </p>
+                  {isEditingDescription ? (
+                    <div className="mt-4 max-w-3xl">
+                      <TaskMentionTextarea
+                        autoFocus
+                        rows={5}
+                        value={descriptionDraft}
+                        onChange={setDescriptionDraft}
+                        members={teamMembers}
+                        placeholder="Describe the task. Type @ to mention someone."
+                        className={`resize-y ${projectInputClass}`}
+                      />
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={isSavingDescription}
+                          onClick={() => void saveDescription()}
+                          className="rounded-full bg-[var(--primary)] px-4 py-2 text-xs font-semibold text-[var(--primary-foreground)] disabled:opacity-50"
+                        >
+                          {isSavingDescription ? "Saving…" : "Save description"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isSavingDescription}
+                          onClick={() => setIsEditingDescription(false)}
+                          className="rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-xs font-semibold text-[var(--foreground)] disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-4 max-w-3xl">
+                      <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--muted-foreground)]">
+                        {task.description || "No description has been added yet."}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDescriptionDraft(task.description ?? "");
+                          setIsEditingDescription(true);
+                        }}
+                        className="mt-2 text-xs font-semibold text-[var(--primary)] hover:underline"
+                      >
+                        Edit description or mention someone
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 

@@ -18,6 +18,13 @@ import {
 import { sendSlackNotification } from "@/lib/slack-notifications";
 import { useOptionalProjectTheme } from "@/app/team-hub/projects/_components/ProjectThemeProvider";
 import { TaskItemsEditor } from "@/app/team-hub/projects/_components/TaskItemsEditor";
+import {
+  extractMentionedUsernames,
+  TaskMentionInput,
+  TaskMentionTextarea,
+} from "@/app/team-hub/projects/_components/TaskMentionTextarea";
+import { useTaskTeamMembers } from "@/app/team-hub/projects/_components/TaskPeoplePicker";
+import { appendWebsiteTaskMention } from "@/lib/project-mentions";
 import { UnderstoryBrand } from "../_components/UnderstoryBrand";
 
 type ClientSlug = WorkspaceClientSlug;
@@ -40,6 +47,7 @@ type WebsiteTask = {
   column_status: ColumnStatus;
   priority: Priority;
   live_url: string | null;
+  mentioned_usernames: string[];
   created_at: string;
 };
 
@@ -60,6 +68,13 @@ type PageCommentPin = {
   author: string;
   resolved: boolean;
   created_at: string;
+};
+
+type WebsitePreviewMetrics = {
+  scrollY: number;
+  scrollHeight: number;
+  viewportWidth: number;
+  viewportHeight: number;
 };
 
 type ClientRow = {
@@ -339,8 +354,10 @@ function AddTaskModal({
     title: string;
     description: string;
     priority: Priority;
+    mentionedUsernames: string[];
   }) => Promise<boolean>;
 }) {
+  const teamMembers = useTaskTeamMembers();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<Priority>("normal");
@@ -354,6 +371,10 @@ function AddTaskModal({
       title: title.trim(),
       description: description.trim(),
       priority,
+      mentionedUsernames: extractMentionedUsernames(
+        `${title}\n${description}`,
+        teamMembers,
+      ),
     });
     setIsSaving(false);
     if (didCreate) onClose();
@@ -395,13 +416,14 @@ function AddTaskModal({
         <form onSubmit={submit} className="mt-6 space-y-5">
           <label className="block">
             <span className="text-xs font-semibold text-[#695677]">Title</span>
-            <input
+            <TaskMentionInput
               required
               autoFocus
               value={title}
-              onChange={(event) => setTitle(event.target.value)}
+              onChange={setTitle}
+              members={teamMembers}
               className="mt-2 w-full rounded-xl border border-[#DED0E7] bg-[#FFFCF7] px-3.5 py-3 text-sm text-[#341F60] outline-none transition focus:border-[#7D4698] focus:ring-2 focus:ring-[#7D4698]/20"
-              placeholder="Task title"
+              placeholder="Task title — type @ to mention"
             />
           </label>
 
@@ -409,12 +431,13 @@ function AddTaskModal({
             <span className="text-xs font-semibold text-[#695677]">
               Description
             </span>
-            <textarea
+            <TaskMentionTextarea
               rows={5}
               value={description}
-              onChange={(event) => setDescription(event.target.value)}
+              onChange={setDescription}
+              members={teamMembers}
               className="mt-2 w-full resize-none rounded-xl border border-[#DED0E7] bg-[#FFFCF7] px-3.5 py-3 text-sm leading-6 text-[#341F60] outline-none transition focus:border-[#7D4698] focus:ring-2 focus:ring-[#7D4698]/20"
-              placeholder="What needs to be done?"
+              placeholder="What needs to be done? Type @ to mention someone."
             />
           </label>
 
@@ -500,24 +523,32 @@ function LiveWebsitePreview({
   canManage,
   actorName,
   actorAvatarUrl,
+  onPinsChange,
 }: {
   taskId: string;
   url: string;
   canManage: boolean;
   actorName: string;
   actorAvatarUrl: string | null;
+  onPinsChange: (pins: PageCommentPin[]) => void;
 }) {
-  // Keep the iframe and its pins on the same tall canvas. The preview viewport
-  // scrolls this canvas, so every pin remains attached to its page position.
-  // At desktop sizes the iframe is rendered at 2x width, then scaled down to
-  // show the site's wide layout without making the review canvas enormous.
-  const previewCanvasHeight = 1600;
+  const desktopViewportWidth = 1920;
+  const desktopViewportHeight = 1080;
+  const teamMembers = useTaskTeamMembers();
+  const previewViewportRef = useRef<HTMLDivElement>(null);
+  const previewFrameRef = useRef<HTMLIFrameElement>(null);
   const [previewState, setPreviewState] = useState<
     "loading" | "loaded" | "failed"
   >("loading");
+  const [previewScale, setPreviewScale] = useState(0.5);
+  const [previewMetrics, setPreviewMetrics] = useState<WebsitePreviewMetrics>({
+    scrollY: 0,
+    scrollHeight: desktopViewportHeight,
+    viewportWidth: desktopViewportWidth,
+    viewportHeight: desktopViewportHeight,
+  });
   const [pins, setPins] = useState<PageCommentPin[]>([]);
   const [isLoadingPins, setIsLoadingPins] = useState(true);
-  const [isInteractiveMode, setIsInteractiveMode] = useState(false);
   const [isPinMode, setIsPinMode] = useState(false);
   const [pendingPin, setPendingPin] = useState<{
     xPercent: number;
@@ -550,9 +581,58 @@ function LiveWebsitePreview({
       setPreviewState((current) =>
         current === "loading" ? "failed" : current,
       );
-    }, 3000);
+    }, 8000);
     return () => window.clearTimeout(timeout);
   }, []);
+
+  useEffect(() => {
+    const viewport = previewViewportRef.current;
+    if (!viewport) return;
+
+    const updateScale = () => {
+      setPreviewScale(viewport.clientWidth / desktopViewportWidth);
+    };
+    const observer = new ResizeObserver(updateScale);
+    observer.observe(viewport);
+    updateScale();
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    function receivePreviewMetrics(event: MessageEvent) {
+      if (event.source !== previewFrameRef.current?.contentWindow) return;
+      const data = event.data as Partial<WebsitePreviewMetrics> & {
+        type?: string;
+        taskId?: string;
+      };
+      if (
+        data?.type !== "understory-preview-metrics" ||
+        data.taskId !== taskId
+      ) {
+        return;
+      }
+
+      setPreviewMetrics({
+        scrollY: Math.max(0, Number(data.scrollY) || 0),
+        scrollHeight: Math.max(
+          desktopViewportHeight,
+          Number(data.scrollHeight) || desktopViewportHeight,
+        ),
+        viewportWidth: Math.max(
+          1,
+          Number(data.viewportWidth) || desktopViewportWidth,
+        ),
+        viewportHeight: Math.max(
+          1,
+          Number(data.viewportHeight) || desktopViewportHeight,
+        ),
+      });
+      setPreviewState("loaded");
+    }
+
+    window.addEventListener("message", receivePreviewMetrics);
+    return () => window.removeEventListener("message", receivePreviewMetrics);
+  }, [taskId]);
 
   useEffect(() => {
     let isActive = true;
@@ -585,6 +665,10 @@ function LiveWebsitePreview({
   }, [taskId]);
 
   useEffect(() => {
+    onPinsChange(pins);
+  }, [onPinsChange, pins]);
+
+  useEffect(() => {
     if (!confirmDeletePinId) return;
 
     const timeout = window.setTimeout(() => {
@@ -593,14 +677,49 @@ function LiveWebsitePreview({
     return () => window.clearTimeout(timeout);
   }, [confirmDeletePinId]);
 
+  function positionFromPointer(clientX: number, clientY: number) {
+    const viewport = previewViewportRef.current;
+    if (!viewport) return null;
+    const bounds = viewport.getBoundingClientRect();
+    const scale = Math.max(previewScale, 0.01);
+    const documentY =
+      previewMetrics.scrollY + (clientY - bounds.top) / scale;
+
+    return {
+      xPercent: Math.min(
+        100,
+        Math.max(0, ((clientX - bounds.left) / bounds.width) * 100),
+      ),
+      yPercent: Math.min(
+        100,
+        Math.max(0, (documentY / previewMetrics.scrollHeight) * 100),
+      ),
+    };
+  }
+
+  function pinViewportY(yPercent: number) {
+    const documentY = (yPercent / 100) * previewMetrics.scrollHeight;
+    return (documentY - previewMetrics.scrollY) * previewScale;
+  }
+
+  function scrollPreviewBy(renderedPixels: number) {
+    previewFrameRef.current?.contentWindow?.postMessage(
+      {
+        type: "understory-preview-scroll-by",
+        taskId,
+        top: renderedPixels / Math.max(previewScale, 0.01),
+      },
+      "*",
+    );
+  }
+
   function placePin(event: React.MouseEvent<HTMLDivElement>) {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const xPercent = ((event.clientX - bounds.left) / bounds.width) * 100;
-    const yPercent = ((event.clientY - bounds.top) / bounds.height) * 100;
+    const position = positionFromPointer(event.clientX, event.clientY);
+    if (!position) return;
 
     setPendingPin({
-      xPercent: Math.min(100, Math.max(0, xPercent)),
-      yPercent: Math.min(100, Math.max(0, yPercent)),
+      xPercent: position.xPercent,
+      yPercent: position.yPercent,
     });
     setSelectedPinId(null);
     setPinComment("");
@@ -634,28 +753,19 @@ function LiveWebsitePreview({
     }
 
     setPins((current) => [...current, data as PageCommentPin]);
+    for (const username of extractMentionedUsernames(comment, teamMembers)) {
+      await appendWebsiteTaskMention(taskId, username);
+    }
     setPendingPin(null);
     setPinComment("");
+    setIsPinMode(false);
     setPinError(null);
   }
 
   function pinPositionFromPointer(
     event: React.PointerEvent<HTMLButtonElement>,
   ) {
-    const canvas = event.currentTarget.parentElement;
-    if (!canvas) return null;
-    const bounds = canvas.getBoundingClientRect();
-
-    return {
-      xPercent: Math.min(
-        100,
-        Math.max(0, ((event.clientX - bounds.left) / bounds.width) * 100),
-      ),
-      yPercent: Math.min(
-        100,
-        Math.max(0, ((event.clientY - bounds.top) / bounds.height) * 100),
-      ),
-    };
+    return positionFromPointer(event.clientX, event.clientY);
   }
 
   function startPinDrag(
@@ -833,11 +943,14 @@ function LiveWebsitePreview({
   }
 
   function getPopoverStyle(xPercent: number, yPercent: number) {
+    const viewportY = pinViewportY(yPercent);
+    const renderedViewportHeight =
+      previewMetrics.viewportHeight * previewScale;
     return {
       left: `${Math.min(82, Math.max(18, xPercent))}%`,
-      top: `${yPercent}%`,
+      top: `${viewportY}px`,
       transform:
-        yPercent > 62
+        viewportY > renderedViewportHeight * 0.62
           ? "translate(-50%, calc(-100% - 14px))"
           : "translate(-50%, 14px)",
     };
@@ -874,30 +987,11 @@ function LiveWebsitePreview({
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <button
-            type="button"
-            aria-pressed={isInteractiveMode}
-            onClick={() => {
-              setIsInteractiveMode((current) => !current);
-              setIsPinMode(false);
-              setPendingPin(null);
-              setSelectedPinId(null);
-              setConfirmDeletePinId(null);
-            }}
-            className={`rounded-full border px-4 py-2.5 text-xs font-semibold transition ${
-              isInteractiveMode
-                ? "border-[#7D4698] bg-[#F5EEFA] text-[#5F3378]"
-                : "border-[#DED0E7] bg-white text-[#695677] hover:bg-[#F8F3FB]"
-            }`}
-          >
-            {isInteractiveMode ? "Review comments" : "Interact with site"}
-          </button>
         {canManage && (
           <button
             type="button"
             aria-pressed={isPinMode}
             onClick={() => {
-              setIsInteractiveMode(false);
               setIsPinMode((current) => !current);
               setPendingPin(null);
               setSelectedPinId(null);
@@ -927,27 +1021,23 @@ function LiveWebsitePreview({
           </span>
         </div>
 
-        <div className="relative h-[520px] bg-white sm:h-[600px] lg:aspect-video lg:h-auto">
-          <div
-            className={`absolute inset-0 overscroll-contain ${
-              isInteractiveMode ? "overflow-hidden" : "overflow-y-auto"
-            }`}
-          >
-            <div
-              className="relative w-full"
-              style={{
-                height: isInteractiveMode ? "100%" : previewCanvasHeight,
-              }}
-            >
+        <div
+          ref={previewViewportRef}
+          className="relative aspect-video overflow-hidden bg-white"
+        >
             <iframe
+              ref={previewFrameRef}
               title="Live website preview"
-              src={url}
-              onLoad={() => setPreviewState("loaded")}
-              className={`absolute inset-0 h-full w-full bg-white lg:h-[200%] lg:w-[200%] lg:origin-top-left lg:scale-50 ${
-                isInteractiveMode ? "pointer-events-auto" : "pointer-events-none"
-              }`}
+              src={`/team-hub/website-preview/frame?taskId=${encodeURIComponent(taskId)}`}
+              sandbox="allow-scripts"
+              className="absolute left-0 top-0 origin-top-left border-0 bg-white"
+              style={{
+                width: desktopViewportWidth,
+                height: desktopViewportHeight,
+                transform: `scale(${previewScale})`,
+              }}
               referrerPolicy="strict-origin-when-cross-origin"
-              scrolling={isInteractiveMode ? "yes" : "no"}
+              scrolling="yes"
             />
 
             {previewState === "loading" && (
@@ -956,12 +1046,16 @@ function LiveWebsitePreview({
               </div>
             )}
 
-            {!isInteractiveMode && isPinMode && (
+            {isPinMode && (
               <div
                 role="button"
                 tabIndex={0}
                 aria-label="Place a comment pin on the preview"
                 onClick={placePin}
+                onWheel={(event) => {
+                  event.preventDefault();
+                  scrollPreviewBy(event.deltaY);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Escape") {
                     setPendingPin(null);
@@ -972,7 +1066,7 @@ function LiveWebsitePreview({
               />
             )}
 
-            {!isInteractiveMode && pins.map((pin) => (
+            {pins.map((pin) => (
               <button
                 key={pin.id}
                 type="button"
@@ -1000,7 +1094,7 @@ function LiveWebsitePreview({
                 } ${pin.resolved ? "opacity-60 grayscale" : ""}`}
                 style={{
                   left: `${pin.x_percent}%`,
-                  top: `${pin.y_percent}%`,
+                  top: `${pinViewportY(pin.y_percent)}px`,
                 }}
               >
                 <CommentPinAvatar
@@ -1010,13 +1104,13 @@ function LiveWebsitePreview({
               </button>
             ))}
 
-            {!isInteractiveMode && pendingPin && (
+            {pendingPin && (
               <>
                 <span
                   className="pointer-events-none absolute z-30 flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center overflow-hidden rounded-full border-2 border-white shadow-[0_4px_14px_rgba(52,31,96,0.28)]"
                   style={{
                     left: `${pendingPin.xPercent}%`,
-                    top: `${pendingPin.yPercent}%`,
+                    top: `${pinViewportY(pendingPin.yPercent)}px`,
                   }}
                 >
                   <CommentPinAvatar
@@ -1049,12 +1143,16 @@ function LiveWebsitePreview({
                       <span className="sr-only">Cancel pin</span>
                     </button>
                   </div>
-                  <textarea
+                  <TaskMentionTextarea
                     autoFocus
                     rows={3}
                     value={pinComment}
-                    onChange={(event) => setPinComment(event.target.value)}
-                    placeholder="What should change here?"
+                    onChange={setPinComment}
+                    members={teamMembers}
+                    onMention={(username) =>
+                      void appendWebsiteTaskMention(taskId, username)
+                    }
+                    placeholder="What should change here? Type @ to mention someone."
                     className="mt-3 w-full resize-none rounded-xl border border-[#DED0E7] bg-[#FFFCF7] px-3 py-2.5 text-xs leading-5 text-[#341F60] outline-none focus:border-[#7D4698] focus:ring-2 focus:ring-[#7D4698]/20"
                   />
                   <div className="mt-3 flex justify-end">
@@ -1070,7 +1168,7 @@ function LiveWebsitePreview({
               </>
             )}
 
-            {!isInteractiveMode && pins.map((pin) =>
+            {pins.map((pin) =>
               selectedPinId === pin.id ? (
                 <div
                   key={`popover-${pin.id}`}
@@ -1136,8 +1234,6 @@ function LiveWebsitePreview({
                 </div>
               ) : null,
             )}
-            </div>
-          </div>
         </div>
       </div>
 
@@ -1188,12 +1284,14 @@ function TaskDetailPanel({
   actorAvatarUrl: string | null;
   embedded?: boolean;
 }) {
+  const teamMembers = useTaskTeamMembers();
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
   const [priority, setPriority] = useState<Priority>(task.priority);
   const [liveUrlDraft, setLiveUrlDraft] = useState(task.live_url ?? "");
   const [savedLiveUrl, setSavedLiveUrl] = useState(task.live_url ?? "");
   const [comments, setComments] = useState<PageComment[]>([]);
+  const [commentPins, setCommentPins] = useState<PageCommentPin[]>([]);
   const [commentDraft, setCommentDraft] = useState("");
   const [commentError, setCommentError] = useState<string | null>(null);
   const [isLoadingComments, setIsLoadingComments] = useState(true);
@@ -1204,6 +1302,23 @@ function TaskDetailPanel({
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const column = columns.find((candidate) => candidate.id === task.column_status);
+  const feedbackItems = [
+    ...comments.map((comment) => ({ kind: "comment" as const, comment })),
+    ...commentPins.map((pin) => ({ kind: "pin" as const, pin })),
+  ].sort((first, second) => {
+    const firstCreatedAt =
+      first.kind === "comment"
+        ? first.comment.created_at
+        : first.pin.created_at;
+    const secondCreatedAt =
+      second.kind === "comment"
+        ? second.comment.created_at
+        : second.pin.created_at;
+    return (
+      new Date(firstCreatedAt).getTime() -
+      new Date(secondCreatedAt).getTime()
+    );
+  });
 
   useEffect(() => {
     let isActive = true;
@@ -1243,6 +1358,14 @@ function TaskDetailPanel({
       description: description.trim(),
       priority,
     });
+    if (didSave) {
+      for (const username of extractMentionedUsernames(
+        `${title}\n${description}`,
+        teamMembers,
+      )) {
+        await appendWebsiteTaskMention(task.id, username);
+      }
+    }
     setIsSaving(false);
     if (didSave && !embedded) onClose();
   }
@@ -1288,6 +1411,9 @@ function TaskDetailPanel({
     }
 
     setComments((current) => [...current, data as PageComment]);
+    for (const username of extractMentionedUsernames(comment, teamMembers)) {
+      await appendWebsiteTaskMention(task.id, username);
+    }
     setCommentDraft("");
     setCommentError(null);
   }
@@ -1435,6 +1561,7 @@ function TaskDetailPanel({
               canManage={canManage}
               actorName={actorName}
               actorAvatarUrl={actorAvatarUrl}
+              onPinsChange={setCommentPins}
             />
             <div className="mt-3 text-center">
               <a
@@ -1481,29 +1608,50 @@ function TaskDetailPanel({
           <div className="mt-5 space-y-3">
             {isLoadingComments ? (
               <div className="h-20 animate-pulse rounded-2xl bg-[#F3ECF8]" />
-            ) : comments.length === 0 ? (
+            ) : feedbackItems.length === 0 ? (
               <p className="rounded-2xl border border-dashed border-[#E0D4E8] px-4 py-6 text-center text-xs text-[#8B7895]">
                 No comments yet.
               </p>
             ) : (
-              comments.map((comment) => (
-                <article
-                  key={comment.id}
-                  className="rounded-2xl border border-[#E5DBEC] bg-[#FCF8FF] p-4"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold text-[#4F3D69]">
-                      {comment.author}
+              feedbackItems.map((item) => {
+                const feedback =
+                  item.kind === "comment" ? item.comment : item.pin;
+                return (
+                  <article
+                    key={`${item.kind}-${feedback.id}`}
+                    className="rounded-2xl border border-[#E5DBEC] bg-[#FCF8FF] p-4"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="size-7 overflow-hidden rounded-full border border-white shadow-sm">
+                          <CommentPinAvatar
+                            avatarUrl={
+                              feedback.author === actorName
+                                ? actorAvatarUrl
+                                : null
+                            }
+                            name={feedback.author}
+                          />
+                        </span>
+                        <p className="text-xs font-semibold text-[#4F3D69]">
+                          {feedback.author}
+                        </p>
+                        {item.kind === "pin" && (
+                          <span className="rounded-full bg-[#EEE3FA] px-2 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-[#5F3378]">
+                            {item.pin.resolved ? "Resolved pin" : "Pinned feedback"}
+                          </span>
+                        )}
+                      </div>
+                      <time className="text-[10px] text-[#8B7895]">
+                        {formatCommentDate(feedback.created_at)}
+                      </time>
+                    </div>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#695677]">
+                      {feedback.comment}
                     </p>
-                    <time className="text-[10px] text-[#8B7895]">
-                      {formatCommentDate(comment.created_at)}
-                    </time>
-                  </div>
-                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#695677]">
-                    {comment.comment}
-                  </p>
-                </article>
-              ))
+                  </article>
+                );
+              })
             )}
           </div>
 
@@ -1513,11 +1661,15 @@ function TaskDetailPanel({
               <span className="text-xs font-semibold text-[#695677]">
                 Add a comment
               </span>
-              <textarea
+              <TaskMentionTextarea
                 rows={4}
                 value={commentDraft}
-                onChange={(event) => setCommentDraft(event.target.value)}
-                placeholder="Write a note or edit request…"
+                onChange={setCommentDraft}
+                members={teamMembers}
+                onMention={(username) =>
+                  void appendWebsiteTaskMention(task.id, username)
+                }
+                placeholder="Write a note or edit request… Type @ to mention someone."
                 className="mt-2 w-full resize-none rounded-xl border border-[#DED0E7] bg-[#FFFCF7] px-3.5 py-3 text-sm leading-6 text-[#341F60] outline-none transition focus:border-[#7D4698] focus:ring-2 focus:ring-[#7D4698]/20"
               />
             </label>
@@ -1549,10 +1701,14 @@ function TaskDetailPanel({
           <form onSubmit={submit} className="mt-5 space-y-6">
             <label className="block">
               <span className="text-xs font-semibold text-[#695677]">Title</span>
-              <input
+              <TaskMentionInput
                 required
                 value={title}
-                onChange={(event) => setTitle(event.target.value)}
+                onChange={setTitle}
+                members={teamMembers}
+                onMention={(username) =>
+                  void appendWebsiteTaskMention(task.id, username)
+                }
                 className="mt-2 w-full rounded-xl border border-[#DED0E7] bg-[#FFFCF7] px-3.5 py-3 text-sm text-[#341F60] outline-none transition focus:border-[#7D4698] focus:ring-2 focus:ring-[#7D4698]/20"
               />
             </label>
@@ -1561,10 +1717,14 @@ function TaskDetailPanel({
               <span className="text-xs font-semibold text-[#695677]">
                 Description
               </span>
-              <textarea
+              <TaskMentionTextarea
                 rows={7}
                 value={description}
-                onChange={(event) => setDescription(event.target.value)}
+                onChange={setDescription}
+                members={teamMembers}
+                onMention={(username) =>
+                  void appendWebsiteTaskMention(task.id, username)
+                }
                 className="mt-2 w-full resize-none rounded-xl border border-[#DED0E7] bg-[#FFFCF7] px-3.5 py-3 text-sm leading-6 text-[#341F60] outline-none transition focus:border-[#7D4698] focus:ring-2 focus:ring-[#7D4698]/20"
               />
             </label>
@@ -1771,7 +1931,7 @@ function WebsiteDevelopmentDashboard() {
       const query = supabase
         .from("website_tasks")
         .select(
-          "id, client_id, title, description, column_status, priority, live_url, created_at",
+          "id, client_id, title, description, column_status, priority, live_url, mentioned_usernames, created_at",
         )
         .eq("client_id", currentClientId)
         .order("created_at", { ascending: true });
@@ -1862,6 +2022,7 @@ function WebsiteDevelopmentDashboard() {
       title: string;
       description: string;
       priority: Priority;
+      mentionedUsernames: string[];
     },
   ) {
     if (!currentClientId || !canManage) return false;
@@ -1874,9 +2035,10 @@ function WebsiteDevelopmentDashboard() {
         description: values.description,
         column_status: columnStatus,
         priority: values.priority,
+        mentioned_usernames: values.mentionedUsernames,
       })
       .select(
-        "id, client_id, title, description, column_status, priority, live_url, created_at",
+        "id, client_id, title, description, column_status, priority, live_url, mentioned_usernames, created_at",
       )
       .single();
 
