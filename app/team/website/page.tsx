@@ -1,6 +1,7 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { ClientSelect } from "@/app/_components/ClientSelect";
@@ -464,14 +465,44 @@ function AddTaskModal({
   );
 }
 
+function CommentPinAvatar({
+  avatarUrl,
+  name,
+}: {
+  avatarUrl: string | null;
+  name: string;
+}) {
+  if (avatarUrl) {
+    return (
+      <Image
+        src={avatarUrl}
+        alt=""
+        width={32}
+        height={32}
+        className="size-full rounded-full object-cover"
+      />
+    );
+  }
+
+  return (
+    <span className="flex size-full items-center justify-center rounded-full bg-[#7D4698] text-[10px] font-bold uppercase text-white">
+      {name.trim().charAt(0) || "T"}
+    </span>
+  );
+}
+
 function LiveWebsitePreview({
   taskId,
   url,
   canManage,
+  actorName,
+  actorAvatarUrl,
 }: {
   taskId: string;
   url: string;
   canManage: boolean;
+  actorName: string;
+  actorAvatarUrl: string | null;
 }) {
   const [previewState, setPreviewState] = useState<
     "loading" | "loaded" | "failed"
@@ -488,9 +519,22 @@ function LiveWebsitePreview({
   const [pinError, setPinError] = useState<string | null>(null);
   const [isSavingPin, setIsSavingPin] = useState(false);
   const [busyPinId, setBusyPinId] = useState<string | null>(null);
+  const [draggingPinId, setDraggingPinId] = useState<string | null>(null);
   const [confirmDeletePinId, setConfirmDeletePinId] = useState<string | null>(
     null,
   );
+  const pinDragRef = useRef<{
+    pinId: string;
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    originalXPercent: number;
+    originalYPercent: number;
+    xPercent: number;
+    yPercent: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressPinClickRef = useRef<string | null>(null);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -567,7 +611,7 @@ function LiveWebsitePreview({
         x_percent: pendingPin.xPercent,
         y_percent: pendingPin.yPercent,
         comment,
-        author: "Karen",
+        author: actorName,
       })
       .select(
         "id, task_id, x_percent, y_percent, comment, author, resolved, created_at",
@@ -584,6 +628,144 @@ function LiveWebsitePreview({
     setPendingPin(null);
     setPinComment("");
     setPinError(null);
+  }
+
+  function pinPositionFromPointer(
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) {
+    const canvas = event.currentTarget.parentElement;
+    if (!canvas) return null;
+    const bounds = canvas.getBoundingClientRect();
+
+    return {
+      xPercent: Math.min(
+        100,
+        Math.max(0, ((event.clientX - bounds.left) / bounds.width) * 100),
+      ),
+      yPercent: Math.min(
+        100,
+        Math.max(0, ((event.clientY - bounds.top) / bounds.height) * 100),
+      ),
+    };
+  }
+
+  function startPinDrag(
+    event: React.PointerEvent<HTMLButtonElement>,
+    pin: PageCommentPin,
+  ) {
+    if (!canManage || busyPinId === pin.id) return;
+
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    pinDragRef.current = {
+      pinId: pin.id,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      originalXPercent: pin.x_percent,
+      originalYPercent: pin.y_percent,
+      xPercent: pin.x_percent,
+      yPercent: pin.y_percent,
+      moved: false,
+    };
+    setDraggingPinId(pin.id);
+    setPendingPin(null);
+    setSelectedPinId(null);
+    setConfirmDeletePinId(null);
+  }
+
+  function dragPin(event: React.PointerEvent<HTMLButtonElement>) {
+    const drag = pinDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    const distance = Math.hypot(
+      event.clientX - drag.startClientX,
+      event.clientY - drag.startClientY,
+    );
+    if (!drag.moved && distance < 3) return;
+
+    const position = pinPositionFromPointer(event);
+    if (!position) return;
+    event.preventDefault();
+    drag.moved = true;
+    drag.xPercent = position.xPercent;
+    drag.yPercent = position.yPercent;
+    setPins((current) =>
+      current.map((pin) =>
+        pin.id === drag.pinId
+          ? {
+              ...pin,
+              x_percent: position.xPercent,
+              y_percent: position.yPercent,
+            }
+          : pin,
+      ),
+    );
+  }
+
+  async function persistPinPosition(drag: NonNullable<typeof pinDragRef.current>) {
+    setBusyPinId(drag.pinId);
+    const { error } = await supabase
+      .from("page_comment_pins")
+      .update({
+        x_percent: drag.xPercent,
+        y_percent: drag.yPercent,
+      })
+      .eq("id", drag.pinId);
+    setBusyPinId(null);
+
+    if (!error) {
+      setPinError(null);
+      return;
+    }
+
+    setPins((current) =>
+      current.map((pin) =>
+        pin.id === drag.pinId
+          ? {
+              ...pin,
+              x_percent: drag.originalXPercent,
+              y_percent: drag.originalYPercent,
+            }
+          : pin,
+      ),
+    );
+    setPinError(`Could not move the comment pin: ${error.message}`);
+  }
+
+  function finishPinDrag(event: React.PointerEvent<HTMLButtonElement>) {
+    const drag = pinDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    pinDragRef.current = null;
+    setDraggingPinId(null);
+
+    if (drag.moved) {
+      suppressPinClickRef.current = drag.pinId;
+      void persistPinPosition(drag);
+    }
+  }
+
+  function cancelPinDrag(event: React.PointerEvent<HTMLButtonElement>) {
+    const drag = pinDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    pinDragRef.current = null;
+    setDraggingPinId(null);
+    setPins((current) =>
+      current.map((pin) =>
+        pin.id === drag.pinId
+          ? {
+              ...pin,
+              x_percent: drag.originalXPercent,
+              y_percent: drag.originalYPercent,
+            }
+          : pin,
+      ),
+    );
   }
 
   async function resolvePin(pinId: string) {
@@ -721,7 +903,7 @@ function LiveWebsitePreview({
               title="Live website preview"
               src={url}
               onLoad={() => setPreviewState("loaded")}
-              className="absolute inset-0 h-full w-full bg-white lg:h-[150%] lg:w-[150%] lg:origin-top-left lg:scale-[0.6666667]"
+              className="pointer-events-auto absolute inset-0 h-full w-full bg-white lg:h-[150%] lg:w-[150%] lg:[zoom:0.6666667]"
               referrerPolicy="strict-origin-when-cross-origin"
               scrolling="yes"
             />
@@ -748,40 +930,57 @@ function LiveWebsitePreview({
               />
             )}
 
-            {pins.map((pin, index) => (
+            {pins.map((pin) => (
               <button
                 key={pin.id}
                 type="button"
-                aria-label={`Open comment pin ${index + 1}`}
+                aria-label={`Open comment by ${pin.author}. Drag to reposition.`}
+                title={canManage ? "Drag to reposition" : `Comment by ${pin.author}`}
+                onPointerDown={(event) => startPinDrag(event, pin)}
+                onPointerMove={dragPin}
+                onPointerUp={finishPinDrag}
+                onPointerCancel={cancelPinDrag}
                 onClick={() => {
+                  if (suppressPinClickRef.current === pin.id) {
+                    suppressPinClickRef.current = null;
+                    return;
+                  }
                   setSelectedPinId((current) =>
                     current === pin.id ? null : pin.id,
                   );
                   setPendingPin(null);
                   setConfirmDeletePinId(null);
                 }}
-                className={`absolute z-30 flex size-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white text-[10px] font-bold text-white shadow-[0_4px_14px_rgba(52,31,96,0.28)] transition hover:scale-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F4CE45] ${
-                  pin.resolved ? "bg-[#9B8FA2]" : "bg-[#7D4698]"
-                }`}
+                className={`absolute z-30 flex size-8 touch-none -translate-x-1/2 -translate-y-1/2 items-center justify-center overflow-hidden rounded-full border-2 border-white shadow-[0_4px_14px_rgba(52,31,96,0.28)] transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F4CE45] ${
+                  canManage ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+                } ${
+                  draggingPinId === pin.id ? "scale-110 ring-2 ring-[#F4CE45]" : "hover:scale-110"
+                } ${pin.resolved ? "opacity-60 grayscale" : ""}`}
                 style={{
                   left: `${pin.x_percent}%`,
                   top: `${pin.y_percent}%`,
                 }}
               >
-                {index + 1}
+                <CommentPinAvatar
+                  avatarUrl={pin.author === actorName ? actorAvatarUrl : null}
+                  name={pin.author}
+                />
               </button>
             ))}
 
             {pendingPin && (
               <>
                 <span
-                  className="pointer-events-none absolute z-30 flex size-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-[#F4CE45] text-[10px] font-bold text-[#341F60] shadow-[0_4px_14px_rgba(52,31,96,0.28)]"
+                  className="pointer-events-none absolute z-30 flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center overflow-hidden rounded-full border-2 border-white shadow-[0_4px_14px_rgba(52,31,96,0.28)]"
                   style={{
                     left: `${pendingPin.xPercent}%`,
                     top: `${pendingPin.yPercent}%`,
                   }}
                 >
-                  {pins.length + 1}
+                  <CommentPinAvatar
+                    avatarUrl={actorAvatarUrl}
+                    name={actorName}
+                  />
                 </span>
                 <form
                   onSubmit={savePin}
@@ -794,7 +993,7 @@ function LiveWebsitePreview({
                 >
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-xs font-semibold text-[#341F60]">
-                      Pin {pins.length + 1}
+                      New comment pin
                     </p>
                     <button
                       type="button"
@@ -829,7 +1028,7 @@ function LiveWebsitePreview({
               </>
             )}
 
-            {pins.map((pin, index) =>
+            {pins.map((pin) =>
               selectedPinId === pin.id ? (
                 <div
                   key={`popover-${pin.id}`}
@@ -839,7 +1038,7 @@ function LiveWebsitePreview({
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-xs font-semibold text-[#341F60]">
-                        Pin {index + 1} · {pin.author}
+                        {pin.author}
                       </p>
                       <time className="mt-0.5 block text-[10px] text-[#8B7895]">
                         {formatCommentDate(pin.created_at)}
@@ -853,8 +1052,8 @@ function LiveWebsitePreview({
                         disabled={pin.resolved || busyPinId === pin.id}
                         aria-label={
                           pin.resolved
-                            ? `Pin ${index + 1} is resolved`
-                            : `Mark pin ${index + 1} as resolved`
+                            ? `Comment by ${pin.author} is resolved`
+                            : `Mark comment by ${pin.author} as resolved`
                         }
                         className={`flex size-7 items-center justify-center rounded-full border transition disabled:cursor-default ${
                           pin.resolved
@@ -870,8 +1069,8 @@ function LiveWebsitePreview({
                         disabled={busyPinId === pin.id}
                         aria-label={
                           confirmDeletePinId === pin.id
-                            ? `Confirm deletion of pin ${index + 1}`
-                            : `Delete pin ${index + 1}`
+                            ? `Confirm deletion of comment by ${pin.author}`
+                            : `Delete comment by ${pin.author}`
                         }
                         className={`flex size-7 items-center justify-center rounded-full border text-[#A1533A] transition disabled:opacity-45 ${
                           confirmDeletePinId === pin.id
@@ -927,6 +1126,7 @@ function TaskDetailPanel({
   onDelete,
   canManage,
   actorName,
+  actorAvatarUrl,
 }: {
   task: WebsiteTask;
   onClose: () => void;
@@ -941,6 +1141,7 @@ function TaskDetailPanel({
   onDelete: () => Promise<void>;
   canManage: boolean;
   actorName: string;
+  actorAvatarUrl: string | null;
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
@@ -1175,6 +1376,8 @@ function TaskDetailPanel({
               taskId={task.id}
               url={savedLiveUrl}
               canManage={canManage}
+              actorName={actorName}
+              actorAvatarUrl={actorAvatarUrl}
             />
             <div className="mt-3 text-center">
               <a
@@ -1395,11 +1598,13 @@ function WebsiteDevelopmentDashboard() {
   const [teamProfile, setTeamProfile] = useState<{
     name: string;
     accessLevel: TeamAccessLevel;
+    avatarUrl: string | null;
   } | null>(null);
   const [isTeamProfileReady, setIsTeamProfileReady] = useState(false);
 
   const currentClientId = clientIds[selectedClient];
   const canManage = teamProfile?.accessLevel === "owner";
+  const hasTeamProfile = teamProfile !== null;
   const clientOptions = WORKSPACE_CLIENT_SLUGS.map((slug) => ({
     value: slug,
     label: WORKSPACE_CLIENTS[slug].name,
@@ -1424,6 +1629,7 @@ function WebsiteDevelopmentDashboard() {
   );
 
   useEffect(() => {
+    let isActive = true;
     const frame = window.requestAnimationFrame(() => {
       const profile = readTeamSessionProfile();
       setTeamProfile(
@@ -1431,12 +1637,31 @@ function WebsiteDevelopmentDashboard() {
           ? {
               name: profile.name,
               accessLevel: profile.accessLevel,
+              avatarUrl: null,
             }
           : null,
       );
       setIsTeamProfileReady(true);
+
+      if (!profile) return;
+      void supabase
+        .from("team_profile_directory")
+        .select("avatar_url")
+        .eq("team_username", profile.username)
+        .maybeSingle()
+        .then(({ data, error }) => {
+          if (!isActive || error) return;
+          setTeamProfile((current) =>
+            current
+              ? { ...current, avatarUrl: data?.avatar_url ?? null }
+              : current,
+          );
+        });
     });
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      isActive = false;
+      window.cancelAnimationFrame(frame);
+    };
   }, []);
 
   useEffect(() => {
@@ -1473,7 +1698,7 @@ function WebsiteDevelopmentDashboard() {
   }, []);
 
   useEffect(() => {
-    if (!currentClientId || !isTeamProfileReady || !teamProfile) {
+    if (!currentClientId || !isTeamProfileReady || !hasTeamProfile) {
       return;
     }
 
@@ -1517,7 +1742,7 @@ function WebsiteDevelopmentDashboard() {
     return () => {
       isActive = false;
     };
-  }, [currentClientId, isTeamProfileReady, teamProfile]);
+  }, [currentClientId, hasTeamProfile, isTeamProfileReady]);
 
   async function updateTaskStatus(
     taskId: string,
@@ -1876,6 +2101,7 @@ function WebsiteDevelopmentDashboard() {
           onDelete={() => deleteTask(selectedTask.id)}
           canManage={canManage}
           actorName={teamProfile?.name ?? "Team member"}
+          actorAvatarUrl={teamProfile?.avatarUrl ?? null}
         />
       )}
 
