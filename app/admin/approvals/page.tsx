@@ -2,6 +2,7 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAdmin } from "../_components/AdminContext";
@@ -10,273 +11,244 @@ import {
   AdminConfirmDialog,
   AdminEmpty,
   AdminMessage,
-  AdminModal,
   AdminPageHeader,
-  inputClass,
 } from "../_components/AdminUi";
 
-type Status = "approval_needed" | "revision_in_progress" | "up_to_date";
-type Category = {
+type ApprovalSource = "social" | "deliverable";
+type PortalApproval = {
   id: string;
-  name: string;
-  status: Status;
-  description: string | null;
-  route_slug: string;
+  source: ApprovalSource;
+  category: "Social media" | "Branding" | "Event";
+  title: string;
+  status: "Awaiting review" | "Approved" | "Changes requested";
+  sentAt: string;
+  workspaceId: string | null;
 };
 
-type CategoryEditor = {
-  id?: string;
-  name: string;
-  status: Status;
-  description: string;
-  routeSlug: string;
+type SocialRow = {
+  id: string;
+  title: string;
+  sent_to_client_at: string;
+  client_approvals: unknown;
+  internal_approval_task_id: string | null;
 };
+
+type DeliverableRow = {
+  id: string;
+  title: string;
+  sent_to_client_at: string;
+  client_approvals: unknown;
+  division_task_id: string;
+  division_tasks:
+    | { division: "branding" | "event" }
+    | Array<{ division: "branding" | "event" }>;
+};
+
+function approvalStatus(value: unknown): PortalApproval["status"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "Awaiting review";
+  }
+  const statuses = Object.values(value).flatMap((decision) => {
+    if (!decision || typeof decision !== "object" || Array.isArray(decision)) {
+      return [];
+    }
+    const status = (decision as Record<string, unknown>).status;
+    return status === "approved" || status === "changes" ? [status] : [];
+  });
+  if (statuses.includes("changes")) return "Changes requested";
+  if (statuses.length > 0 && statuses.every((status) => status === "approved")) {
+    return "Approved";
+  }
+  return "Awaiting review";
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
 
 export default function AdminApprovalsPage() {
   const { clientId, clientName } = useAdmin();
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [approvals, setApprovals] = useState<PortalApproval[]>([]);
+  const [removeTarget, setRemoveTarget] = useState<PortalApproval | null>(null);
+  const [isRemoving, setIsRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [editor, setEditor] = useState<CategoryEditor | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!clientId) return;
-    const { data, error: loadError } = await supabase
-      .from("client_approval_categories")
-      .select("id, name, status, description, route_slug")
-      .eq("client_id", clientId)
-      .order("created_at", { ascending: true });
-    if (loadError) setError(loadError.message);
-    else setCategories((data ?? []) as Category[]);
+    const [socialResult, deliverableResult] = await Promise.all([
+      supabase
+        .from("tasks")
+        .select(
+          "id, title, sent_to_client_at, client_approvals, internal_approval_task_id",
+        )
+        .eq("client_id", clientId)
+        .not("sent_to_client_at", "is", null)
+        .is("posted_at", null)
+        .order("sent_to_client_at", { ascending: false }),
+      supabase
+        .from("division_task_items")
+        .select(
+          "id, title, sent_to_client_at, client_approvals, division_task_id, division_tasks!inner(client_id, division)",
+        )
+        .eq("division_tasks.client_id", clientId)
+        .in("division_tasks.division", ["branding", "event"])
+        .not("sent_to_client_at", "is", null)
+        .order("sent_to_client_at", { ascending: false }),
+    ]);
+    const loadError = socialResult.error ?? deliverableResult.error;
+    if (loadError) {
+      setError(loadError.message);
+      setApprovals([]);
+      return;
+    }
+
+    const social = ((socialResult.data ?? []) as unknown as SocialRow[]).map(
+      (row): PortalApproval => ({
+        id: row.id,
+        source: "social",
+        category: "Social media",
+        title: row.title,
+        status: approvalStatus(row.client_approvals),
+        sentAt: row.sent_to_client_at,
+        workspaceId: row.internal_approval_task_id,
+      }),
+    );
+    const deliverables = (
+      (deliverableResult.data ?? []) as unknown as DeliverableRow[]
+    ).map((row): PortalApproval => {
+      const parent = Array.isArray(row.division_tasks)
+        ? row.division_tasks[0]
+        : row.division_tasks;
+      return {
+        id: row.id,
+        source: "deliverable",
+        category: parent?.division === "branding" ? "Branding" : "Event",
+        title: row.title,
+        status: approvalStatus(row.client_approvals),
+        sentAt: row.sent_to_client_at,
+        workspaceId: row.division_task_id,
+      };
+    });
+    setApprovals(
+      [...social, ...deliverables].sort((a, b) =>
+        b.sentAt.localeCompare(a.sentAt),
+      ),
+    );
+    setError(null);
   }, [clientId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  async function saveCategory() {
-    if (
-      !clientId ||
-      !editor ||
-      !editor.name.trim() ||
-      !editor.routeSlug.trim() ||
-      isSaving
-    )
-      return;
-    setIsSaving(true);
-    setError(null);
-    const payload = {
-      name: editor.name.trim(),
-      route_slug: editor.routeSlug.trim(),
-      description: editor.description.trim() || null,
-      status: editor.status,
-    };
-    const { error: mutationError } = editor.id
-      ? await supabase
-          .from("client_approval_categories")
-          .update(payload)
-          .eq("id", editor.id)
-      : await supabase
-          .from("client_approval_categories")
-          .insert({ client_id: clientId, ...payload });
-    setIsSaving(false);
+  async function removeFromPortal() {
+    if (!removeTarget || isRemoving) return;
+    setIsRemoving(true);
+    const { error: mutationError } = await supabase
+      .from(
+        removeTarget.source === "social" ? "tasks" : "division_task_items",
+      )
+      .update({ sent_to_client_at: null, sent_to_client_by: null, client_approvals: {} })
+      .eq("id", removeTarget.id);
+    setIsRemoving(false);
     if (mutationError) {
       setError(mutationError.message);
       return;
     }
-    setEditor(null);
+    setSuccess(`${removeTarget.title} was removed from the client review queue.`);
+    setRemoveTarget(null);
     void load();
   }
 
-  async function deleteCategory() {
-    if (!deleteTarget || isDeleting) return;
-    setIsDeleting(true);
-    const { error: mutationError } = await supabase
-      .from("client_approval_categories")
-      .delete()
-      .eq("id", deleteTarget.id);
-    setIsDeleting(false);
-    if (mutationError) {
-      setError(mutationError.message);
-      return;
-    }
-    setDeleteTarget(null);
-    void load();
-  }
+  const pendingCount = approvals.filter(
+    (approval) => approval.status === "Awaiting review",
+  ).length;
 
   return (
     <main className="px-5 py-10 sm:px-8 lg:px-10">
       <AdminPageHeader
         title="Approvals"
-        description={`Manage approval categories and their client-facing status for ${clientName ?? "this client"}.`}
-        action={
-          <AdminButton
-            onClick={() =>
-              setEditor({
-                name: "",
-                status: "approval_needed",
-                description: "",
-                routeSlug: "",
-              })
-            }
-          >
-            + Add category
-          </AdminButton>
-        }
+        description={`The live review cards currently published to ${clientName ?? "this client"}’s portal.`}
       />
-      <AdminMessage error={error} />
-      <div className="mt-7 overflow-hidden rounded-[22px] border border-[#D7CBE0] bg-white">
-        {categories.length ? (
-          categories.map((category) => (
-            <article
-              key={category.id}
-              className="flex flex-col gap-4 border-b border-[#E5DBEA] p-5 last:border-0 sm:flex-row sm:items-center"
-            >
-              <div className="min-w-0 flex-1">
-                <h2 className="font-semibold">{category.name}</h2>
-                <p className="mt-1 text-sm text-[#75647F]">
-                  {category.description || "No description"}
-                </p>
-                <p className="mt-1 text-[10px] uppercase text-[#9A8AA3]">
-                  /{category.route_slug}
-                </p>
-              </div>
-              <select
-                value={category.status}
-                onChange={async (event) => {
-                  const { error: mutationError } = await supabase
-                    .from("client_approval_categories")
-                    .update({ status: event.target.value as Status })
-                    .eq("id", category.id);
-                  if (mutationError) setError(mutationError.message);
-                  else void load();
-                }}
-                className="rounded-xl border border-[#CDBAD9] bg-[#EEE3FA] px-3 py-2 text-xs font-semibold text-[#5F3378]"
+      <AdminMessage error={error} success={success} />
+
+      <div className="mt-7 flex flex-wrap gap-3">
+        <span className="rounded-full bg-[#EEE3FA] px-3 py-1.5 text-xs font-semibold text-[#5F3378]">
+          {approvals.length} on portal
+        </span>
+        <span className="rounded-full bg-[#FFF4D2] px-3 py-1.5 text-xs font-semibold text-[#7B5A08]">
+          {pendingCount} awaiting review
+        </span>
+      </div>
+
+      <div className="mt-5 overflow-hidden rounded-[22px] border border-[#D7CBE0] bg-white">
+        {approvals.length > 0 ? (
+          <div className="divide-y divide-[#E4D9EA]">
+            {approvals.map((approval) => (
+              <article
+                key={`${approval.source}-${approval.id}`}
+                className="flex flex-col gap-4 px-5 py-5 lg:flex-row lg:items-center"
               >
-                <option value="approval_needed">Approval needed</option>
-                <option value="revision_in_progress">
-                  Revision in progress
-                </option>
-                <option value="up_to_date">Up to date</option>
-              </select>
-              <AdminButton
-                tone="secondary"
-                onClick={() =>
-                  setEditor({
-                    id: category.id,
-                    name: category.name,
-                    status: category.status,
-                    description: category.description ?? "",
-                    routeSlug: category.route_slug,
-                  })
-                }
-              >
-                Edit
-              </AdminButton>
-              <AdminButton
-                tone="danger"
-                onClick={() => setDeleteTarget(category)}
-              >
-                Delete
-              </AdminButton>
-            </article>
-          ))
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#7D4698]">
+                    {approval.category}
+                  </p>
+                  <h2 className="mt-1 text-base font-semibold text-[#341F60]">
+                    {approval.title}
+                  </h2>
+                  <p className="mt-1 text-xs text-[#75647F]">
+                    Sent {formatDate(approval.sentAt)}
+                  </p>
+                </div>
+                <span
+                  className={`w-fit rounded-full px-3 py-1.5 text-xs font-semibold ${
+                    approval.status === "Approved"
+                      ? "bg-[#EAF5ED] text-[#356346]"
+                      : approval.status === "Changes requested"
+                        ? "bg-[#F8ECE8] text-[#875344]"
+                        : "bg-[#FFF4D2] text-[#7B5A08]"
+                  }`}
+                >
+                  {approval.status}
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {approval.workspaceId && (
+                    <Link
+                      href={`/team-hub/projects/${approval.workspaceId}`}
+                      className="rounded-full bg-[#341F60] px-4 py-2.5 text-xs font-semibold text-white"
+                    >
+                      Open workspace ↗
+                    </Link>
+                  )}
+                  <AdminButton
+                    tone="danger"
+                    onClick={() => setRemoveTarget(approval)}
+                  >
+                    Remove from portal
+                  </AdminButton>
+                </div>
+              </article>
+            ))}
+          </div>
         ) : (
-          <AdminEmpty>No approval categories yet.</AdminEmpty>
+          <AdminEmpty>No items are currently published for review.</AdminEmpty>
         )}
       </div>
 
-      <AdminModal
-        open={Boolean(editor)}
-        title={`${editor?.id ? "Edit" : "Add"} approval category`}
-        description="Set the category label, route, and client-facing review status."
-        submitLabel={editor?.id ? "Save changes" : "Add category"}
-        isSaving={isSaving}
-        submitDisabled={!editor?.name.trim() || !editor?.routeSlug.trim()}
-        onClose={() => setEditor(null)}
-        onSubmit={(event) => {
-          event.preventDefault();
-          void saveCategory();
-        }}
-      >
-        {editor && (
-          <div className="grid gap-4">
-            <label className="text-xs font-semibold text-[#341F60]">
-              Category name
-              <input
-                autoFocus
-                value={editor.name}
-                onChange={(event) => {
-                  const name = event.target.value;
-                  setEditor({
-                    ...editor,
-                    name,
-                    routeSlug: editor.id
-                      ? editor.routeSlug
-                      : name
-                          .toLowerCase()
-                          .trim()
-                          .replace(/[^a-z0-9]+/g, "-")
-                          .replace(/^-|-$/g, ""),
-                  });
-                }}
-                className={`mt-2 ${inputClass}`}
-              />
-            </label>
-            <label className="text-xs font-semibold text-[#341F60]">
-              Route slug
-              <input
-                value={editor.routeSlug}
-                onChange={(event) =>
-                  setEditor({ ...editor, routeSlug: event.target.value })
-                }
-                placeholder="social-media"
-                className={`mt-2 ${inputClass}`}
-              />
-            </label>
-            <label className="text-xs font-semibold text-[#341F60]">
-              Status
-              <select
-                value={editor.status}
-                onChange={(event) =>
-                  setEditor({
-                    ...editor,
-                    status: event.target.value as Status,
-                  })
-                }
-                className={`mt-2 ${inputClass}`}
-              >
-                <option value="approval_needed">Approval needed</option>
-                <option value="revision_in_progress">
-                  Revision in progress
-                </option>
-                <option value="up_to_date">Up to date</option>
-              </select>
-            </label>
-            <label className="text-xs font-semibold text-[#341F60]">
-              Description
-              <textarea
-                rows={3}
-                value={editor.description}
-                onChange={(event) =>
-                  setEditor({ ...editor, description: event.target.value })
-                }
-                className={`mt-2 resize-y ${inputClass}`}
-              />
-            </label>
-          </div>
-        )}
-      </AdminModal>
-
       <AdminConfirmDialog
-        open={Boolean(deleteTarget)}
-        title="Delete approval category?"
-        description={`This permanently removes “${deleteTarget?.name ?? "this category"}” from the client portal.`}
-        isWorking={isDeleting}
-        onCancel={() => setDeleteTarget(null)}
-        onConfirm={() => void deleteCategory()}
+        open={Boolean(removeTarget)}
+        title="Remove from client portal?"
+        description={`This removes “${removeTarget?.title ?? "this item"}” from the client review queue. Its Team Hub work and approval history remain available.`}
+        isWorking={isRemoving}
+        onCancel={() => setRemoveTarget(null)}
+        onConfirm={() => void removeFromPortal()}
       />
     </main>
   );

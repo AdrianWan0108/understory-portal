@@ -2,7 +2,7 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { sendSlackNotification } from "@/lib/slack-notifications";
 import { useAdmin } from "../_components/AdminContext";
@@ -84,6 +84,13 @@ export default function AdminInvoicesPage() {
   const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const totalOutstanding = useMemo(
+    () =>
+      invoices
+        .filter((invoice) => invoice.status === "sent")
+        .reduce((total, invoice) => total + Number(invoice.amount || 0), 0),
+    [invoices],
+  );
 
   const load = useCallback(async () => {
     if (!clientId) return;
@@ -228,6 +235,19 @@ export default function AdminInvoicesPage() {
       <AdminPageHeader
         title="Invoices"
         description={`Create and manage invoice records published to ${clientName ?? "this client"}.`}
+        action={
+          <div className="text-right">
+            <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#8B7895]">
+              Client portal outstanding
+            </p>
+            <p className="mt-1 text-2xl font-semibold text-[#341F60]">
+              ${totalOutstanding.toLocaleString("en-CA", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </p>
+          </div>
+        }
       />
       <AdminMessage error={error} success={success} />
       <section className="mt-7 rounded-[22px] border border-[#D7CBE0] bg-white p-5">
