@@ -90,8 +90,21 @@ function ApprovalVisual({
   item: ApprovalItem;
   compact?: boolean;
 }) {
-  const [hasFailed, setHasFailed] = useState(false);
+  const [activeSlide, setActiveSlide] = useState(0);
+  const [failedSlides, setFailedSlides] = useState<number[]>([]);
   const category = categoryConfig[item.category];
+  const isCarousel = item.format === "carousel";
+  const slides =
+    isCarousel && item.slides && item.slides.length > 0
+      ? item.slides
+      : [{ number: 1, thumbnailSrc: item.thumbnailSrc }];
+  const slideIndex = Math.min(activeSlide, slides.length - 1);
+  const activeVisual = slides[slideIndex];
+  const hasFailed = failedSlides.includes(slideIndex);
+
+  function showSlide(index: number) {
+    setActiveSlide(Math.max(0, Math.min(index, slides.length - 1)));
+  }
 
   return (
     <div
@@ -101,12 +114,20 @@ function ApprovalVisual({
           : "relative flex aspect-square w-full items-center justify-center overflow-hidden border-b border-border bg-muted"
       }
     >
-      {item.thumbnailSrc && !hasFailed ? (
+      {activeVisual.thumbnailSrc && !hasFailed ? (
         <img
-          src={item.thumbnailSrc}
-          alt={`${item.title} visual`}
+          src={activeVisual.thumbnailSrc}
+          alt={
+            isCarousel
+              ? `${item.title}, slide ${slideIndex + 1} of ${slides.length}`
+              : `${item.title} visual`
+          }
           className={compact ? "size-full object-cover" : "absolute inset-0 size-full object-contain"}
-          onError={() => setHasFailed(true)}
+          onError={() =>
+            setFailedSlides((current) =>
+              current.includes(slideIndex) ? current : [...current, slideIndex],
+            )
+          }
         />
       ) : (
         <div className="flex flex-col items-center justify-center gap-2 px-5 text-center text-primary">
@@ -125,6 +146,55 @@ function ApprovalVisual({
             </span>
           )}
         </div>
+      )}
+
+      {isCarousel && !compact && (
+        <>
+          <div className="absolute left-3 top-3 z-10 rounded-full bg-foreground/85 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-background shadow-sm">
+            Carousel · {slideIndex + 1} of {slides.length}
+          </div>
+
+          {slides.length > 1 && (
+            <>
+              <button
+                type="button"
+                aria-label="Previous carousel slide"
+                disabled={slideIndex === 0}
+                onClick={() => showSlide(slideIndex - 1)}
+                className="absolute left-3 top-1/2 z-10 flex size-9 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white/90 text-lg font-semibold text-foreground shadow-md transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              >
+                <span aria-hidden="true">‹</span>
+              </button>
+              <button
+                type="button"
+                aria-label="Next carousel slide"
+                disabled={slideIndex === slides.length - 1}
+                onClick={() => showSlide(slideIndex + 1)}
+                className="absolute right-3 top-1/2 z-10 flex size-9 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white/90 text-lg font-semibold text-foreground shadow-md transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              >
+                <span aria-hidden="true">›</span>
+              </button>
+
+              <div
+                className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-1.5 rounded-full bg-foreground/70 px-2.5 py-2"
+                aria-label={`Carousel slide ${slideIndex + 1} of ${slides.length}`}
+              >
+                {slides.map((slide, index) => (
+                  <button
+                    key={`${slide.number}-${index}`}
+                    type="button"
+                    aria-label={`Show slide ${index + 1}`}
+                    aria-current={index === slideIndex ? "true" : undefined}
+                    onClick={() => showSlide(index)}
+                    className={`size-1.5 rounded-full transition ${
+                      index === slideIndex ? "bg-white" : "bg-white/45"
+                    }`}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </>
       )}
     </div>
   );

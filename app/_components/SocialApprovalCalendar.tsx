@@ -942,6 +942,61 @@ export function SocialApprovalCalendar({
     );
   }
 
+  async function resendPostToClient(post: ApprovalPost) {
+    if (
+      mode !== "internal" ||
+      !canSendToClient ||
+      !currentReviewer ||
+      !resolvedClientId ||
+      !post.sent_to_client_at ||
+      post.posted_at ||
+      !hasClientChangesRequested(post) ||
+      isSending
+    ) {
+      return;
+    }
+
+    const timestamp = new Date().toISOString();
+    setIsSending(true);
+    setError(null);
+    const { error: resendError } = await supabase
+      .from("tasks")
+      .update({
+        sent_to_client_at: timestamp,
+        sent_to_client_by: currentReviewer.name,
+        status: "approved",
+        client_approvals: {},
+      })
+      .eq("id", post.id)
+      .eq("client_id", resolvedClientId);
+
+    if (!resendError) {
+      await supabase.from("client_approval_categories").upsert(
+        {
+          client_id: resolvedClientId,
+          name: "Social media",
+          status: "approval_needed",
+          description: "Updated post ready for review",
+          route_slug: "social-media",
+        },
+        { onConflict: "client_id,route_slug" },
+      );
+    }
+    setIsSending(false);
+
+    if (resendError) {
+      setError(`Could not resend this post: ${resendError.message}`);
+      return;
+    }
+
+    updatePost(post.id, {
+      sent_to_client_at: timestamp,
+      sent_to_client_by: currentReviewer.name,
+      client_approvals: {},
+    });
+    setFeedback(`${post.title} was resent to the client for a new review.`);
+  }
+
   async function setPostedState(post: ApprovalPost, isPosted: boolean) {
     if (
       mode !== "internal" ||
@@ -1949,7 +2004,26 @@ export function SocialApprovalCalendar({
                             : "Add the date and time, confirm the final content, and get Karen’s approval so this post is included in that month’s client send."}
                         </p>
                       )}
-                      {selectedPost.sent_to_client_at && (
+                      {selectedPost.sent_to_client_at &&
+                      hasClientChangesRequested(selectedPost) ? (
+                        <div className="mt-4 rounded-2xl border border-[#DDB7AB] bg-[#F8ECE8] p-4 text-center">
+                          <p className="text-xs font-semibold text-[#875344]">
+                            The client requested changes. Update the post in its
+                            calendar task, reload this page, then resend it for
+                            a fresh decision.
+                          </p>
+                          <button
+                            type="button"
+                            disabled={!currentReviewer || isSending}
+                            onClick={() =>
+                              void resendPostToClient(selectedPost)
+                            }
+                            className="mt-3 rounded-full bg-[#A76350] px-5 py-2.5 text-xs font-semibold text-white transition hover:bg-[#925542] disabled:cursor-wait disabled:opacity-50"
+                          >
+                            {isSending ? "Resending…" : "Resend to client"}
+                          </button>
+                        </div>
+                      ) : selectedPost.sent_to_client_at ? (
                         <button
                           type="button"
                           disabled={!currentReviewer || isSaving}
@@ -1960,7 +2034,7 @@ export function SocialApprovalCalendar({
                         >
                           {isSaving ? "Archiving…" : "Mark as posted"}
                         </button>
-                      )}
+                      ) : null}
                     </>
                   )}
                 </div>

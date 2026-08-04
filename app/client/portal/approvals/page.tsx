@@ -4,7 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import ApprovalCard, { CategoryIcon } from "@/components/ApprovalCard";
 import { extractGoogleDriveFileId } from "@/lib/google-drive";
 import { sendSlackNotification } from "@/lib/slack-notifications";
-import { normalizeReelDetails } from "@/lib/social-content";
+import {
+  isSocialPostFormat,
+  normalizeReelDetails,
+} from "@/lib/social-content";
 import { supabase } from "@/lib/supabase";
 import { TEAM_IDENTITIES } from "@/lib/team-auth";
 import type {
@@ -243,8 +246,13 @@ export default function ApprovalsPage() {
             (a, b) => a.slide_number - b.slide_number,
           );
           const reelDetails = normalizeReelDetails(row.reel_details);
+          const format = isSocialPostFormat(row.format)
+            ? row.format
+            : slides.length > 1
+              ? "carousel"
+              : "image";
           const image =
-            row.format === "reel"
+            format === "reel"
               ? reelDetails.videoUrl || slides[0]?.image_url
               : slides[0]?.image_url;
 
@@ -256,6 +264,14 @@ export default function ApprovalsPage() {
               title: row.title,
               caption: row.post_caption,
               thumbnailSrc: previewUrl(image),
+              format,
+              slides:
+                format === "carousel"
+                  ? slides.map((slide) => ({
+                      number: slide.slide_number,
+                      thumbnailSrc: previewUrl(slide.image_url),
+                    }))
+                  : undefined,
               status: approvalStatusFor(reviews, reviewer.username),
               submittedAt: row.sent_to_client_at,
             },

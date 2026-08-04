@@ -1,9 +1,15 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element */
+
 import { useEffect, useState } from "react";
 import { useTeamIdentity } from "@/app/team-hub/_components/TeamIdentity";
 import { TeamButton, TeamModal } from "@/app/team-hub/_components/TeamHubUi";
 import { projectInputClass } from "@/lib/project-client-theme";
+import {
+  extractGoogleDriveFileId,
+  resolveGoogleDriveFileUrls,
+} from "@/lib/google-drive";
 import {
   DEFAULT_TASK_WATCHER_USERNAMES,
   teamNameForUsername,
@@ -25,6 +31,7 @@ type TaskItem = {
   division_task_id: string;
   title: string;
   description: string | null;
+  visual_url: string | null;
   completed: boolean;
   assignee_usernames: string[];
   watcher_usernames: string[];
@@ -32,19 +39,91 @@ type TaskItem = {
   created_at: string;
 };
 
-export function TaskItemsEditor({ taskId }: { taskId: string }) {
+const TASK_ITEM_SELECT =
+  "id, division_task_id, title, description, visual_url, completed, assignee_usernames, watcher_usernames, mentioned_usernames, created_at";
+
+function visualPreviewUrl(value: string | null) {
+  if (!value) return null;
+  const fileId = extractGoogleDriveFileId(value);
+  return fileId
+    ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w1000`
+    : null;
+}
+
+function isValidVisualLink(value: string) {
+  return !value.trim() || Boolean(resolveGoogleDriveFileUrls(value));
+}
+
+function EventItemVisual({ item }: { item: TaskItem }) {
+  const [hasFailed, setHasFailed] = useState(false);
+  const previewUrl = visualPreviewUrl(item.visual_url);
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--muted)]">
+      <div className="flex aspect-[4/3] items-center justify-center overflow-hidden">
+        {previewUrl && !hasFailed ? (
+          <img
+            src={previewUrl}
+            alt={`${item.title} visual`}
+            className="size-full object-contain"
+            onError={() => setHasFailed(true)}
+          />
+        ) : (
+          <div className="px-4 text-center">
+            <span className="mx-auto flex size-9 items-center justify-center rounded-xl bg-[var(--card)] text-[var(--primary)]">
+              <svg
+                aria-hidden="true"
+                className="size-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth="1.8"
+              >
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="m5 16 4-4 3 3 2-2 5 5M8 9h.01" />
+              </svg>
+            </span>
+            <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
+              {item.visual_url ? "Preview unavailable" : "No visual attached"}
+            </p>
+          </div>
+        )}
+      </div>
+      {item.visual_url && (
+        <a
+          href={item.visual_url}
+          target="_blank"
+          rel="noreferrer"
+          className="block border-t border-[var(--border)] bg-[var(--card)] px-3 py-2 text-center text-[10px] font-semibold text-[var(--primary)] hover:underline"
+        >
+          Open in Google Drive ↗
+        </a>
+      )}
+    </div>
+  );
+}
+
+export function TaskItemsEditor({
+  taskId,
+  supportsVisuals = false,
+}: {
+  taskId: string;
+  supportsVisuals?: boolean;
+}) {
   const { accessLevel, isReady } = useTeamIdentity();
   const isOwner = isReady && accessLevel === "owner";
   const members = useTaskTeamMembers();
   const [items, setItems] = useState<TaskItem[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [visualLink, setVisualLink] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [itemToEdit, setItemToEdit] = useState<TaskItem | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [editVisualLink, setEditVisualLink] = useState("");
   const [itemToAssign, setItemToAssign] = useState<TaskItem | null>(null);
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const [isSavingAssignees, setIsSavingAssignees] = useState(false);
@@ -57,9 +136,7 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
       setIsLoading(true);
       const { data, error: loadError } = await supabase
         .from("division_task_items")
-        .select(
-          "id, division_task_id, title, description, completed, assignee_usernames, watcher_usernames, mentioned_usernames, created_at",
-        )
+        .select(TASK_ITEM_SELECT)
         .eq("division_task_id", taskId)
         .order("created_at", { ascending: true });
 
@@ -81,6 +158,10 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
   async function addItem(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!title.trim() || isSaving) return;
+    if (supportsVisuals && !isValidVisualLink(visualLink)) {
+      setError("Add a valid Google Drive file link for the visual.");
+      return;
+    }
     setIsSaving(true);
     setError(null);
 
@@ -94,6 +175,7 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
         division_task_id: taskId,
         title: title.trim(),
         description: description.trim() || null,
+        visual_url: supportsVisuals ? visualLink.trim() || null : null,
         mentioned_usernames: mentionedUsernames,
         watcher_usernames: Array.from(
           new Set([
@@ -102,9 +184,7 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
           ]),
         ),
       })
-      .select(
-        "id, division_task_id, title, description, completed, assignee_usernames, watcher_usernames, mentioned_usernames, created_at",
-      )
+      .select(TASK_ITEM_SELECT)
       .single();
     setIsSaving(false);
 
@@ -116,6 +196,7 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
     setItems((current) => [...current, data as TaskItem]);
     setTitle("");
     setDescription("");
+    setVisualLink("");
   }
 
   async function toggleCompleted(item: TaskItem) {
@@ -143,11 +224,19 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
     setItemToEdit(item);
     setEditTitle(item.title);
     setEditDescription(item.description ?? "");
+    setEditVisualLink(item.visual_url ?? "");
     setError(null);
   }
 
   async function saveEdit() {
     if (!itemToEdit || !editTitle.trim() || isSaving) return;
+    if (
+      supportsVisuals &&
+      !isValidVisualLink(editVisualLink)
+    ) {
+      setError("Add a valid Google Drive file link for the visual.");
+      return;
+    }
     setIsSaving(true);
     const mentionedUsernames = extractMentionedUsernames(
       `${editTitle}\n${editDescription}`,
@@ -156,6 +245,7 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
     const values = {
       title: editTitle.trim(),
       description: editDescription.trim() || null,
+      visual_url: supportsVisuals ? editVisualLink.trim() || null : null,
       mentioned_usernames: mentionedUsernames,
       watcher_usernames: Array.from(
         new Set([
@@ -254,13 +344,15 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
           Task items
         </h2>
         <p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">
-          Add your own item names and descriptions. Nothing is pre-filled.
+          {supportsVisuals
+            ? "Add each event item with a name, description, and optional Google Drive visual."
+            : "Add your own item names and descriptions. Nothing is pre-filled."}
         </p>
       </div>
 
       <form onSubmit={addItem} className="mt-5 grid gap-3 rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4">
         <label className="text-xs font-semibold text-[var(--foreground)]">
-          Item
+          {supportsVisuals ? "Item name" : "Item"}
           <TaskMentionInput
             value={title}
             onChange={setTitle}
@@ -269,6 +361,29 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
             className={`mt-2 ${projectInputClass}`}
           />
         </label>
+        {supportsVisuals && (
+          <label className="text-xs font-semibold text-[var(--foreground)]">
+            Google Drive visual link
+            <input
+              type="url"
+              value={visualLink}
+              onChange={(event) => {
+                setVisualLink(event.target.value);
+                if (error) setError(null);
+              }}
+              placeholder="Paste a shared Google Drive file link"
+              className={`mt-2 ${projectInputClass}`}
+            />
+            <span className="mt-1.5 block text-[10px] font-normal leading-4 text-[var(--muted-foreground)]">
+              Attach a flyer, mockup, floor plan, or other event visual.
+            </span>
+            {!isValidVisualLink(visualLink) && (
+              <span className="mt-1.5 block text-[10px] font-semibold text-[#8B3E3E]">
+                Use a valid shared Google Drive file link.
+              </span>
+            )}
+          </label>
+        )}
         <label className="text-xs font-semibold text-[var(--foreground)]">
           Description
           <TaskMentionTextarea
@@ -281,7 +396,15 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
           />
         </label>
         <div className="flex justify-end">
-          <TeamButton type="submit" themed disabled={isSaving || !title.trim()}>
+          <TeamButton
+            type="submit"
+            themed
+            disabled={
+              isSaving ||
+              !title.trim() ||
+              (supportsVisuals && !isValidVisualLink(visualLink))
+            }
+          >
             {isSaving ? "Adding…" : "+ Add item"}
           </TeamButton>
         </div>
@@ -299,7 +422,15 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
               .filter((value): value is string => Boolean(value));
             return (
               <article key={item.id} className="rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4">
-                <div className="flex items-start gap-3">
+                <div
+                  className={
+                    supportsVisuals
+                      ? "grid gap-4 sm:grid-cols-[11rem_minmax(0,1fr)]"
+                      : ""
+                  }
+                >
+                  {supportsVisuals && <EventItemVisual item={item} />}
+                  <div className="flex items-start gap-3">
                   <input
                     type="checkbox"
                     checked={item.completed}
@@ -311,6 +442,7 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
                     <h3 className={`text-sm font-semibold text-[var(--foreground)] ${item.completed ? "line-through opacity-60" : ""}`}>{item.title}</h3>
                     {item.description && <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-[var(--muted-foreground)]">{item.description}</p>}
                     <p className="mt-2 text-[10px] text-[var(--muted-foreground)]">{watcherNames.join(" + ")} watching</p>
+                  </div>
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] pt-3">
@@ -339,14 +471,17 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
         title="Edit task item"
         submitLabel="Save item"
         isSaving={isSaving}
-        submitDisabled={!editTitle.trim()}
+        submitDisabled={
+          !editTitle.trim() ||
+          (supportsVisuals && !isValidVisualLink(editVisualLink))
+        }
         themed
         onClose={() => setItemToEdit(null)}
         onSubmit={(event) => { event.preventDefault(); void saveEdit(); }}
       >
         <div className="grid gap-4">
           <label className="text-xs font-semibold text-[var(--foreground)]">
-            Item
+            {supportsVisuals ? "Item name" : "Item"}
             <TaskMentionInput
               value={editTitle}
               onChange={setEditTitle}
@@ -354,6 +489,26 @@ export function TaskItemsEditor({ taskId }: { taskId: string }) {
               className={`mt-2 ${projectInputClass}`}
             />
           </label>
+          {supportsVisuals && (
+            <label className="text-xs font-semibold text-[var(--foreground)]">
+              Google Drive visual link
+              <input
+                type="url"
+                value={editVisualLink}
+                onChange={(event) => {
+                  setEditVisualLink(event.target.value);
+                  if (error) setError(null);
+                }}
+                placeholder="Paste a shared Google Drive file link"
+                className={`mt-2 ${projectInputClass}`}
+              />
+              {!isValidVisualLink(editVisualLink) && (
+                <span className="mt-1.5 block text-[10px] font-semibold text-[#8B3E3E]">
+                  Use a valid shared Google Drive file link.
+                </span>
+              )}
+            </label>
+          )}
           <label className="text-xs font-semibold text-[var(--foreground)]">
             Description
             <TaskMentionTextarea
