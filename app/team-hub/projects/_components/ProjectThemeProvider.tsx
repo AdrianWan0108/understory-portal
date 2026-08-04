@@ -54,12 +54,11 @@ export function ProjectThemeProvider({
     let isActive = true;
 
     async function resolveClient() {
-      const websiteClient =
-        pathname === "/team-hub/projects/website"
-          ? new URLSearchParams(window.location.search).get("client")
-          : null;
-      if (isWorkspaceClientSlug(websiteClient)) {
-        setClient(websiteClient);
+      const queryClient = new URLSearchParams(window.location.search).get(
+        "client",
+      );
+      if (isWorkspaceClientSlug(queryClient)) {
+        setClient(queryClient);
         setIsReady(true);
         return;
       }

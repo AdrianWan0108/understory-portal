@@ -21,6 +21,7 @@ type NavIcon =
   | "finance"
   | "sales"
   | "projects"
+  | "gallery"
   | "clients"
   | "payroll"
   | "documents"
@@ -67,6 +68,11 @@ const navigation: Array<{
     label: "Projects",
     href: "/team-hub/projects",
     icon: "projects",
+  },
+  {
+    label: "Gallery",
+    href: "/team-hub/gallery",
+    icon: "gallery",
   },
   {
     label: "Client info",
@@ -128,6 +134,13 @@ function TeamIcon({
       <>
         <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H10l2 2h5.5A2.5 2.5 0 0 1 20 9.5v8A2.5 2.5 0 0 1 17.5 20h-11A2.5 2.5 0 0 1 4 17.5Z" />
         <path d="M4 10h16" />
+      </>
+    ),
+    gallery: (
+      <>
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <circle cx="8.5" cy="9" r="1.5" />
+        <path d="m4 17 5-5 3.5 3.5 2-2L20 19" />
       </>
     ),
     clients: (

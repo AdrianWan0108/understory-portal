@@ -5,6 +5,10 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import {
+  galleryImageDownloadUrl,
+  galleryImagePreviewUrl,
+} from "@/lib/gallery-links";
 import { supabase } from "@/lib/supabase";
 import { useClientIdentity } from "../../_components/ClientIdentity";
 
@@ -34,32 +38,6 @@ const photoAspectClasses = [
   "aspect-[4/3]",
 ];
 
-function extractGoogleDriveFileId(value: string) {
-  try {
-    const url = new URL(value.trim());
-    const hostname = url.hostname.toLowerCase();
-    if (
-      hostname !== "drive.google.com" &&
-      hostname !== "docs.google.com"
-    ) {
-      return null;
-    }
-
-    const pathMatch = url.pathname.match(/\/file\/d\/([^/]+)/);
-    return pathMatch?.[1] ?? url.searchParams.get("id");
-  } catch {
-    return null;
-  }
-}
-
-function getImagePreviewUrl(rawUrl: string | null | undefined) {
-  if (!rawUrl) return null;
-  const fileId = extractGoogleDriveFileId(rawUrl);
-  return fileId
-    ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w1000`
-    : rawUrl;
-}
-
 function PhotoPreview({
   photo,
   index,
@@ -67,22 +45,47 @@ function PhotoPreview({
   photo: GalleryPhoto;
   index: number;
 }) {
-  const previewUrl = getImagePreviewUrl(photo.drive_link);
+  const previewUrl = galleryImagePreviewUrl(photo.drive_link);
+  const downloadUrl = galleryImageDownloadUrl(photo.drive_link);
   const [hasFailed, setHasFailed] = useState(false);
   const aspectClass = photoAspectClasses[index % photoAspectClasses.length];
 
   return (
-    <figure className="mb-4 break-inside-avoid overflow-hidden rounded-[20px] border border-border bg-card shadow-[0_7px_24px_rgba(52,31,96,0.065)]">
+    <figure className="group mb-4 break-inside-avoid overflow-hidden rounded-[20px] border border-border bg-card shadow-[0_7px_24px_rgba(52,31,96,0.065)]">
       <div
         className={`relative overflow-hidden bg-[linear-gradient(135deg,var(--muted),var(--background))] ${aspectClass}`}
       >
         {previewUrl && !hasFailed ? (
-          <img
-            src={previewUrl}
-            alt={photo.caption ?? `Gallery photo ${index + 1}`}
-            className="size-full object-cover transition duration-500 hover:scale-[1.02]"
-            onError={() => setHasFailed(true)}
-          />
+          <>
+            <img
+              src={previewUrl}
+              alt={photo.caption ?? `Gallery photo ${index + 1}`}
+              className="size-full object-cover transition duration-500 group-hover:scale-[1.02]"
+              onError={() => setHasFailed(true)}
+            />
+            {downloadUrl && (
+              <a
+                href={downloadUrl}
+                download
+                aria-label={`Download ${photo.caption ?? `gallery photo ${index + 1}`}`}
+                className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-foreground/85 px-3 py-2 text-[11px] font-semibold text-background opacity-100 shadow-lg backdrop-blur transition hover:bg-foreground focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
+              >
+                <svg
+                  aria-hidden="true"
+                  className="size-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14" />
+                </svg>
+                Download
+              </a>
+            )}
+          </>
         ) : (
           <div className="flex size-full items-center justify-center px-6 text-center">
             <div>
