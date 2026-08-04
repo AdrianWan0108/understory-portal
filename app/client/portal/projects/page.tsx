@@ -8,7 +8,6 @@ import {
   DIVISION_LABELS,
   DIVISIONS,
   type Division,
-  type DivisionTaskStatus,
 } from "@/lib/division-tasks";
 import { extractGoogleDriveFileId } from "@/lib/google-drive";
 import { supabase } from "@/lib/supabase";
@@ -22,47 +21,26 @@ type ReviewDecision = {
   reviewed_at?: string;
 };
 
-type DivisionTaskItem = {
+type PortalDivisionItem = {
   id: string;
   title: string;
   visual_url: string | null;
-  sent_to_client_at: string | null;
+  sent_to_client_at: string;
   client_approvals: unknown;
-  created_at: string;
-  updated_at: string;
-};
-
-type DivisionTask = {
-  id: string;
-  division: Division;
-  title: string;
-  status: DivisionTaskStatus;
-  template_type: string;
-  created_at: string;
-  division_task_items: DivisionTaskItem[] | null;
+  division_tasks: {
+    division: Division;
+  };
 };
 
 type SocialPost = {
   id: string;
   title: string;
-  status: string;
-  scheduled_at: string | null;
-  posted_at: string | null;
-  sent_to_client_at: string | null;
-  created_at: string;
+  sent_to_client_at: string;
   client_approvals: unknown;
   task_slides: Array<{
     slide_number: number;
     image_url: string | null;
   }> | null;
-};
-
-type WebsiteTask = {
-  id: string;
-  title: string;
-  column_status: string;
-  live_url: string | null;
-  created_at: string;
 };
 
 type ProgressUpdate = {
@@ -77,7 +55,6 @@ type ProgressUpdate = {
 type DivisionProgress = {
   division: Division;
   summary: string;
-  openCount: number;
   badge: string;
   updates: ProgressUpdate[];
 };
@@ -88,23 +65,6 @@ const divisionStyles: Record<Division, string> = {
   ads: "border-[#E2BCA9] bg-[#FFF1E9]",
   branding: "border-[#CDBAD9] bg-[#F5EDFA]",
   event: "border-[#AFCFC4] bg-[#EEF8F3]",
-};
-
-const projectStatusLabels: Record<DivisionTaskStatus, string> = {
-  planning: "in planning",
-  production: "in production",
-  review: "in review",
-  approved: "approved",
-};
-
-const websiteStatusLabels: Record<string, string> = {
-  needs_content: "Needs content",
-  ux_design: "UX design",
-  ui_design: "UI design",
-  in_progress: "In progress",
-  qa_testing: "QA testing",
-  review: "Needs review",
-  done: "Live",
 };
 
 function previewUrl(value: string | null | undefined) {
@@ -323,9 +283,8 @@ function ProgressSection({ progress }: { progress: DivisionProgress }) {
 
 export default function ProjectsPage() {
   const { clientSlug, clientName } = useClientIdentity();
-  const [divisionTasks, setDivisionTasks] = useState<DivisionTask[]>([]);
+  const [divisionItems, setDivisionItems] = useState<PortalDivisionItem[]>([]);
   const [socialPosts, setSocialPosts] = useState<SocialPost[]>([]);
-  const [websiteTasks, setWebsiteTasks] = useState<WebsiteTask[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -334,9 +293,8 @@ export default function ProjectsPage() {
 
     async function loadProgress() {
       setIsLoading(true);
-      setDivisionTasks([]);
+      setDivisionItems([]);
       setSocialPosts([]);
-      setWebsiteTasks([]);
       setErrorMessage(null);
 
       if (!clientSlug) {
@@ -362,41 +320,32 @@ export default function ProjectsPage() {
         return;
       }
 
-      const [divisionResult, socialResult, websiteResult] = await Promise.all([
+      const [divisionResult, socialResult] = await Promise.all([
         supabase
-          .from("division_tasks")
+          .from("division_task_items")
           .select(
             `
               id,
-              division,
               title,
-              status,
-              template_type,
-              created_at,
-              division_task_items (
-                id,
-                title,
-                visual_url,
-                sent_to_client_at,
-                client_approvals,
-                created_at,
-                updated_at
+              visual_url,
+              sent_to_client_at,
+              client_approvals,
+              division_tasks!inner (
+                division,
+                client_id
               )
             `,
           )
-          .eq("client_id", client.id)
-          .order("created_at", { ascending: false }),
+          .eq("division_tasks.client_id", client.id)
+          .not("sent_to_client_at", "is", null)
+          .order("sent_to_client_at", { ascending: false }),
         supabase
           .from("tasks")
           .select(
             `
               id,
               title,
-              status,
-              scheduled_at,
-              posted_at,
               sent_to_client_at,
-              created_at,
               client_approvals,
               task_slides (
                 slide_number,
@@ -405,28 +354,22 @@ export default function ProjectsPage() {
             `,
           )
           .eq("client_id", client.id)
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("website_tasks")
-          .select("id, title, column_status, live_url, created_at")
-          .eq("client_id", client.id)
-          .order("created_at", { ascending: false }),
+          .not("sent_to_client_at", "is", null)
+          .order("sent_to_client_at", { ascending: false }),
       ]);
 
       if (!isActive) return;
-      const loadError =
-        divisionResult.error ?? socialResult.error ?? websiteResult.error;
+      const loadError = divisionResult.error ?? socialResult.error;
       if (loadError) {
-        setErrorMessage(`Could not load project progress: ${loadError.message}`);
+        setErrorMessage(`Could not load portal activity: ${loadError.message}`);
         setIsLoading(false);
         return;
       }
 
-      setDivisionTasks(
-        (divisionResult.data ?? []) as unknown as DivisionTask[],
+      setDivisionItems(
+        (divisionResult.data ?? []) as unknown as PortalDivisionItem[],
       );
       setSocialPosts((socialResult.data ?? []) as unknown as SocialPost[]);
-      setWebsiteTasks((websiteResult.data ?? []) as WebsiteTask[]);
       setIsLoading(false);
     }
 
@@ -437,215 +380,121 @@ export default function ProjectsPage() {
   }, [clientName, clientSlug]);
 
   const progressByDivision = useMemo(() => {
-    const now = new Date();
-    const monthName = new Intl.DateTimeFormat("en-CA", {
-      month: "long",
-    }).format(now);
     const reviewerKeys = Object.values(CLIENT_IDENTITIES)
       .filter((identity) => identity.clientSlug === clientSlug)
       .map((identity) => identity.username);
 
-    const socialUpdates = socialPosts
-      .map((post): ProgressUpdate => {
-        const reviewDate = latestReviewDate(post.client_approvals);
-        const hasChanges = hasRequestedChanges(post.client_approvals);
-        const isClientApproved = hasAllRequiredApprovals(
-          post.client_approvals,
-          reviewerKeys,
-        );
-        const timestamp =
-          post.posted_at ??
-          reviewDate ??
-          post.sent_to_client_at ??
-          post.created_at;
-        const firstSlide = [...(post.task_slides ?? [])].sort(
-          (a, b) => a.slide_number - b.slide_number,
-        )[0];
+    function updateStatus(approvals: unknown) {
+      const reviewDate = latestReviewDate(approvals);
+      const hasChanges = hasRequestedChanges(approvals);
+      const isApproved = hasAllRequiredApprovals(approvals, reviewerKeys);
 
-        let status = "Planning";
-        let datePrefix = "Updated";
-        if (post.posted_at) {
-          status = "Published";
-          datePrefix = "Published";
-        } else if (hasChanges) {
-          status = "Client requested changes";
-          datePrefix = "Reviewed";
-        } else if (isClientApproved) {
-          status = "Client approved";
-          datePrefix = "Approved";
-        } else if (post.sent_to_client_at) {
-          status = "Waiting for client approval";
-          datePrefix = "Sent";
-        } else if (post.status === "for_review") {
-          status = "In internal review";
-        } else if (post.status === "needs_revision") {
-          status = "Changes in progress";
-        }
-
+      if (hasChanges) {
         return {
-          id: `social-${post.id}`,
-          title: post.title,
-          status,
-          timestamp,
-          dateLabel: `${datePrefix} ${formatDate(timestamp)}`,
-          thumbnailSrc: previewUrl(firstSlide?.image_url),
+          status: "You requested changes",
+          datePrefix: "Requested",
+          reviewDate,
+          isWaiting: false,
         };
-      })
-      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
-      .slice(0, 5);
-
-    const monthPosts = socialPosts.filter((post) => {
-      if (!post.scheduled_at) return false;
-      const date = new Date(post.scheduled_at);
-      return (
-        date.getFullYear() === now.getFullYear() &&
-        date.getMonth() === now.getMonth()
-      );
-    });
-    const readyMonthPosts = monthPosts.filter(
-      (post) =>
-        Boolean(post.posted_at) ||
-        (post.status === "approved" &&
-          hasAllRequiredApprovals(post.client_approvals, reviewerKeys)),
-    );
-    const unfinishedSocialPosts = socialPosts.filter(
-      (post) =>
-        !post.posted_at &&
-        (post.status !== "approved" ||
-          hasRequestedChanges(post.client_approvals) ||
-          !hasAllRequiredApprovals(post.client_approvals, reviewerKeys)),
-    );
-
-    let socialSummary = "No Open Projects";
-    let socialOpenCount = unfinishedSocialPosts.length;
-    let socialBadge =
-      socialOpenCount > 0 ? `${socialOpenCount} in progress` : "No open projects";
-    if (monthPosts.length > 0) {
-      socialOpenCount = monthPosts.length - readyMonthPosts.length;
-      if (socialOpenCount === 0) {
-        socialSummary = `All ${monthPosts.length} ${monthName} posts are approved and ready for the month.`;
-        socialBadge = `${monthName} ready`;
-      } else {
-        socialSummary = `${readyMonthPosts.length} of ${monthPosts.length} ${monthName} posts are approved and ready. ${socialOpenCount} still need attention.`;
-        socialBadge = `${socialOpenCount} in progress`;
       }
-    } else if (unfinishedSocialPosts.length > 0) {
-      socialSummary = `${unfinishedSocialPosts.length} social media ${
-        unfinishedSocialPosts.length === 1 ? "post is" : "posts are"
-      } currently in progress.`;
+      if (isApproved) {
+        return {
+          status: "You approved",
+          datePrefix: "Approved",
+          reviewDate,
+          isWaiting: false,
+        };
+      }
+      return {
+        status: "Sent for your review",
+        datePrefix: "Sent",
+        reviewDate,
+        isWaiting: true,
+      };
     }
 
-    const socialProgress: DivisionProgress = {
-      division: "social-media",
-      summary: socialSummary,
-      openCount: socialOpenCount,
-      badge: socialBadge,
-      updates: socialUpdates,
-    };
+    function divisionSummary(
+      updates: ProgressUpdate[],
+      waitingCount: number,
+    ) {
+      if (updates.length === 0) {
+        return {
+          summary: "No recent client portal updates.",
+          badge: "No recent updates",
+        };
+      }
+      if (waitingCount > 0) {
+        return {
+          summary: `${waitingCount} ${waitingCount === 1 ? "item is" : "items are"} waiting for your review.`,
+          badge: `${waitingCount} to review`,
+        };
+      }
+      return {
+        summary: "You’re up to date. Your most recent portal activity is shown below.",
+        badge: "Up to date",
+      };
+    }
 
-    const otherProgress = DIVISIONS.filter(
-      (division) => division !== "social-media",
-    ).map((division): DivisionProgress => {
-      const projects = divisionTasks.filter(
-        (task) => task.division === division,
-      );
-      const openProjects = projects.filter(
-        (task) => task.status !== "approved",
-      );
+    return DIVISIONS.map((division): DivisionProgress => {
+      if (division === "social-media") {
+        let waitingCount = 0;
+        const updates = socialPosts
+          .map((post): ProgressUpdate => {
+            const details = updateStatus(post.client_approvals);
+            if (details.isWaiting) waitingCount += 1;
+            const timestamp = details.reviewDate ?? post.sent_to_client_at;
+            const firstSlide = [...(post.task_slides ?? [])].sort(
+              (a, b) => a.slide_number - b.slide_number,
+            )[0];
 
-      const itemUpdates = projects.flatMap((project) =>
-        (project.division_task_items ?? []).map((item): ProgressUpdate => {
-          const reviewDate = latestReviewDate(item.client_approvals);
-          const hasChanges = hasRequestedChanges(item.client_approvals);
-          const isClientApproved = hasAllRequiredApprovals(
-            item.client_approvals,
-            reviewerKeys,
-          );
-          const timestamp =
-            reviewDate ?? item.sent_to_client_at ?? item.updated_at ?? item.created_at;
-          const status = hasChanges
-            ? "Client requested changes"
-            : isClientApproved
-              ? "Client approved"
-              : item.sent_to_client_at
-                ? "Waiting for client approval"
-                : `Updated in ${project.title}`;
+            return {
+              id: `social-${post.id}`,
+              title: post.title,
+              status: details.status,
+              timestamp,
+              dateLabel: `${details.datePrefix} ${formatDate(timestamp)}`,
+              thumbnailSrc: previewUrl(firstSlide?.image_url),
+            };
+          })
+          .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+          .slice(0, 5);
+        const copy = divisionSummary(updates, waitingCount);
+
+        return {
+          division,
+          ...copy,
+          updates,
+        };
+      }
+
+      let waitingCount = 0;
+      const updates = divisionItems
+        .filter((item) => item.division_tasks.division === division)
+        .map((item): ProgressUpdate => {
+          const details = updateStatus(item.client_approvals);
+          if (details.isWaiting) waitingCount += 1;
+          const timestamp = details.reviewDate ?? item.sent_to_client_at;
 
           return {
             id: `item-${item.id}`,
             title: item.title,
-            status,
+            status: details.status,
             timestamp,
-            dateLabel: `Updated ${formatDate(timestamp)}`,
+            dateLabel: `${details.datePrefix} ${formatDate(timestamp)}`,
             thumbnailSrc: previewUrl(item.visual_url),
           };
-        }),
-      );
-
-      const projectUpdates = projects.map(
-        (project): ProgressUpdate => ({
-          id: `project-${project.id}`,
-          title: project.title,
-          status: `Project ${projectStatusLabels[project.status]}`,
-          timestamp: project.created_at,
-          dateLabel: `Started ${formatDate(project.created_at)}`,
-        }),
-      );
-
-      const specializedWebsiteUpdates =
-        division === "website"
-          ? websiteTasks.map(
-              (task): ProgressUpdate => ({
-                id: `website-${task.id}`,
-                title: task.title,
-                status: websiteStatusLabels[task.column_status] ?? "In progress",
-                timestamp: task.created_at,
-                dateLabel: `Updated ${formatDate(task.created_at)}`,
-              }),
-            )
-          : [];
-
-      const websiteOpenCount = websiteTasks.filter(
-        (task) => task.column_status !== "done",
-      ).length;
-      const openCount =
-        division === "website" && websiteTasks.length > 0
-          ? websiteOpenCount
-          : openProjects.length;
-
-      let summary = "No Open Projects";
-      if (division === "website" && websiteTasks.length > 0) {
-        if (websiteOpenCount > 0) {
-          summary = `${websiteOpenCount} website ${
-            websiteOpenCount === 1 ? "task is" : "tasks are"
-          } currently in progress.`;
-        }
-      } else if (openProjects.length === 1) {
-        summary = `${openProjects[0].title} is ${projectStatusLabels[openProjects[0].status]}.`;
-      } else if (openProjects.length > 1) {
-        summary = `${openProjects.length} open projects. The newest, ${openProjects[0].title}, is ${projectStatusLabels[openProjects[0].status]}.`;
-      }
+        })
+        .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+        .slice(0, 5);
+      const copy = divisionSummary(updates, waitingCount);
 
       return {
         division,
-        summary,
-        openCount,
-        badge:
-          openCount > 0
-            ? `${openCount} ${openCount === 1 ? "open project" : "open projects"}`
-            : "No open projects",
-        updates: [
-          ...itemUpdates,
-          ...specializedWebsiteUpdates,
-          ...projectUpdates,
-        ]
-          .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
-          .slice(0, 5),
+        ...copy,
+        updates,
       };
     });
-
-    return [socialProgress, ...otherProgress];
-  }, [clientSlug, divisionTasks, socialPosts, websiteTasks]);
+  }, [clientSlug, divisionItems, socialPosts]);
 
   return (
     <main className="min-h-screen px-5 py-10 sm:px-8 sm:py-14 lg:px-12">
@@ -658,8 +507,8 @@ export default function ProjectsPage() {
             Projects
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-            Current progress and the latest updates across every Understory
-            project category.
+            Recent items shared with you and decisions made in your client
+            portal.
           </p>
         </header>
 
@@ -675,7 +524,7 @@ export default function ProjectsPage() {
         <section className="mt-10" aria-labelledby="project-progress-heading">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">
-              Live progress
+              Portal activity
             </p>
             <h2
               id="project-progress-heading"
