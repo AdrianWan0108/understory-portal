@@ -169,10 +169,10 @@ export default function AdminGalleryBookPage() {
                 <div className="aspect-square bg-[#EEE3FA]" />
               )}
               <div className="p-4">
-                <p className="text-sm text-[#6C5A78]">
-                  {photo.caption || "No caption"}
-                </p>
-                <div className="mt-3 flex gap-2">
+                {photo.caption && (
+                  <p className="text-sm text-[#6C5A78]">{photo.caption}</p>
+                )}
+                <div className={`flex gap-2 ${photo.caption ? "mt-3" : ""}`}>
                   <AdminButton
                     tone="secondary"
                     onClick={() =>

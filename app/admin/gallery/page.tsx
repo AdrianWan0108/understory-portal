@@ -20,12 +20,12 @@ type Book = {
   id: string;
   title: string;
   cover_note: string | null;
+  photoCount: number;
 };
 
 type BookEditor = {
   id?: string;
   title: string;
-  coverNote: string;
 };
 
 export default function AdminGalleryPage() {
@@ -44,8 +44,39 @@ export default function AdminGalleryPage() {
       .select("id, title, cover_note")
       .eq("client_id", clientId)
       .order("created_at", { ascending: true });
-    if (loadError) setError(loadError.message);
-    else setBooks((data ?? []) as Book[]);
+    if (loadError) {
+      setError(loadError.message);
+      return;
+    }
+
+    const bookRows = data ?? [];
+    const bookIds = bookRows.map((book) => book.id);
+    const photoResult = bookIds.length
+      ? await supabase
+          .from("gallery_photos")
+          .select("book_id")
+          .in("book_id", bookIds)
+      : { data: [], error: null };
+
+    if (photoResult.error) {
+      setError(photoResult.error.message);
+      return;
+    }
+
+    const photoCounts = new Map<string, number>();
+    (photoResult.data ?? []).forEach((photo) => {
+      photoCounts.set(
+        photo.book_id,
+        (photoCounts.get(photo.book_id) ?? 0) + 1,
+      );
+    });
+    setBooks(
+      bookRows.map((book) => ({
+        ...book,
+        photoCount: photoCounts.get(book.id) ?? 0,
+      })) as Book[],
+    );
+    setError(null);
   }, [clientId]);
 
   useEffect(() => {
@@ -58,7 +89,6 @@ export default function AdminGalleryPage() {
     setError(null);
     const payload = {
       title: editor.title.trim(),
-      cover_note: editor.coverNote.trim() || null,
     };
     const { error: mutationError } = editor.id
       ? await supabase
@@ -101,7 +131,7 @@ export default function AdminGalleryPage() {
         action={
           <AdminButton
             onClick={() =>
-              setEditor({ title: "", coverNote: "0 photos" })
+              setEditor({ title: "" })
             }
           >
             + Create book
@@ -126,7 +156,7 @@ export default function AdminGalleryPage() {
                 </p>
                 <h2 className="mt-3 text-xl font-semibold">{book.title}</h2>
                 <p className="mt-2 text-xs text-white/70">
-                  {book.cover_note || "No cover note"}
+                  {book.photoCount} {book.photoCount === 1 ? "photo" : "photos"}
                 </p>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
@@ -142,7 +172,6 @@ export default function AdminGalleryPage() {
                     setEditor({
                       id: book.id,
                       title: book.title,
-                      coverNote: book.cover_note ?? "",
                     })
                   }
                 >
@@ -185,17 +214,6 @@ export default function AdminGalleryPage() {
                 onChange={(event) =>
                   setEditor({ ...editor, title: event.target.value })
                 }
-                className={`mt-2 ${inputClass}`}
-              />
-            </label>
-            <label className="text-xs font-semibold text-[#341F60]">
-              Cover note
-              <input
-                value={editor.coverNote}
-                onChange={(event) =>
-                  setEditor({ ...editor, coverNote: event.target.value })
-                }
-                placeholder="3 photos"
                 className={`mt-2 ${inputClass}`}
               />
             </label>

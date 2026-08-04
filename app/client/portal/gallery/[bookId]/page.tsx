@@ -254,9 +254,9 @@ export default function GalleryAlbumPage() {
               <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-foreground sm:text-4xl">
                 {book?.title ?? "Album unavailable"}
               </h1>
-              {book?.cover_note && (
+              {book && (
                 <p className="mt-3 text-sm text-muted-foreground">
-                  {book.cover_note}
+                  {photos.length} {photos.length === 1 ? "photo" : "photos"}
                 </p>
               )}
             </header>

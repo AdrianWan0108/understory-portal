@@ -11,6 +11,7 @@ type GalleryBook = {
   title: string;
   cover_note: string | null;
   created_at: string;
+  photoCount: number;
 };
 
 const coverStyles = [
@@ -93,8 +94,37 @@ export default function GalleryPage() {
         setErrorMessage(`Could not load gallery books: ${error.message}`);
         setBooks([]);
       } else {
-        setBooks((data ?? []) as GalleryBook[]);
-        setErrorMessage(null);
+        const bookRows = data ?? [];
+        const bookIds = bookRows.map((book) => book.id);
+        const photoResult = bookIds.length
+          ? await supabase
+              .from("gallery_photos")
+              .select("book_id")
+              .in("book_id", bookIds)
+          : { data: [], error: null };
+
+        if (!isActive) return;
+        if (photoResult.error) {
+          setErrorMessage(
+            `Could not load gallery photo counts: ${photoResult.error.message}`,
+          );
+          setBooks([]);
+        } else {
+          const photoCounts = new Map<string, number>();
+          (photoResult.data ?? []).forEach((photo) => {
+            photoCounts.set(
+              photo.book_id,
+              (photoCounts.get(photo.book_id) ?? 0) + 1,
+            );
+          });
+          setBooks(
+            bookRows.map((book) => ({
+              ...book,
+              photoCount: photoCounts.get(book.id) ?? 0,
+            })) as GalleryBook[],
+          );
+          setErrorMessage(null);
+        }
       }
 
       setIsLoading(false);
@@ -199,7 +229,8 @@ export default function GalleryPage() {
                               <span
                                 className={`mt-4 flex items-center justify-between gap-2 border-t pt-3 text-[10px] font-semibold uppercase tracking-[0.12em] ${style.detail}`}
                               >
-                                {book.cover_note ?? "Photo album"}
+                                {book.photoCount}{" "}
+                                {book.photoCount === 1 ? "photo" : "photos"}
                                 <ArrowIcon />
                               </span>
                             </span>
