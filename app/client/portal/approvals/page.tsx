@@ -57,8 +57,20 @@ type SocialApprovalRow = {
   }> | null;
 };
 
+type EventApprovalRow = {
+  id: string;
+  title: string;
+  description: string | null;
+  visual_url: string | null;
+  sent_to_client_at: string;
+  client_approvals: unknown;
+  approval_history: unknown;
+  assignee_usernames: string[];
+};
+
 type LoadedApproval = {
   item: ApprovalItem;
+  source: "social" | "event";
   clientId: string;
   reviews: Record<string, ReviewDecision>;
   history: ApprovalHistoryEntry[];
@@ -149,12 +161,15 @@ function previewUrl(value: string | null | undefined) {
     : value;
 }
 
-function assigneeNames(row: SocialApprovalRow) {
+function assigneeNames(
+  assigneeUsernames: string[] | null,
+  legacyAssignedTo: string | null = null,
+) {
   const usernames =
-    row.assignee_usernames && row.assignee_usernames.length > 0
-      ? row.assignee_usernames
-      : row.assigned_to
-        ? [row.assigned_to]
+    assigneeUsernames && assigneeUsernames.length > 0
+      ? assigneeUsernames
+      : legacyAssignedTo
+        ? [legacyAssignedTo]
         : [];
 
   return usernames.map((username) => {
@@ -206,9 +221,10 @@ export default function ApprovalsPage() {
         return;
       }
 
-      const { data, error } = await supabase
-        .from("tasks")
-        .select(
+      const [socialResult, eventResult] = await Promise.all([
+        supabase
+          .from("tasks")
+          .select(
           `
             id,
             client_id,
@@ -226,20 +242,47 @@ export default function ApprovalsPage() {
               image_url
             )
           `,
-        )
-        .eq("client_id", client.id)
-        .not("sent_to_client_at", "is", null)
-        .is("posted_at", null)
-        .order("sent_to_client_at", { ascending: false });
+          )
+          .eq("client_id", client.id)
+          .not("sent_to_client_at", "is", null)
+          .is("posted_at", null)
+          .order("sent_to_client_at", { ascending: false }),
+        supabase
+          .from("division_task_items")
+          .select(
+            `
+              id,
+              title,
+              description,
+              visual_url,
+              sent_to_client_at,
+              client_approvals,
+              approval_history,
+              assignee_usernames,
+              division_tasks!inner (
+                client_id,
+                division
+              )
+            `,
+          )
+          .eq("division_tasks.client_id", client.id)
+          .eq("division_tasks.division", "event")
+          .not("sent_to_client_at", "is", null)
+          .order("sent_to_client_at", { ascending: false }),
+      ]);
 
       if (!isActive) return;
-      if (error) {
-        setErrorMessage(`Could not load approvals: ${error.message}`);
+      if (socialResult.error || eventResult.error) {
+        setErrorMessage(
+          `Could not load approvals: ${
+            socialResult.error?.message ?? eventResult.error?.message
+          }`,
+        );
         setIsLoading(false);
         return;
       }
 
-      const loaded = ((data ?? []) as unknown as SocialApprovalRow[]).map(
+      const loadedSocial = ((socialResult.data ?? []) as unknown as SocialApprovalRow[]).map(
         (row): LoadedApproval => {
           const reviews = normalizeReviews(row.client_approvals);
           const slides = [...(row.task_slides ?? [])].sort(
@@ -257,6 +300,7 @@ export default function ApprovalsPage() {
               : slides[0]?.image_url;
 
           return {
+            source: "social",
             item: {
               id: row.id,
               category: "social_media",
@@ -278,12 +322,39 @@ export default function ApprovalsPage() {
             clientId: client.id,
             reviews,
             history: normalizeHistory(row.approval_history),
-            assigneeNames: assigneeNames(row),
+            assigneeNames: assigneeNames(
+              row.assignee_usernames,
+              row.assigned_to,
+            ),
           };
         },
       );
 
-      setApprovals(loaded);
+      const loadedEvents = ((eventResult.data ?? []) as unknown as EventApprovalRow[]).map(
+        (row): LoadedApproval => {
+          const reviews = normalizeReviews(row.client_approvals);
+          return {
+            source: "event",
+            item: {
+              id: row.id,
+              category: "event",
+              client: client.name,
+              title: row.title,
+              caption: row.description ?? undefined,
+              thumbnailSrc: previewUrl(row.visual_url),
+              format: "image",
+              status: approvalStatusFor(reviews, reviewer.username),
+              submittedAt: row.sent_to_client_at,
+            },
+            clientId: client.id,
+            reviews,
+            history: normalizeHistory(row.approval_history),
+            assigneeNames: assigneeNames(row.assignee_usernames),
+          };
+        },
+      );
+
+      setApprovals([...loadedSocial, ...loadedEvents]);
       setIsLoading(false);
     }
 
@@ -349,7 +420,7 @@ export default function ApprovalsPage() {
     setErrorMessage(null);
     setFeedbackMessage(null);
     const { error } = await supabase
-      .from("tasks")
+      .from(approval.source === "social" ? "tasks" : "division_task_items")
       .update({
         client_approvals: nextReviews,
         approval_history: nextHistory,

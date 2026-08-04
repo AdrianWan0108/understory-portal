@@ -100,12 +100,25 @@ export function TaskPeopleButton({
       {assignedMembers.length ? (
         <span className="flex -space-x-1.5" aria-hidden="true">
           {assignedMembers.slice(0, 3).map((member) => (
-            <span
-              key={member.team_username}
-              className="flex size-5 items-center justify-center rounded-full border border-white bg-[#7D4698] text-[8px] font-bold text-white"
-            >
-              {member.full_name.trim().charAt(0).toUpperCase()}
-            </span>
+            member.avatar_url ? (
+              <Image
+                key={member.team_username}
+                src={member.avatar_url}
+                alt=""
+                title={member.full_name}
+                width={20}
+                height={20}
+                className="size-5 rounded-full border border-white object-cover"
+              />
+            ) : (
+              <span
+                key={member.team_username}
+                title={member.full_name}
+                className="flex size-5 items-center justify-center rounded-full border border-white bg-[#7D4698] text-[8px] font-bold text-white"
+              >
+                {member.full_name.trim().charAt(0).toUpperCase()}
+              </span>
+            )
           ))}
         </span>
       ) : (

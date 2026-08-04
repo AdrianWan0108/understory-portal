@@ -386,6 +386,7 @@ export default function DivisionTaskDetailPage() {
         {task.division !== "social-media" && (
           <TaskItemsEditor
             taskId={task.id}
+            clientId={task.client_id}
             supportsVisuals={task.division === "event"}
           />
         )}

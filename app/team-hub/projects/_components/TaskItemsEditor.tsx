@@ -36,11 +36,15 @@ type TaskItem = {
   assignee_usernames: string[];
   watcher_usernames: string[];
   mentioned_usernames: string[];
+  sent_to_client_at: string | null;
+  sent_to_client_by: string | null;
+  client_approvals: unknown;
+  approval_history: unknown;
   created_at: string;
 };
 
 const TASK_ITEM_SELECT =
-  "id, division_task_id, title, description, visual_url, completed, assignee_usernames, watcher_usernames, mentioned_usernames, created_at";
+  "id, division_task_id, title, description, visual_url, completed, assignee_usernames, watcher_usernames, mentioned_usernames, sent_to_client_at, sent_to_client_by, client_approvals, approval_history, created_at";
 
 function visualPreviewUrl(value: string | null) {
   if (!value) return null;
@@ -103,14 +107,83 @@ function EventItemVisual({ item }: { item: TaskItem }) {
   );
 }
 
+function clientDecision(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "pending" as const;
+  }
+
+  const statuses = Object.values(value).flatMap((decision) => {
+    if (!decision || typeof decision !== "object" || Array.isArray(decision)) {
+      return [];
+    }
+    const status = (decision as Record<string, unknown>).status;
+    return status === "approved" || status === "changes" ? [status] : [];
+  });
+
+  if (statuses.includes("changes")) return "changes" as const;
+  if (statuses.length > 0 && statuses.every((status) => status === "approved")) {
+    return "approved" as const;
+  }
+  return "pending" as const;
+}
+
+function WatcherAvatars({
+  usernames,
+  members,
+}: {
+  usernames: string[];
+  members: ReturnType<typeof useTaskTeamMembers>;
+}) {
+  const watchers = usernames.map((username) => {
+    const member = members.find(
+      (candidate) => candidate.team_username === username,
+    );
+    return {
+      username,
+      name: member?.full_name ?? teamNameForUsername(username) ?? username,
+      avatarUrl: member?.avatar_url ?? null,
+    };
+  });
+
+  return (
+    <div className="flex shrink-0 items-center gap-2" aria-label={`Watching: ${watchers.map((watcher) => watcher.name).join(", ")}`}>
+      <span className="text-[10px] font-semibold text-[var(--muted-foreground)]">
+        Watching:
+      </span>
+      <span className="flex -space-x-1.5" aria-hidden="true">
+        {watchers.map((watcher) =>
+          watcher.avatarUrl ? (
+            <img
+              key={watcher.username}
+              src={watcher.avatarUrl}
+              alt=""
+              className="size-6 rounded-full border-2 border-[var(--background)] object-cover"
+            />
+          ) : (
+            <span
+              key={watcher.username}
+              title={watcher.name}
+              className="flex size-6 items-center justify-center rounded-full border-2 border-[var(--background)] bg-[var(--primary)] text-[8px] font-bold text-[var(--primary-foreground)]"
+            >
+              {watcher.name.trim().charAt(0).toUpperCase() || "?"}
+            </span>
+          ),
+        )}
+      </span>
+    </div>
+  );
+}
+
 export function TaskItemsEditor({
   taskId,
+  clientId,
   supportsVisuals = false,
 }: {
   taskId: string;
+  clientId?: string;
   supportsVisuals?: boolean;
 }) {
-  const { accessLevel, isReady } = useTeamIdentity();
+  const { accessLevel, isReady, name: currentTeamMemberName } = useTeamIdentity();
   const isOwner = isReady && accessLevel === "owner";
   const members = useTaskTeamMembers();
   const [items, setItems] = useState<TaskItem[]>([]);
@@ -128,6 +201,8 @@ export function TaskItemsEditor({
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const [isSavingAssignees, setIsSavingAssignees] = useState(false);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const [sendingItemId, setSendingItemId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -334,6 +409,71 @@ export function TaskItemsEditor({
     closePeoplePicker();
   }
 
+  async function sendToClient(item: TaskItem) {
+    if (
+      !supportsVisuals ||
+      !clientId ||
+      !isOwner ||
+      !currentTeamMemberName ||
+      sendingItemId
+    ) {
+      return;
+    }
+
+    const decision = clientDecision(item.client_approvals);
+    if (item.sent_to_client_at && decision !== "changes") return;
+
+    const timestamp = new Date().toISOString();
+    setSendingItemId(item.id);
+    setError(null);
+    setFeedback(null);
+    const { error: sendError } = await supabase
+      .from("division_task_items")
+      .update({
+        sent_to_client_at: timestamp,
+        sent_to_client_by: currentTeamMemberName,
+        client_approvals: {},
+        updated_at: timestamp,
+      })
+      .eq("id", item.id)
+      .eq("division_task_id", taskId);
+
+    if (!sendError) {
+      await supabase.from("client_approval_categories").upsert(
+        {
+          client_id: clientId,
+          name: "Event",
+          status: "approval_needed",
+          description: "Event item ready for review",
+          route_slug: "event",
+        },
+        { onConflict: "client_id,route_slug" },
+      );
+    }
+    setSendingItemId(null);
+
+    if (sendError) {
+      setError(`Could not send this item to the client: ${sendError.message}`);
+      return;
+    }
+
+    setItems((current) =>
+      current.map((candidate) =>
+        candidate.id === item.id
+          ? {
+              ...candidate,
+              sent_to_client_at: timestamp,
+              sent_to_client_by: currentTeamMemberName,
+              client_approvals: {},
+            }
+          : candidate,
+      ),
+    );
+    setFeedback(
+      `${item.title} was ${item.sent_to_client_at ? "resent" : "sent"} to the client for approval.`,
+    );
+  }
+
   return (
     <section className="mt-8 rounded-[24px] border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6">
       <div>
@@ -411,8 +551,11 @@ export function TaskItemsEditor({
       </form>
 
       {error && <p role="alert" className="mt-4 rounded-xl border border-[#E4B9B9] bg-[#FFF0F0] px-4 py-3 text-sm text-[#8B3E3E]">{error}</p>}
+      {feedback && <p role="status" className="mt-4 rounded-xl border border-[#BFD8C7] bg-[#EAF5ED] px-4 py-3 text-sm text-[#356346]">{feedback}</p>}
 
-      <div className="mt-5 grid gap-3">
+      <div
+        className={`mt-5 grid gap-4 ${supportsVisuals ? "md:grid-cols-2" : ""}`}
+      >
         {isLoading ? (
           <div className="h-28 animate-pulse rounded-2xl bg-[var(--muted)]" />
         ) : items.length ? (
@@ -420,32 +563,42 @@ export function TaskItemsEditor({
             const watcherNames = item.watcher_usernames
               .map(teamNameForUsername)
               .filter((value): value is string => Boolean(value));
+            const decision = clientDecision(item.client_approvals);
             return (
-              <article key={item.id} className="rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4">
-                <div
-                  className={
-                    supportsVisuals
-                      ? "grid gap-4 sm:grid-cols-[11rem_minmax(0,1fr)]"
-                      : ""
-                  }
-                >
+              <article
+                key={item.id}
+                className={`rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4 ${
+                  supportsVisuals ? "flex h-full flex-col" : ""
+                }`}
+              >
+                <div className={supportsVisuals ? "flex flex-1 flex-col gap-4" : ""}>
                   {supportsVisuals && <EventItemVisual item={item} />}
                   <div className="flex items-start gap-3">
-                  <input
-                    type="checkbox"
-                    checked={item.completed}
-                    onChange={() => void toggleCompleted(item)}
-                    className="mt-1 size-4 accent-[var(--primary)]"
-                    aria-label={`Mark ${item.title} complete`}
-                  />
+                  {!supportsVisuals && (
+                    <input
+                      type="checkbox"
+                      checked={item.completed}
+                      onChange={() => void toggleCompleted(item)}
+                      className="mt-1 size-4 accent-[var(--primary)]"
+                      aria-label={`Mark ${item.title} complete`}
+                    />
+                  )}
                   <div className="min-w-0 flex-1">
-                    <h3 className={`text-sm font-semibold text-[var(--foreground)] ${item.completed ? "line-through opacity-60" : ""}`}>{item.title}</h3>
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className={`text-sm font-semibold text-[var(--foreground)] ${!supportsVisuals && item.completed ? "line-through opacity-60" : ""}`}>{item.title}</h3>
+                      {supportsVisuals && (
+                        <WatcherAvatars
+                          usernames={item.watcher_usernames}
+                          members={members}
+                        />
+                      )}
+                    </div>
                     {item.description && <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-[var(--muted-foreground)]">{item.description}</p>}
-                    <p className="mt-2 text-[10px] text-[var(--muted-foreground)]">{watcherNames.join(" + ")} watching</p>
+                    {!supportsVisuals && <p className="mt-2 text-[10px] text-[var(--muted-foreground)]">{watcherNames.join(" + ")} watching</p>}
                   </div>
                   </div>
                 </div>
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] pt-3">
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
                   <TaskPeopleButton
                     taskTitle={item.title}
                     assigneeUsernames={item.assignee_usernames}
@@ -454,6 +607,27 @@ export function TaskItemsEditor({
                     onClick={() => openPeoplePicker(item)}
                   />
                   <div className="flex gap-3">
+                    {supportsVisuals && isOwner && (
+                      <button
+                        type="button"
+                        disabled={
+                          sendingItemId === item.id ||
+                          Boolean(item.sent_to_client_at && decision !== "changes")
+                        }
+                        onClick={() => void sendToClient(item)}
+                        className="rounded-full bg-[var(--primary)] px-4 py-2 text-xs font-semibold text-[var(--primary-foreground)] transition hover:brightness-90 disabled:cursor-default disabled:opacity-55"
+                      >
+                        {sendingItemId === item.id
+                          ? "Sending…"
+                          : decision === "changes"
+                            ? "Resend to client"
+                            : decision === "approved"
+                              ? "Approved by client"
+                              : item.sent_to_client_at
+                                ? "Sent to client"
+                                : "Send to client"}
+                      </button>
+                    )}
                     <button type="button" onClick={() => openEditor(item)} className="text-xs font-semibold text-[var(--primary)]">Edit</button>
                     {isOwner && <button type="button" onClick={() => void deleteItem(item)} className="text-xs font-semibold text-[#9A4040]">Delete</button>}
                   </div>
