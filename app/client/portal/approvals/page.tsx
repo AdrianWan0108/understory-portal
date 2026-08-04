@@ -59,6 +59,7 @@ type SocialApprovalRow = {
 
 type EventApprovalRow = {
   id: string;
+  division_task_id: string;
   title: string;
   description: string | null;
   visual_url: string | null;
@@ -66,12 +67,16 @@ type EventApprovalRow = {
   client_approvals: unknown;
   approval_history: unknown;
   assignee_usernames: string[];
+  division_tasks:
+    | { division: "event" | "branding" }
+    | Array<{ division: "event" | "branding" }>;
 };
 
 type LoadedApproval = {
   item: ApprovalItem;
   source: "social" | "event";
   clientId: string;
+  divisionTaskId?: string;
   reviews: Record<string, ReviewDecision>;
   history: ApprovalHistoryEntry[];
   assigneeNames: string[];
@@ -252,6 +257,7 @@ export default function ApprovalsPage() {
           .select(
             `
               id,
+              division_task_id,
               title,
               description,
               visual_url,
@@ -266,7 +272,7 @@ export default function ApprovalsPage() {
             `,
           )
           .eq("division_tasks.client_id", client.id)
-          .eq("division_tasks.division", "event")
+          .in("division_tasks.division", ["event", "branding"])
           .not("sent_to_client_at", "is", null)
           .order("sent_to_client_at", { ascending: false }),
       ]);
@@ -333,11 +339,17 @@ export default function ApprovalsPage() {
       const loadedEvents = ((eventResult.data ?? []) as unknown as EventApprovalRow[]).map(
         (row): LoadedApproval => {
           const reviews = normalizeReviews(row.client_approvals);
+          const parentTask = Array.isArray(row.division_tasks)
+            ? row.division_tasks[0]
+            : row.division_tasks;
+          const category =
+            parentTask?.division === "branding" ? "branding" : "event";
           return {
             source: "event",
+            divisionTaskId: row.division_task_id,
             item: {
               id: row.id,
-              category: "event",
+              category,
               client: client.name,
               title: row.title,
               caption: row.description ?? undefined,
@@ -419,14 +431,18 @@ export default function ApprovalsPage() {
     setUpdatingId(id);
     setErrorMessage(null);
     setFeedbackMessage(null);
-    const { error } = await supabase
+    let updateQuery = supabase
       .from(approval.source === "social" ? "tasks" : "division_task_items")
       .update({
         client_approvals: nextReviews,
         approval_history: nextHistory,
       })
-      .eq("id", id)
-      .eq("client_id", approval.clientId);
+      .eq("id", id);
+    updateQuery =
+      approval.source === "social"
+        ? updateQuery.eq("client_id", approval.clientId)
+        : updateQuery.eq("division_task_id", approval.divisionTaskId!);
+    const { error } = await updateQuery;
     setUpdatingId(null);
 
     if (error) {

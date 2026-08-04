@@ -109,23 +109,11 @@ export default function InvoicesPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const today = localDateValue();
-  const totals = useMemo(
+  const totalOutstanding = useMemo(
     () =>
-      invoices.reduce(
-        (summary, invoice) => {
-          const invoiceAmount = Number(invoice.amount) || 0;
-          summary.invoiced += invoiceAmount;
-
-          if (invoice.status === "received") {
-            summary.received += invoiceAmount;
-          } else {
-            summary.pending += invoiceAmount;
-          }
-
-          return summary;
-        },
-        { invoiced: 0, received: 0, pending: 0 },
-      ),
+      invoices
+        .filter((invoice) => invoice.status === "sent")
+        .reduce((total, invoice) => total + (Number(invoice.amount) || 0), 0),
     [invoices],
   );
 
@@ -186,16 +174,27 @@ export default function InvoicesPage() {
   return (
     <main className="min-h-screen px-5 py-10 sm:px-8 sm:py-14 lg:px-12">
       <div className="mx-auto max-w-6xl">
-        <header>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-primary">
-            Client portal · {clientName ?? "Client"}
-          </p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-foreground sm:text-4xl">
-            Invoices
-          </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-            View invoice dates, payment receipt status, and downloadable PDFs.
-          </p>
+        <header className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-primary">
+              Client portal · {clientName ?? "Client"}
+            </p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-foreground sm:text-4xl">
+              Invoices
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+              View invoice dates, payment receipt status, and downloadable PDFs.
+            </p>
+          </div>
+
+          <div className="shrink-0 text-left sm:text-right">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Total outstanding
+            </p>
+            <p className="mt-1.5 text-2xl font-semibold text-foreground">
+              {isLoading ? "—" : formatCurrency(totalOutstanding)}
+            </p>
+          </div>
         </header>
 
         {errorMessage && (
@@ -207,42 +206,7 @@ export default function InvoicesPage() {
           </div>
         )}
 
-        <section
-          className="mt-10 grid gap-3 sm:grid-cols-3"
-          aria-label="Invoice totals"
-        >
-          {[
-            {
-              label: "Total invoiced",
-              value: totals.invoiced,
-              tone: "text-foreground",
-            },
-            {
-              label: "Total received",
-              value: totals.received,
-              tone: "text-[#356346]",
-            },
-            {
-              label: "Total pending",
-              value: totals.pending,
-              tone: "text-accent-foreground",
-            },
-          ].map((metric) => (
-            <div
-              key={metric.label}
-              className="rounded-[20px] border border-border bg-card px-5 py-4 shadow-[0_8px_24px_rgba(52,31,96,0.04)]"
-            >
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                {metric.label}
-              </p>
-              <p className={`mt-2 text-2xl font-semibold ${metric.tone}`}>
-                {isLoading ? "—" : formatCurrency(metric.value)}
-              </p>
-            </div>
-          ))}
-        </section>
-
-        <section className="mt-10" aria-labelledby="invoice-list-heading">
+        <section className="mt-12" aria-labelledby="invoice-list-heading">
           <div className="flex items-end justify-between gap-4">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">

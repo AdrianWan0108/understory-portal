@@ -2,187 +2,212 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import {
+  DIVISION_LABELS,
+  DIVISIONS,
+  type Division,
+  type DivisionTaskStatus,
+} from "@/lib/division-tasks";
+import { extractGoogleDriveFileId } from "@/lib/google-drive";
 import { supabase } from "@/lib/supabase";
-import { useClientIdentity } from "../_components/ClientIdentity";
+import {
+  CLIENT_IDENTITIES,
+  useClientIdentity,
+} from "../_components/ClientIdentity";
 
-type ProjectType = "project" | "program";
+type ReviewDecision = {
+  status: "approved" | "changes";
+  reviewed_at?: string;
+};
 
-type ProjectTask = {
+type DivisionTaskItem = {
   id: string;
-  project_id: string;
   title: string;
-  done: boolean;
-  note: string | null;
+  visual_url: string | null;
+  sent_to_client_at: string | null;
+  client_approvals: unknown;
   created_at: string;
+  updated_at: string;
 };
 
-type ClientProject = {
+type DivisionTask = {
   id: string;
-  client_id: string;
-  name: string;
-  project_type: ProjectType;
-  status_note: string | null;
-  image_url: string | null;
+  division: Division;
+  title: string;
+  status: DivisionTaskStatus;
+  template_type: string;
   created_at: string;
-  client_project_tasks: ProjectTask[] | null;
+  division_task_items: DivisionTaskItem[] | null;
 };
 
-function programDescription(projectName: string, clientName: string) {
-  if (projectName === "Social media management") {
-    return `Ongoing planning, production, publishing, and performance support for ${clientName}’s social channels.`;
-  }
+type SocialPost = {
+  id: string;
+  title: string;
+  status: string;
+  scheduled_at: string | null;
+  posted_at: string | null;
+  sent_to_client_at: string | null;
+  created_at: string;
+  client_approvals: unknown;
+  task_slides: Array<{
+    slide_number: number;
+    image_url: string | null;
+  }> | null;
+};
 
-  if (projectName === "Website optimisation") {
-    return "Continuous improvements to site content, usability, conversion paths, and performance.";
-  }
+type WebsiteTask = {
+  id: string;
+  title: string;
+  column_status: string;
+  live_url: string | null;
+  created_at: string;
+};
 
-  return "Ongoing strategic and delivery support for this workstream.";
+type ProgressUpdate = {
+  id: string;
+  title: string;
+  status: string;
+  dateLabel: string;
+  timestamp: string;
+  thumbnailSrc?: string;
+};
+
+type DivisionProgress = {
+  division: Division;
+  summary: string;
+  openCount: number;
+  badge: string;
+  updates: ProgressUpdate[];
+};
+
+const divisionStyles: Record<Division, string> = {
+  "social-media": "border-[#E2C75E] bg-[#FFF8D6]",
+  website: "border-[#A9CCDF] bg-[#EEF8FC]",
+  ads: "border-[#E2BCA9] bg-[#FFF1E9]",
+  branding: "border-[#CDBAD9] bg-[#F5EDFA]",
+  event: "border-[#AFCFC4] bg-[#EEF8F3]",
+};
+
+const projectStatusLabels: Record<DivisionTaskStatus, string> = {
+  planning: "in planning",
+  production: "in production",
+  review: "in review",
+  approved: "approved",
+};
+
+const websiteStatusLabels: Record<string, string> = {
+  needs_content: "Needs content",
+  ux_design: "UX design",
+  ui_design: "UI design",
+  in_progress: "In progress",
+  qa_testing: "QA testing",
+  review: "Needs review",
+  done: "Live",
+};
+
+function previewUrl(value: string | null | undefined) {
+  if (!value) return undefined;
+  const driveFileId = extractGoogleDriveFileId(value);
+  return driveFileId
+    ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(
+        driveFileId,
+      )}&sz=w320`
+    : value;
 }
 
-function CheckIcon({ className = "size-3.5" }: { className?: string }) {
-  return (
-    <svg
-      aria-hidden="true"
-      className={className}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m5 12 4 4L19 6" />
-    </svg>
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
+function reviewsFrom(value: unknown): Record<string, ReviewDecision> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).flatMap(([key, item]) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+      const record = item as Record<string, unknown>;
+      if (record.status !== "approved" && record.status !== "changes") {
+        return [];
+      }
+      return [
+        [
+          key,
+          {
+            status: record.status,
+            reviewed_at:
+              typeof record.reviewed_at === "string"
+                ? record.reviewed_at
+                : undefined,
+          },
+        ],
+      ];
+    }),
   );
 }
 
-function ProjectCover({ project }: { project: ClientProject }) {
-  const [hasFailed, setHasFailed] = useState(false);
+function latestReviewDate(value: unknown) {
+  return Object.values(reviewsFrom(value))
+    .map((review) => review.reviewed_at)
+    .filter((date): date is string => Boolean(date))
+    .sort((a, b) => b.localeCompare(a))[0];
+}
 
-  if (!project.image_url || hasFailed) {
-    return (
-      <div className="flex h-36 items-center justify-center bg-[linear-gradient(135deg,var(--muted)_0%,var(--background)_62%,var(--accent)_100%)] px-6 text-center sm:h-40">
-        <div>
-          <div className="mx-auto flex size-10 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow-[0_8px_20px_rgba(52,31,96,0.15)]">
-            U
-          </div>
-          <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
-            Understory project
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <img
-      src={project.image_url}
-      alt={`${project.name} cover`}
-      className="h-36 w-full object-cover sm:h-40"
-      onError={() => setHasFailed(true)}
-    />
+function hasRequestedChanges(value: unknown) {
+  return Object.values(reviewsFrom(value)).some(
+    (review) => review.status === "changes",
   );
 }
 
-function ProjectCard({ project }: { project: ClientProject }) {
-  const tasks = project.client_project_tasks ?? [];
-  const completedTasks = tasks.filter((task) => task.done).length;
-  const progress = tasks.length
-    ? Math.round((completedTasks / tasks.length) * 100)
-    : 0;
-
-  return (
-    <article className="overflow-hidden rounded-[24px] border border-border bg-card shadow-[0_8px_28px_rgba(52,31,96,0.055)]">
-      <ProjectCover project={project} />
-
-      <div className="p-5 sm:p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">
-              Active project
-            </p>
-            <h3 className="mt-2 text-xl font-semibold tracking-[-0.025em] text-foreground">
-              {project.name}
-            </h3>
-          </div>
-          <span className="shrink-0 rounded-full bg-muted px-3 py-1.5 text-[11px] font-semibold text-secondary-foreground">
-            {completedTasks} of {tasks.length} done
-          </span>
-        </div>
-
-        <div className="mt-6">
-          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-primary transition-[width]"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <div className="mt-2 flex items-center justify-between text-[10px] font-medium text-muted-foreground">
-            <span>Project progress</span>
-            <span>{progress}%</span>
-          </div>
-        </div>
-
-        <div className="mt-5 flex flex-wrap gap-2">
-          {tasks.map((task) => (
-            <span
-              key={task.id}
-              title={task.note ?? undefined}
-              className={`inline-flex max-w-full items-start gap-1.5 rounded-2xl border px-3 py-2 text-[11px] font-semibold ${
-                task.done
-                  ? "border-input bg-muted text-muted-foreground"
-                  : "border-accent bg-accent/35 text-accent-foreground"
-              }`}
-            >
-              {task.done ? (
-                <CheckIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
-              ) : (
-                <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-accent" />
-              )}
-              <span className="min-w-0">
-                <span className="block">{task.title}</span>
-                {task.note && (
-                  <span className="mt-0.5 block font-normal leading-4 opacity-75">
-                    {task.note}
-                  </span>
-                )}
-              </span>
-            </span>
-          ))}
-        </div>
-      </div>
-    </article>
-  );
+function hasAllRequiredApprovals(value: unknown, reviewerKeys: string[]) {
+  if (reviewerKeys.length === 0) return false;
+  const reviews = reviewsFrom(value);
+  return reviewerKeys.every((key) => reviews[key]?.status === "approved");
 }
 
-function ProgramRow({
-  project,
-  clientName,
-}: {
-  project: ClientProject;
-  clientName: string;
-}) {
-  return (
-    <article className="flex flex-col gap-4 border-b border-border px-5 py-5 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-      <div className="min-w-0">
-        <h3 className="text-base font-semibold text-foreground">
-          {project.name}
-        </h3>
-        <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-          {programDescription(project.name, clientName)}
-        </p>
-      </div>
-      <span className="inline-flex shrink-0 items-center gap-2 self-start rounded-full border border-accent bg-accent/40 px-3.5 py-2 text-[11px] font-semibold text-accent-foreground sm:self-auto">
-        <span className="size-1.5 rounded-full bg-accent" />
-        {project.status_note ?? "In progress"}
-      </span>
-    </article>
-  );
-}
+function DivisionIcon({ division }: { division: Division }) {
+  const paths: Record<Division, React.ReactNode> = {
+    "social-media": (
+      <>
+        <rect x="3" y="3" width="18" height="18" rx="5" />
+        <circle cx="12" cy="12" r="4" />
+        <path d="M17.5 6.5h.01" />
+      </>
+    ),
+    website: (
+      <>
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M3 9h18M7 6.5h.01M10 6.5h.01" />
+      </>
+    ),
+    ads: (
+      <>
+        <path d="m4 13 12-5v10L4 13Z" />
+        <path d="M16 10h2a3 3 0 0 1 0 6h-2M6 14l1 6h4l-2-7" />
+      </>
+    ),
+    branding: (
+      <>
+        <path d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 0-4H12a2 2 0 0 1 0-4h3.5A5.5 5.5 0 0 0 21 7.5C21 5 17 3 12 3Z" />
+        <circle cx="8" cy="9" r="1" fill="currentColor" stroke="none" />
+        <circle cx="11" cy="6.5" r="1" fill="currentColor" stroke="none" />
+        <circle cx="15" cy="7" r="1" fill="currentColor" stroke="none" />
+      </>
+    ),
+    event: (
+      <>
+        <rect x="3" y="5" width="18" height="16" rx="2" />
+        <path d="M7 3v4M17 3v4M3 10h18" />
+        <path d="m9 16 2 2 4-5" />
+      </>
+    ),
+  };
 
-function CalendarIcon() {
   return (
     <svg
       aria-hidden="true"
@@ -194,33 +219,125 @@ function CalendarIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <rect x="3" y="5" width="18" height="16" rx="2" />
-      <path d="M3 9h18M8 3v4M16 3v4" />
+      {paths[division]}
     </svg>
+  );
+}
+
+function UpdateVisual({ update, division }: { update: ProgressUpdate; division: Division }) {
+  const [hasFailed, setHasFailed] = useState(false);
+
+  return (
+    <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-black/5 bg-white/75 text-primary">
+      {update.thumbnailSrc && !hasFailed ? (
+        <img
+          src={update.thumbnailSrc}
+          alt=""
+          className="size-full object-cover"
+          onError={() => setHasFailed(true)}
+        />
+      ) : (
+        <DivisionIcon division={division} />
+      )}
+    </div>
+  );
+}
+
+function ProgressSection({ progress }: { progress: DivisionProgress }) {
+  const isSocial = progress.division === "social-media";
+
+  return (
+    <article
+      className={`overflow-hidden rounded-[26px] border ${divisionStyles[progress.division]}`}
+    >
+      <div className="p-5 sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3.5">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-white/75 text-primary shadow-sm">
+              <DivisionIcon division={progress.division} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">
+                Project category
+              </p>
+              <h2 className="mt-1 text-xl font-semibold tracking-[-0.025em] text-foreground">
+                {DIVISION_LABELS[progress.division]}
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-foreground/75">
+                {progress.summary}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-3 self-end sm:self-start">
+            <span className="rounded-full bg-white/80 px-3 py-1.5 text-[10px] font-semibold text-foreground/70">
+              {progress.badge}
+            </span>
+            {isSocial && (
+              <Link
+                href="/client-portal/projects/social-media"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+              >
+                Open calendar <span aria-hidden="true">→</span>
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {progress.updates.length > 0 && (
+        <div className="border-t border-black/10 bg-white/40 p-4 sm:p-5">
+          <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+            {progress.updates.length === 5
+              ? "5 most recent updates"
+              : `${progress.updates.length} recent ${
+                  progress.updates.length === 1 ? "update" : "updates"
+                }`}
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            {progress.updates.map((update) => (
+              <div
+                key={update.id}
+                className="flex min-w-0 items-center gap-3 rounded-2xl border border-black/5 bg-white/80 p-3"
+              >
+                <UpdateVisual update={update} division={progress.division} />
+                <div className="min-w-0">
+                  <p className="line-clamp-2 text-xs font-semibold leading-4 text-foreground">
+                    {update.title}
+                  </p>
+                  <p className="mt-1 text-[10px] font-medium leading-4 text-foreground/60">
+                    {update.status}
+                  </p>
+                  <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+                    {update.dateLabel}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </article>
   );
 }
 
 export default function ProjectsPage() {
   const { clientSlug, clientName } = useClientIdentity();
-  const [projects, setProjects] = useState<ClientProject[]>([]);
+  const [divisionTasks, setDivisionTasks] = useState<DivisionTask[]>([]);
+  const [socialPosts, setSocialPosts] = useState<SocialPost[]>([]);
+  const [websiteTasks, setWebsiteTasks] = useState<WebsiteTask[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const activeProjects = useMemo(
-    () => projects.filter((project) => project.project_type === "project"),
-    [projects],
-  );
-  const ongoingPrograms = useMemo(
-    () => projects.filter((project) => project.project_type === "program"),
-    [projects],
-  );
 
   useEffect(() => {
     let isActive = true;
 
-    async function loadProjects() {
+    async function loadProgress() {
       setIsLoading(true);
-      setProjects([]);
+      setDivisionTasks([]);
+      setSocialPosts([]);
+      setWebsiteTasks([]);
+      setErrorMessage(null);
 
       if (!clientSlug) {
         setErrorMessage("Choose a client profile to view projects.");
@@ -237,51 +354,302 @@ export default function ProjectsPage() {
       if (!isActive) return;
       if (clientError || !client) {
         setErrorMessage(
-          `Could not load ${clientName ?? "the selected client"}: ${clientError?.message ?? "Client not found."}`,
+          `Could not load ${clientName ?? "the selected client"}: ${
+            clientError?.message ?? "Client not found."
+          }`,
         );
         setIsLoading(false);
         return;
       }
 
-      const { data, error } = await supabase
-        .from("client_projects")
-        .select(
-          "id, client_id, name, project_type, status_note, image_url, created_at, client_project_tasks(id, project_id, title, done, note, created_at)",
-        )
-        .eq("client_id", client.id)
-        .order("created_at", { ascending: true });
+      const [divisionResult, socialResult, websiteResult] = await Promise.all([
+        supabase
+          .from("division_tasks")
+          .select(
+            `
+              id,
+              division,
+              title,
+              status,
+              template_type,
+              created_at,
+              division_task_items (
+                id,
+                title,
+                visual_url,
+                sent_to_client_at,
+                client_approvals,
+                created_at,
+                updated_at
+              )
+            `,
+          )
+          .eq("client_id", client.id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("tasks")
+          .select(
+            `
+              id,
+              title,
+              status,
+              scheduled_at,
+              posted_at,
+              sent_to_client_at,
+              created_at,
+              client_approvals,
+              task_slides (
+                slide_number,
+                image_url
+              )
+            `,
+          )
+          .eq("client_id", client.id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("website_tasks")
+          .select("id, title, column_status, live_url, created_at")
+          .eq("client_id", client.id)
+          .order("created_at", { ascending: false }),
+      ]);
 
       if (!isActive) return;
-      if (error) {
-        setErrorMessage(`Could not load projects: ${error.message}`);
-        setProjects([]);
+      const loadError =
+        divisionResult.error ?? socialResult.error ?? websiteResult.error;
+      if (loadError) {
+        setErrorMessage(`Could not load project progress: ${loadError.message}`);
         setIsLoading(false);
         return;
       }
 
-      const loadedProjects = (data ?? []).map((project) => ({
-        ...project,
-        project_type:
-          project.project_type === "program" ? "program" : "project",
-        client_project_tasks: [...(project.client_project_tasks ?? [])].sort(
-          (a, b) => a.created_at.localeCompare(b.created_at),
-        ),
-      })) as ClientProject[];
-
-      setProjects(loadedProjects);
-      setErrorMessage(null);
+      setDivisionTasks(
+        (divisionResult.data ?? []) as unknown as DivisionTask[],
+      );
+      setSocialPosts((socialResult.data ?? []) as unknown as SocialPost[]);
+      setWebsiteTasks((websiteResult.data ?? []) as WebsiteTask[]);
       setIsLoading(false);
     }
 
-    void loadProjects();
+    void loadProgress();
     return () => {
       isActive = false;
     };
   }, [clientName, clientSlug]);
 
+  const progressByDivision = useMemo(() => {
+    const now = new Date();
+    const monthName = new Intl.DateTimeFormat("en-CA", {
+      month: "long",
+    }).format(now);
+    const reviewerKeys = Object.values(CLIENT_IDENTITIES)
+      .filter((identity) => identity.clientSlug === clientSlug)
+      .map((identity) => identity.username);
+
+    const socialUpdates = socialPosts
+      .map((post): ProgressUpdate => {
+        const reviewDate = latestReviewDate(post.client_approvals);
+        const hasChanges = hasRequestedChanges(post.client_approvals);
+        const isClientApproved = hasAllRequiredApprovals(
+          post.client_approvals,
+          reviewerKeys,
+        );
+        const timestamp =
+          post.posted_at ??
+          reviewDate ??
+          post.sent_to_client_at ??
+          post.created_at;
+        const firstSlide = [...(post.task_slides ?? [])].sort(
+          (a, b) => a.slide_number - b.slide_number,
+        )[0];
+
+        let status = "Planning";
+        let datePrefix = "Updated";
+        if (post.posted_at) {
+          status = "Published";
+          datePrefix = "Published";
+        } else if (hasChanges) {
+          status = "Client requested changes";
+          datePrefix = "Reviewed";
+        } else if (isClientApproved) {
+          status = "Client approved";
+          datePrefix = "Approved";
+        } else if (post.sent_to_client_at) {
+          status = "Waiting for client approval";
+          datePrefix = "Sent";
+        } else if (post.status === "for_review") {
+          status = "In internal review";
+        } else if (post.status === "needs_revision") {
+          status = "Changes in progress";
+        }
+
+        return {
+          id: `social-${post.id}`,
+          title: post.title,
+          status,
+          timestamp,
+          dateLabel: `${datePrefix} ${formatDate(timestamp)}`,
+          thumbnailSrc: previewUrl(firstSlide?.image_url),
+        };
+      })
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+      .slice(0, 5);
+
+    const monthPosts = socialPosts.filter((post) => {
+      if (!post.scheduled_at) return false;
+      const date = new Date(post.scheduled_at);
+      return (
+        date.getFullYear() === now.getFullYear() &&
+        date.getMonth() === now.getMonth()
+      );
+    });
+    const readyMonthPosts = monthPosts.filter(
+      (post) =>
+        Boolean(post.posted_at) ||
+        (post.status === "approved" &&
+          hasAllRequiredApprovals(post.client_approvals, reviewerKeys)),
+    );
+    const unfinishedSocialPosts = socialPosts.filter(
+      (post) =>
+        !post.posted_at &&
+        (post.status !== "approved" ||
+          hasRequestedChanges(post.client_approvals) ||
+          !hasAllRequiredApprovals(post.client_approvals, reviewerKeys)),
+    );
+
+    let socialSummary = "No Open Projects";
+    let socialOpenCount = unfinishedSocialPosts.length;
+    let socialBadge =
+      socialOpenCount > 0 ? `${socialOpenCount} in progress` : "No open projects";
+    if (monthPosts.length > 0) {
+      socialOpenCount = monthPosts.length - readyMonthPosts.length;
+      if (socialOpenCount === 0) {
+        socialSummary = `All ${monthPosts.length} ${monthName} posts are approved and ready for the month.`;
+        socialBadge = `${monthName} ready`;
+      } else {
+        socialSummary = `${readyMonthPosts.length} of ${monthPosts.length} ${monthName} posts are approved and ready. ${socialOpenCount} still need attention.`;
+        socialBadge = `${socialOpenCount} in progress`;
+      }
+    } else if (unfinishedSocialPosts.length > 0) {
+      socialSummary = `${unfinishedSocialPosts.length} social media ${
+        unfinishedSocialPosts.length === 1 ? "post is" : "posts are"
+      } currently in progress.`;
+    }
+
+    const socialProgress: DivisionProgress = {
+      division: "social-media",
+      summary: socialSummary,
+      openCount: socialOpenCount,
+      badge: socialBadge,
+      updates: socialUpdates,
+    };
+
+    const otherProgress = DIVISIONS.filter(
+      (division) => division !== "social-media",
+    ).map((division): DivisionProgress => {
+      const projects = divisionTasks.filter(
+        (task) => task.division === division,
+      );
+      const openProjects = projects.filter(
+        (task) => task.status !== "approved",
+      );
+
+      const itemUpdates = projects.flatMap((project) =>
+        (project.division_task_items ?? []).map((item): ProgressUpdate => {
+          const reviewDate = latestReviewDate(item.client_approvals);
+          const hasChanges = hasRequestedChanges(item.client_approvals);
+          const isClientApproved = hasAllRequiredApprovals(
+            item.client_approvals,
+            reviewerKeys,
+          );
+          const timestamp =
+            reviewDate ?? item.sent_to_client_at ?? item.updated_at ?? item.created_at;
+          const status = hasChanges
+            ? "Client requested changes"
+            : isClientApproved
+              ? "Client approved"
+              : item.sent_to_client_at
+                ? "Waiting for client approval"
+                : `Updated in ${project.title}`;
+
+          return {
+            id: `item-${item.id}`,
+            title: item.title,
+            status,
+            timestamp,
+            dateLabel: `Updated ${formatDate(timestamp)}`,
+            thumbnailSrc: previewUrl(item.visual_url),
+          };
+        }),
+      );
+
+      const projectUpdates = projects.map(
+        (project): ProgressUpdate => ({
+          id: `project-${project.id}`,
+          title: project.title,
+          status: `Project ${projectStatusLabels[project.status]}`,
+          timestamp: project.created_at,
+          dateLabel: `Started ${formatDate(project.created_at)}`,
+        }),
+      );
+
+      const specializedWebsiteUpdates =
+        division === "website"
+          ? websiteTasks.map(
+              (task): ProgressUpdate => ({
+                id: `website-${task.id}`,
+                title: task.title,
+                status: websiteStatusLabels[task.column_status] ?? "In progress",
+                timestamp: task.created_at,
+                dateLabel: `Updated ${formatDate(task.created_at)}`,
+              }),
+            )
+          : [];
+
+      const websiteOpenCount = websiteTasks.filter(
+        (task) => task.column_status !== "done",
+      ).length;
+      const openCount =
+        division === "website" && websiteTasks.length > 0
+          ? websiteOpenCount
+          : openProjects.length;
+
+      let summary = "No Open Projects";
+      if (division === "website" && websiteTasks.length > 0) {
+        if (websiteOpenCount > 0) {
+          summary = `${websiteOpenCount} website ${
+            websiteOpenCount === 1 ? "task is" : "tasks are"
+          } currently in progress.`;
+        }
+      } else if (openProjects.length === 1) {
+        summary = `${openProjects[0].title} is ${projectStatusLabels[openProjects[0].status]}.`;
+      } else if (openProjects.length > 1) {
+        summary = `${openProjects.length} open projects. The newest, ${openProjects[0].title}, is ${projectStatusLabels[openProjects[0].status]}.`;
+      }
+
+      return {
+        division,
+        summary,
+        openCount,
+        badge:
+          openCount > 0
+            ? `${openCount} ${openCount === 1 ? "open project" : "open projects"}`
+            : "No open projects",
+        updates: [
+          ...itemUpdates,
+          ...specializedWebsiteUpdates,
+          ...projectUpdates,
+        ]
+          .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+          .slice(0, 5),
+      };
+    });
+
+    return [socialProgress, ...otherProgress];
+  }, [clientSlug, divisionTasks, socialPosts, websiteTasks]);
+
   return (
     <main className="min-h-screen px-5 py-10 sm:px-8 sm:py-14 lg:px-12">
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-[1500px]">
         <header>
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-primary">
             Client portal · {clientName ?? "Client"}
@@ -290,138 +658,47 @@ export default function ProjectsPage() {
             Projects
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-            A clear view of current project progress and ongoing support from
-            the Understory team.
+            Current progress and the latest updates across every Understory
+            project category.
           </p>
         </header>
 
         {errorMessage && (
           <div
             role="alert"
-            className="mt-7 rounded-2xl border border-accent bg-accent/20 px-4 py-3 text-sm leading-6 text-accent-foreground"
+            className="mt-7 rounded-2xl border border-[#DDB7AB] bg-[#F8ECE8] px-4 py-3 text-sm leading-6 text-[#875344]"
           >
             {errorMessage}
           </div>
         )}
 
-        <section className="mt-10" aria-labelledby="planning-tools-heading">
+        <section className="mt-10" aria-labelledby="project-progress-heading">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">
-              Planning
+              Live progress
             </p>
             <h2
-              id="planning-tools-heading"
+              id="project-progress-heading"
               className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-foreground"
             >
-              Project workspaces
+              Project categories
             </h2>
           </div>
 
-          <Link
-            href="/client-portal/projects/social-media"
-            className="group mt-5 flex flex-col gap-4 rounded-[24px] border border-border bg-card p-5 shadow-[0_8px_28px_rgba(52,31,96,0.055)] transition hover:border-primary/45 hover:bg-muted/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:flex-row sm:items-center sm:justify-between sm:p-6"
-          >
-            <span className="flex min-w-0 items-start gap-4">
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-muted text-primary">
-                <CalendarIcon />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-base font-semibold text-foreground">
-                  Social media calendar
-                </span>
-                <span className="mt-1 block text-sm leading-6 text-muted-foreground">
-                  View scheduled posts, monthly planning, and feed previews.
-                </span>
-              </span>
-            </span>
-            <span className="inline-flex shrink-0 items-center gap-2 self-end text-xs font-semibold text-primary sm:self-auto">
-              Open calendar
-              <span
-                aria-hidden="true"
-                className="transition group-hover:translate-x-0.5"
-              >
-                →
-              </span>
-            </span>
-          </Link>
-        </section>
-
-        <section className="mt-12" aria-labelledby="active-projects-heading">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">
-                Deliverables
-              </p>
-              <h2
-                id="active-projects-heading"
-                className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-foreground"
-              >
-                Active projects
-              </h2>
-            </div>
-            {!isLoading && (
-              <span className="rounded-full bg-muted px-3 py-1.5 text-[11px] font-semibold text-secondary-foreground">
-                {activeProjects.length} projects
-              </span>
-            )}
-          </div>
-
-          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <div className="mt-5 grid gap-5">
             {isLoading
-              ? Array.from({ length: 3 }, (_, index) => (
+              ? DIVISIONS.map((division) => (
                   <div
-                    key={index}
-                    className="h-[26rem] animate-pulse rounded-[24px] border border-border bg-card"
+                    key={division}
+                    className="h-56 animate-pulse rounded-[26px] border border-border bg-card"
                   />
                 ))
-              : activeProjects.map((project) => (
-                  <ProjectCard key={project.id} project={project} />
-                ))}
-          </div>
-
-          {!isLoading && activeProjects.length === 0 && !errorMessage && (
-            <p className="mt-5 rounded-[24px] border border-dashed border-border bg-card px-6 py-10 text-center text-sm text-muted-foreground">
-              No active projects are available yet.
-            </p>
-          )}
-        </section>
-
-        <section className="mt-12" aria-labelledby="ongoing-programs-heading">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">
-              Retained support
-            </p>
-            <h2
-              id="ongoing-programs-heading"
-              className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-foreground"
-            >
-              Ongoing programs
-            </h2>
-          </div>
-
-          <div className="mt-5 overflow-hidden rounded-[24px] border border-border bg-card shadow-[0_8px_28px_rgba(52,31,96,0.055)]">
-            {isLoading ? (
-              <div className="space-y-px bg-border">
-                {Array.from({ length: 2 }, (_, index) => (
-                  <div
-                    key={index}
-                    className="h-24 animate-pulse bg-card"
+              : progressByDivision.map((progress) => (
+                  <ProgressSection
+                    key={progress.division}
+                    progress={progress}
                   />
                 ))}
-              </div>
-            ) : ongoingPrograms.length > 0 ? (
-              ongoingPrograms.map((project) => (
-                <ProgramRow
-                  key={project.id}
-                  project={project}
-                  clientName={clientName ?? "the client"}
-                />
-              ))
-            ) : (
-              <p className="px-6 py-10 text-center text-sm text-muted-foreground">
-                No ongoing programs are available yet.
-              </p>
-            )}
           </div>
         </section>
       </div>

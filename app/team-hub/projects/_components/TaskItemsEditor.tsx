@@ -177,12 +177,13 @@ function WatcherAvatars({
 export function TaskItemsEditor({
   taskId,
   clientId,
-  supportsVisuals = false,
+  deliverableCategory,
 }: {
   taskId: string;
   clientId?: string;
-  supportsVisuals?: boolean;
+  deliverableCategory?: "event" | "branding";
 }) {
+  const supportsVisuals = Boolean(deliverableCategory);
   const { accessLevel, isReady, name: currentTeamMemberName } = useTeamIdentity();
   const isOwner = isReady && accessLevel === "owner";
   const members = useTaskTeamMembers();
@@ -412,6 +413,7 @@ export function TaskItemsEditor({
   async function sendToClient(item: TaskItem) {
     if (
       !supportsVisuals ||
+      !deliverableCategory ||
       !clientId ||
       !isOwner ||
       !currentTeamMemberName ||
@@ -439,13 +441,15 @@ export function TaskItemsEditor({
       .eq("division_task_id", taskId);
 
     if (!sendError) {
+      const categoryName =
+        deliverableCategory === "branding" ? "Branding" : "Event";
       await supabase.from("client_approval_categories").upsert(
         {
           client_id: clientId,
-          name: "Event",
+          name: categoryName,
           status: "approval_needed",
-          description: "Event item ready for review",
-          route_slug: "event",
+          description: `${categoryName} item ready for review`,
+          route_slug: deliverableCategory,
         },
         { onConflict: "client_id,route_slug" },
       );
@@ -485,7 +489,7 @@ export function TaskItemsEditor({
         </h2>
         <p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">
           {supportsVisuals
-            ? "Add each event item with a name, description, and optional Google Drive visual."
+            ? `Add each ${deliverableCategory} item with a name, description, and optional Google Drive visual.`
             : "Add your own item names and descriptions. Nothing is pre-filled."}
         </p>
       </div>

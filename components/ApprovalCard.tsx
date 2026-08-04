@@ -18,7 +18,7 @@ export function CategoryIcon({
   icon,
   className = "size-4",
 }: {
-  icon: "instagram" | "calendar";
+  icon: "instagram" | "calendar" | "palette";
   className?: string;
 }) {
   if (icon === "instagram") {
@@ -46,6 +46,27 @@ export function CategoryIcon({
           strokeWidth="1.6"
         />
         <circle cx="17.2" cy="6.8" r="1.1" fill="currentColor" />
+      </svg>
+    );
+  }
+
+  if (icon === "palette") {
+    return (
+      <svg
+        aria-hidden="true"
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+      >
+        <path
+          d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 0-4H12a2 2 0 0 1 0-4h3.5A5.5 5.5 0 0 0 21 7.5C21 5 17 3 12 3Z"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+        <circle cx="8" cy="9" r="1" fill="currentColor" />
+        <circle cx="11" cy="6.5" r="1" fill="currentColor" />
+        <circle cx="15" cy="7" r="1" fill="currentColor" />
       </svg>
     );
   }
@@ -234,10 +255,13 @@ export default function ApprovalCard({
 
           <div className="mt-4 border-t border-border pt-4">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              Caption
+              {item.category === "social_media" ? "Caption" : "Description"}
             </p>
             <p className="mt-2 max-h-28 overflow-y-auto whitespace-pre-line pr-1 text-xs leading-5 text-foreground/75">
-              {item.caption?.trim() || "No caption provided."}
+              {item.caption?.trim() ||
+                (item.category === "social_media"
+                  ? "No caption provided."
+                  : "No description provided.")}
             </p>
           </div>
 
@@ -318,7 +342,7 @@ export default function ApprovalCard({
                   type="button"
                   disabled={isUpdating}
                   onClick={() => void onApprove(item.id)}
-                  className="rounded-full bg-primary px-3 py-2.5 text-[11px] font-semibold text-primary-foreground shadow-[0_6px_16px_rgba(52,31,96,0.12)] transition hover:bg-primary/90 disabled:cursor-wait disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  className="rounded-full bg-[#4F8A62] px-3 py-2.5 text-[11px] font-semibold text-white shadow-[0_6px_16px_rgba(79,138,98,0.2)] transition hover:bg-[#427653] disabled:cursor-wait disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                 >
                   {isUpdating ? "Saving…" : "Approve"}
                 </button>

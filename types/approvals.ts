@@ -1,4 +1,4 @@
-export type ApprovalCategory = "social_media" | "event";
+export type ApprovalCategory = "social_media" | "event" | "branding";
 
 export type ApprovalStatus =
   | "awaiting_review"
@@ -25,7 +25,7 @@ export const categoryConfig: Record<
   ApprovalCategory,
   {
     label: string;
-    icon: "instagram" | "calendar";
+    icon: "instagram" | "calendar" | "palette";
     groupClassName: string;
   }
 > = {
@@ -38,6 +38,11 @@ export const categoryConfig: Record<
     label: "Event",
     icon: "calendar",
     groupClassName: "border-[#A9CCDF] bg-[#EAF5FB]",
+  },
+  branding: {
+    label: "Branding",
+    icon: "palette",
+    groupClassName: "border-[#CDBAD9] bg-[#EEE3FA]/70",
   },
 };
 

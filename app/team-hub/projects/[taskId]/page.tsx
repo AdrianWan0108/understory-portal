@@ -387,7 +387,11 @@ export default function DivisionTaskDetailPage() {
           <TaskItemsEditor
             taskId={task.id}
             clientId={task.client_id}
-            supportsVisuals={task.division === "event"}
+            deliverableCategory={
+              task.division === "event" || task.division === "branding"
+                ? task.division
+                : undefined
+            }
           />
         )}
 
