@@ -7,6 +7,11 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       {
+        source: "/client-portal/approvals/social-media",
+        destination: "/client-portal/projects/social-media",
+        permanent: true,
+      },
+      {
         source: "/client/portal",
         destination: "/client-portal",
         permanent: true,

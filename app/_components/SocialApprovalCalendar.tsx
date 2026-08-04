@@ -990,7 +990,7 @@ export function SocialApprovalCalendar({
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--primary)]">
               {mode === "internal"
                 ? "Social media · Internal review"
-                : "Content approvals"}
+                : "Projects · Social media"}
             </p>
             <h1
               className={`${fraunces.className} text-4xl font-medium leading-tight tracking-tight sm:text-5xl`}

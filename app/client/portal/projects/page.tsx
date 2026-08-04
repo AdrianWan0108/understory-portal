@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useClientIdentity } from "../_components/ClientIdentity";
 
@@ -181,6 +182,24 @@ function ProgramRow({
   );
 }
 
+function CalendarIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 9h18M8 3v4M16 3v4" />
+    </svg>
+  );
+}
+
 export default function ProjectsPage() {
   const { clientSlug, clientName } = useClientIdentity();
   const [projects, setProjects] = useState<ClientProject[]>([]);
@@ -285,7 +304,49 @@ export default function ProjectsPage() {
           </div>
         )}
 
-        <section className="mt-10" aria-labelledby="active-projects-heading">
+        <section className="mt-10" aria-labelledby="planning-tools-heading">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">
+              Planning
+            </p>
+            <h2
+              id="planning-tools-heading"
+              className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-foreground"
+            >
+              Project workspaces
+            </h2>
+          </div>
+
+          <Link
+            href="/client-portal/projects/social-media"
+            className="group mt-5 flex flex-col gap-4 rounded-[24px] border border-border bg-card p-5 shadow-[0_8px_28px_rgba(52,31,96,0.055)] transition hover:border-primary/45 hover:bg-muted/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:flex-row sm:items-center sm:justify-between sm:p-6"
+          >
+            <span className="flex min-w-0 items-start gap-4">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-muted text-primary">
+                <CalendarIcon />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-base font-semibold text-foreground">
+                  Social media calendar
+                </span>
+                <span className="mt-1 block text-sm leading-6 text-muted-foreground">
+                  View scheduled posts, monthly planning, and feed previews.
+                </span>
+              </span>
+            </span>
+            <span className="inline-flex shrink-0 items-center gap-2 self-end text-xs font-semibold text-primary sm:self-auto">
+              Open calendar
+              <span
+                aria-hidden="true"
+                className="transition group-hover:translate-x-0.5"
+              >
+                →
+              </span>
+            </span>
+          </Link>
+        </section>
+
+        <section className="mt-12" aria-labelledby="active-projects-heading">
           <div className="flex items-end justify-between gap-4">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">

@@ -1,120 +1,186 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import ApprovalCard, { CategoryIcon } from "@/components/ApprovalCard";
+import { extractGoogleDriveFileId } from "@/lib/google-drive";
+import { sendSlackNotification } from "@/lib/slack-notifications";
+import { normalizeReelDetails } from "@/lib/social-content";
 import { supabase } from "@/lib/supabase";
-import { useClientIdentity } from "../_components/ClientIdentity";
+import { TEAM_IDENTITIES } from "@/lib/team-auth";
+import type {
+  ApprovalCategory,
+  ApprovalItem,
+  ApprovalStatus,
+} from "@/types/approvals";
+import { categoryConfig } from "@/types/approvals";
+import {
+  CLIENT_IDENTITIES,
+  useClientIdentity,
+} from "../_components/ClientIdentity";
 
-type ApprovalStatus =
-  | "approval_needed"
-  | "revision_in_progress"
-  | "up_to_date";
+type ReviewStatus = "approved" | "pending" | "changes";
 
-type ApprovalCategory = {
+type ReviewDecision = {
+  status: ReviewStatus;
+  reviewed_at?: string;
+  reviewer_name?: string;
+  comment?: string;
+};
+
+type ApprovalHistoryEntry = {
+  stage: "internal" | "client";
+  reviewer_key: string;
+  reviewer_name: string;
+  status: "approved" | "changes";
+  at: string;
+  note?: string;
+};
+
+type SocialApprovalRow = {
   id: string;
   client_id: string;
-  name: string;
-  status: ApprovalStatus;
-  description: string | null;
-  route_slug: string;
-  created_at: string;
+  title: string;
+  format: string | null;
+  post_caption: string;
+  reel_details: unknown;
+  sent_to_client_at: string;
+  client_approvals: unknown;
+  approval_history: unknown;
+  assigned_to: string | null;
+  assignee_usernames: string[] | null;
+  task_slides: Array<{
+    slide_number: number;
+    image_url: string | null;
+  }> | null;
 };
 
-const statusStyles: Record<
-  ApprovalStatus,
-  { label: string; className: string; dotClassName: string }
-> = {
-  approval_needed: {
-    label: "Approval needed",
-    className: "border-accent bg-accent/45 text-accent-foreground",
-    dotClassName: "bg-accent",
-  },
-  revision_in_progress: {
-    label: "Revision in progress",
-    className: "border-border bg-muted text-secondary-foreground",
-    dotClassName: "bg-primary",
-  },
-  up_to_date: {
-    label: "Up to date",
-    className: "border-[#BFD8C7] bg-[#EAF5ED] text-[#356346]",
-    dotClassName: "bg-[#4F8A62]",
-  },
+type LoadedApproval = {
+  item: ApprovalItem;
+  clientId: string;
+  reviews: Record<string, ReviewDecision>;
+  history: ApprovalHistoryEntry[];
+  assigneeNames: string[];
 };
 
-function CategoryIcon({ routeSlug }: { routeSlug: string }) {
-  const paths: Record<string, React.ReactNode> = {
-    "social-media": (
-      <>
-        <rect x="4" y="4" width="16" height="16" rx="4" />
-        <circle cx="12" cy="12" r="3.2" />
-        <circle cx="17.4" cy="6.7" r="0.8" fill="currentColor" stroke="none" />
-      </>
-    ),
-    website: (
-      <>
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <path d="M3 9h18M7 6.5h.01M10 6.5h.01" />
-      </>
-    ),
-    "brand-palette": (
-      <>
-        <path d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 0-4H12a2 2 0 0 1 0-4h3.5A5.5 5.5 0 0 0 21 7.5C21 5 17 3 12 3Z" />
-        <circle cx="7.5" cy="9" r="1" fill="currentColor" stroke="none" />
-        <circle cx="10" cy="6.5" r="1" fill="currentColor" stroke="none" />
-        <circle cx="14" cy="6.5" r="1" fill="currentColor" stroke="none" />
-      </>
-    ),
-  };
+function isReviewStatus(value: unknown): value is ReviewStatus {
+  return value === "approved" || value === "pending" || value === "changes";
+}
 
-  return (
-    <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-muted text-primary">
-      <svg
-        aria-hidden="true"
-        className="size-5"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        {paths[routeSlug] ?? <path d="M5 12h14M12 5v14" />}
-      </svg>
-    </span>
+function normalizeReviews(value: unknown): Record<string, ReviewDecision> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).flatMap(([key, item]) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+      const record = item as Record<string, unknown>;
+      if (!isReviewStatus(record.status)) return [];
+
+      return [
+        [
+          key,
+          {
+            status: record.status,
+            reviewed_at:
+              typeof record.reviewed_at === "string"
+                ? record.reviewed_at
+                : undefined,
+            reviewer_name:
+              typeof record.reviewer_name === "string"
+                ? record.reviewer_name
+                : undefined,
+            comment:
+              typeof record.comment === "string" ? record.comment : undefined,
+          },
+        ],
+      ];
+    }),
   );
 }
 
-function ArrowIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="size-5"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m9 18 6-6-6-6" />
-    </svg>
-  );
+function normalizeHistory(value: unknown): ApprovalHistoryEntry[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const record = item as Record<string, unknown>;
+    if (
+      (record.stage !== "internal" && record.stage !== "client") ||
+      (record.status !== "approved" && record.status !== "changes") ||
+      typeof record.reviewer_key !== "string" ||
+      typeof record.reviewer_name !== "string" ||
+      typeof record.at !== "string"
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        stage: record.stage,
+        reviewer_key: record.reviewer_key,
+        reviewer_name: record.reviewer_name,
+        status: record.status,
+        at: record.at,
+        note: typeof record.note === "string" ? record.note : undefined,
+      },
+    ];
+  });
+}
+
+function approvalStatusFor(
+  reviews: Record<string, ReviewDecision>,
+  reviewerKey: string,
+): ApprovalStatus {
+  const status = reviews[reviewerKey]?.status ?? "pending";
+  if (status === "approved") return "approved";
+  if (status === "changes") return "changes_requested";
+  return "awaiting_review";
+}
+
+function previewUrl(value: string | null | undefined) {
+  if (!value) return undefined;
+  const driveFileId = extractGoogleDriveFileId(value);
+  return driveFileId
+    ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(
+        driveFileId,
+      )}&sz=w640`
+    : value;
+}
+
+function assigneeNames(row: SocialApprovalRow) {
+  const usernames =
+    row.assignee_usernames && row.assignee_usernames.length > 0
+      ? row.assignee_usernames
+      : row.assigned_to
+        ? [row.assigned_to]
+        : [];
+
+  return usernames.map((username) => {
+    const profile = Object.values(TEAM_IDENTITIES).find(
+      (candidate) => candidate.username === username,
+    );
+    return profile?.name ?? username;
+  });
 }
 
 export default function ApprovalsPage() {
-  const { clientSlug, clientName } = useClientIdentity();
-  const [categories, setCategories] = useState<ApprovalCategory[]>([]);
+  const { identity, clientSlug, clientName } = useClientIdentity();
+  const reviewer = identity ? CLIENT_IDENTITIES[identity] : null;
+  const [approvals, setApprovals] = useState<LoadedApproval[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let isActive = true;
 
-    async function loadCategories() {
+    async function loadApprovals() {
       setIsLoading(true);
-      setCategories([]);
+      setApprovals([]);
+      setErrorMessage(null);
+      setFeedbackMessage(null);
 
-      if (!clientSlug) {
+      if (!clientSlug || !reviewer) {
         setErrorMessage("Choose a client profile to view approvals.");
         setIsLoading(false);
         return;
@@ -122,48 +188,200 @@ export default function ApprovalsPage() {
 
       const { data: client, error: clientError } = await supabase
         .from("clients")
-        .select("id")
+        .select("id, name")
         .eq("slug", clientSlug)
-        .single();
+        .maybeSingle();
 
       if (!isActive) return;
       if (clientError || !client) {
         setErrorMessage(
-          `Could not load ${clientName ?? "the selected client"}: ${clientError?.message ?? "Client not found."}`,
+          `Could not load ${clientName ?? "the selected client"}: ${
+            clientError?.message ?? "Client not found."
+          }`,
         );
         setIsLoading(false);
         return;
       }
 
       const { data, error } = await supabase
-        .from("client_approval_categories")
+        .from("tasks")
         .select(
-          "id, client_id, name, status, description, route_slug, created_at",
+          `
+            id,
+            client_id,
+            title,
+            format,
+            post_caption,
+            reel_details,
+            sent_to_client_at,
+            client_approvals,
+            approval_history,
+            assigned_to,
+            assignee_usernames,
+            task_slides (
+              slide_number,
+              image_url
+            )
+          `,
         )
         .eq("client_id", client.id)
-        .order("created_at", { ascending: true });
+        .not("sent_to_client_at", "is", null)
+        .is("posted_at", null)
+        .order("sent_to_client_at", { ascending: false });
 
       if (!isActive) return;
       if (error) {
-        setErrorMessage(`Could not load approval categories: ${error.message}`);
-        setCategories([]);
-      } else {
-        setCategories((data ?? []) as ApprovalCategory[]);
-        setErrorMessage(null);
+        setErrorMessage(`Could not load approvals: ${error.message}`);
+        setIsLoading(false);
+        return;
       }
 
+      const loaded = ((data ?? []) as unknown as SocialApprovalRow[]).map(
+        (row): LoadedApproval => {
+          const reviews = normalizeReviews(row.client_approvals);
+          const slides = [...(row.task_slides ?? [])].sort(
+            (a, b) => a.slide_number - b.slide_number,
+          );
+          const reelDetails = normalizeReelDetails(row.reel_details);
+          const image =
+            row.format === "reel"
+              ? reelDetails.videoUrl || slides[0]?.image_url
+              : slides[0]?.image_url;
+
+          return {
+            item: {
+              id: row.id,
+              category: "social_media",
+              client: client.name,
+              title: row.title,
+              caption: row.post_caption,
+              thumbnailSrc: previewUrl(image),
+              status: approvalStatusFor(reviews, reviewer.username),
+              submittedAt: row.sent_to_client_at,
+            },
+            clientId: client.id,
+            reviews,
+            history: normalizeHistory(row.approval_history),
+            assigneeNames: assigneeNames(row),
+          };
+        },
+      );
+
+      setApprovals(loaded);
       setIsLoading(false);
     }
 
-    void loadCategories();
+    void loadApprovals();
     return () => {
       isActive = false;
     };
-  }, [clientName, clientSlug]);
+  }, [clientName, clientSlug, reviewer]);
+
+  const pending = useMemo(
+    () =>
+      approvals
+        .filter(({ item }) => item.status === "awaiting_review")
+        .sort((a, b) => a.item.submittedAt.localeCompare(b.item.submittedAt)),
+    [approvals],
+  );
+  const pendingByCategory = useMemo(
+    () =>
+      (Object.keys(categoryConfig) as ApprovalCategory[]).flatMap(
+        (category) => {
+          const items = pending.filter(
+            ({ item }) => item.category === category,
+          );
+          return items.length > 0 ? [{ category, items }] : [];
+        },
+      ),
+    [pending],
+  );
+
+  async function updateStatus(
+    id: string,
+    status: "approved" | "changes",
+    comment?: string,
+  ) {
+    if (!reviewer || !clientSlug || updatingId) return;
+    const approval = approvals.find(({ item }) => item.id === id);
+    if (!approval) return;
+
+    const timestamp = new Date().toISOString();
+    const note = comment?.trim() || "";
+    const nextReviews = {
+      ...approval.reviews,
+      [reviewer.username]: {
+        status,
+        reviewed_at: timestamp,
+        reviewer_name: reviewer.name,
+        ...(note ? { comment: note } : {}),
+      },
+    };
+    const nextHistory = [
+      ...approval.history,
+      {
+        stage: "client" as const,
+        reviewer_key: reviewer.username,
+        reviewer_name: reviewer.name,
+        status,
+        at: timestamp,
+        ...(note ? { note } : {}),
+      },
+    ];
+
+    setUpdatingId(id);
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    const { error } = await supabase
+      .from("tasks")
+      .update({
+        client_approvals: nextReviews,
+        approval_history: nextHistory,
+      })
+      .eq("id", id)
+      .eq("client_id", approval.clientId);
+    setUpdatingId(null);
+
+    if (error) {
+      setErrorMessage(`Could not save the decision: ${error.message}`);
+      return;
+    }
+
+    const itemStatus: ApprovalStatus =
+      status === "approved" ? "approved" : "changes_requested";
+    setApprovals((current) =>
+      current.map((entry) =>
+        entry.item.id === id
+          ? {
+              ...entry,
+              item: { ...entry.item, status: itemStatus },
+              reviews: nextReviews,
+              history: nextHistory,
+            }
+          : entry,
+      ),
+    );
+    setFeedbackMessage(
+      pending.length === 1
+        ? "All caught up — there’s nothing else to review."
+        : status === "approved"
+          ? `You approved “${approval.item.title}.”`
+          : `Changes requested on “${approval.item.title}.”`,
+    );
+    void sendSlackNotification({
+      type: "client_review",
+      clientSlug,
+      action: status === "approved" ? "approved" : "requested_changes",
+      title: approval.item.title,
+      reviewerName: reviewer.name,
+      comment: note || undefined,
+      assigneeNames: approval.assigneeNames,
+    });
+  }
 
   return (
     <main className="min-h-screen px-5 py-10 sm:px-8 sm:py-14 lg:px-12">
-      <div className="mx-auto max-w-5xl">
+      <div className="mx-auto max-w-[1500px]">
         <header>
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-primary">
             Client portal · {clientName ?? "Client"}
@@ -172,97 +390,132 @@ export default function ApprovalsPage() {
             Approvals
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-            Review work that needs a decision and track revisions already in
-            progress.
+            Review work that needs a decision. Approve or request changes on
+            each item below.
           </p>
         </header>
 
         {errorMessage && (
-          <div
+          <p
             role="alert"
-            className="mt-7 rounded-2xl border border-accent bg-accent/20 px-4 py-3 text-sm leading-6 text-accent-foreground"
+            className="mt-7 rounded-2xl border border-[#DDB7AB] bg-[#F8ECE8] px-4 py-3 text-sm leading-6 text-[#875344]"
           >
             {errorMessage}
+          </p>
+        )}
+        {feedbackMessage && (
+          <div
+            role="status"
+            className="fixed bottom-5 right-5 z-50 flex max-w-sm items-start gap-3 rounded-2xl border border-[#BFD8C7] bg-[#EAF5ED] px-4 py-3 text-sm leading-6 text-[#356346] shadow-[0_16px_45px_rgba(17,28,33,0.16)]"
+          >
+            <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-[#4F8A62] text-[11px] font-bold text-white">
+              ✓
+            </span>
+            <span className="flex-1">{feedbackMessage}</span>
+            <button
+              type="button"
+              aria-label="Dismiss notification"
+              onClick={() => setFeedbackMessage(null)}
+              className="text-base leading-5 opacity-60 hover:opacity-100"
+            >
+              ×
+            </button>
           </div>
         )}
 
-        <section className="mt-10" aria-labelledby="approval-categories-heading">
+        <section className="mt-10" aria-labelledby="pending-approvals-heading">
           <div className="flex items-end justify-between gap-4">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">
                 Review queue
               </p>
               <h2
-                id="approval-categories-heading"
+                id="pending-approvals-heading"
                 className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-foreground"
               >
-                Approval categories
+                Needs your review
               </h2>
             </div>
             {!isLoading && (
-              <span className="rounded-full bg-muted px-3 py-1.5 text-[11px] font-semibold text-secondary-foreground">
-                {categories.length} categories
+              <span className="shrink-0 rounded-full bg-muted px-3 py-1.5 text-[11px] font-semibold text-secondary-foreground">
+                {pending.length} {pending.length === 1 ? "item" : "items"}
               </span>
             )}
           </div>
 
-          <div className="mt-5 overflow-hidden rounded-[24px] border border-border bg-card shadow-[0_8px_28px_rgba(52,31,96,0.055)]">
+          <div className="mt-5">
             {isLoading ? (
-              <div className="divide-y divide-border">
+              <div className="flex gap-4 overflow-hidden rounded-[24px] border border-[#E2C75E] bg-[#FFF3B8]/55 p-4">
                 {Array.from({ length: 3 }, (_, index) => (
-                  <div key={index} className="h-28 animate-pulse bg-card" />
+                  <div
+                    key={index}
+                    className="h-[38rem] w-[18rem] shrink-0 animate-pulse rounded-[20px] border border-border bg-card"
+                  />
                 ))}
               </div>
-            ) : categories.length > 0 ? (
-              <div className="divide-y divide-border">
-                {categories.map((category) => {
-                  const status = statusStyles[category.status];
+            ) : pending.length > 0 ? (
+              <div className="grid gap-5">
+                {pendingByCategory.map(({ category, items }) => {
+                  const config = categoryConfig[category];
 
                   return (
-                    <Link
-                      key={category.id}
-                      href={`/client-portal/approvals/${category.route_slug}`}
-                      className="group flex flex-col gap-4 px-5 py-5 transition hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring sm:flex-row sm:items-center sm:px-6"
+                    <section
+                      key={category}
+                      aria-labelledby={`approval-category-${category}`}
+                      className={`overflow-hidden rounded-[26px] border p-4 sm:p-5 ${config.groupClassName}`}
                     >
-                      <div className="flex min-w-0 flex-1 items-start gap-4">
-                        <CategoryIcon routeSlug={category.route_slug} />
-                        <div className="min-w-0">
-                          <h3 className="text-base font-semibold text-foreground">
-                            {category.name}
-                          </h3>
-                          {category.description && (
-                            <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                              {category.description}
-                            </p>
-                          )}
-                        </div>
+                      <div className="mb-4 flex items-center justify-between gap-3 px-1">
+                        <h3
+                          id={`approval-category-${category}`}
+                          className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.17em] text-foreground"
+                        >
+                          <CategoryIcon icon={config.icon} />
+                          {config.label}
+                        </h3>
+                        <span className="rounded-full bg-card/75 px-2.5 py-1 text-[10px] font-semibold text-foreground/70">
+                          {items.length} {items.length === 1 ? "review" : "reviews"}
+                        </span>
                       </div>
 
-                      <div className="flex items-center justify-between gap-4 pl-[3.75rem] sm:shrink-0 sm:pl-0">
-                        <span
-                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold ${status.className}`}
-                        >
-                          <span
-                            className={`size-1.5 rounded-full ${status.dotClassName}`}
-                          />
-                          {status.label}
-                        </span>
-                        <span className="text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary">
-                          <ArrowIcon />
-                        </span>
+                      <div className="overflow-x-auto pb-2">
+                        <div className="grid grid-flow-col auto-cols-[minmax(17.5rem,20rem)] items-stretch gap-4">
+                          {items.map(({ item }) => (
+                            <ApprovalCard
+                              key={item.id}
+                              item={item}
+                              reviewLayout
+                              isUpdating={updatingId === item.id}
+                              onApprove={(itemId, comment) =>
+                                updateStatus(itemId, "approved", comment)
+                              }
+                              onRequestChanges={(itemId, comment) =>
+                                updateStatus(itemId, "changes", comment)
+                              }
+                            />
+                          ))}
+                        </div>
                       </div>
-                    </Link>
+                    </section>
                   );
                 })}
               </div>
             ) : (
-              <p className="px-6 py-12 text-center text-sm text-muted-foreground">
-                No approvals yet. New approval categories will appear here
-                when they are ready.
-              </p>
+              <div className="rounded-[26px] border border-dashed border-border bg-card px-6 py-12 text-center">
+                <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-[#EAF5ED] text-lg font-bold text-[#4F8A62]">
+                  ✓
+                </span>
+                <p className="mt-4 text-base font-semibold text-foreground">
+                  Nothing more to review
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  You&apos;re all caught up. New items will appear here when
+                  they&apos;re ready.
+                </p>
+              </div>
             )}
           </div>
         </section>
+
       </div>
     </main>
   );
