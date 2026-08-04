@@ -63,6 +63,7 @@ type EventApprovalRow = {
   title: string;
   description: string | null;
   visual_url: string | null;
+  visual_urls: string[];
   sent_to_client_at: string;
   client_approvals: unknown;
   approval_history: unknown;
@@ -261,6 +262,7 @@ export default function ApprovalsPage() {
               title,
               description,
               visual_url,
+              visual_urls,
               sent_to_client_at,
               client_approvals,
               approval_history,
@@ -344,6 +346,12 @@ export default function ApprovalsPage() {
             : row.division_tasks;
           const category =
             parentTask?.division === "branding" ? "branding" : "event";
+          const visualUrls =
+            row.visual_urls?.length > 0
+              ? row.visual_urls
+              : row.visual_url
+                ? [row.visual_url]
+                : [];
           return {
             source: "event",
             divisionTaskId: row.division_task_id,
@@ -353,8 +361,15 @@ export default function ApprovalsPage() {
               client: client.name,
               title: row.title,
               caption: row.description ?? undefined,
-              thumbnailSrc: previewUrl(row.visual_url),
-              format: "image",
+              thumbnailSrc: previewUrl(visualUrls[0]),
+              format: visualUrls.length > 1 ? "carousel" : "image",
+              slides:
+                visualUrls.length > 1
+                  ? visualUrls.map((visualUrl, index) => ({
+                      number: index + 1,
+                      thumbnailSrc: previewUrl(visualUrl),
+                    }))
+                  : undefined,
               status: approvalStatusFor(reviews, reviewer.username),
               submittedAt: row.sent_to_client_at,
             },

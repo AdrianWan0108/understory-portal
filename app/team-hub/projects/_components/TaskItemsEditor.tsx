@@ -32,6 +32,7 @@ type TaskItem = {
   title: string;
   description: string | null;
   visual_url: string | null;
+  visual_urls: string[];
   completed: boolean;
   assignee_usernames: string[];
   watcher_usernames: string[];
@@ -44,7 +45,7 @@ type TaskItem = {
 };
 
 const TASK_ITEM_SELECT =
-  "id, division_task_id, title, description, visual_url, completed, assignee_usernames, watcher_usernames, mentioned_usernames, sent_to_client_at, sent_to_client_by, client_approvals, approval_history, created_at";
+  "id, division_task_id, title, description, visual_url, visual_urls, completed, assignee_usernames, watcher_usernames, mentioned_usernames, sent_to_client_at, sent_to_client_by, client_approvals, approval_history, created_at";
 
 function visualPreviewUrl(value: string | null) {
   if (!value) return null;
@@ -58,19 +59,129 @@ function isValidVisualLink(value: string) {
   return !value.trim() || Boolean(resolveGoogleDriveFileUrls(value));
 }
 
+function normalizedVisualLinks(values: string[]) {
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter(Boolean)),
+  );
+}
+
+function itemVisualLinks(item: TaskItem) {
+  const links = normalizedVisualLinks(item.visual_urls ?? []);
+  return links.length > 0
+    ? links
+    : item.visual_url
+      ? [item.visual_url]
+      : [];
+}
+
+function areValidVisualLinks(values: string[]) {
+  return values.every(isValidVisualLink);
+}
+
+function GoogleDriveVisualFields({
+  values,
+  onChange,
+  idPrefix,
+}: {
+  values: string[];
+  onChange: (values: string[]) => void;
+  idPrefix: string;
+}) {
+  function updateLink(index: number, value: string) {
+    onChange(
+      values.map((currentValue, currentIndex) =>
+        currentIndex === index ? value : currentValue,
+      ),
+    );
+  }
+
+  function removeLink(index: number) {
+    const nextValues = values.filter((_, currentIndex) => currentIndex !== index);
+    onChange(nextValues.length > 0 ? nextValues : [""]);
+  }
+
+  return (
+    <fieldset className="grid gap-2">
+      <legend className="text-xs font-semibold text-[var(--foreground)]">
+        Google Drive visual links
+      </legend>
+      {values.map((value, index) => (
+        <div key={index} className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <label htmlFor={`${idPrefix}-${index}`} className="sr-only">
+              Google Drive visual link {index + 1}
+            </label>
+            <input
+              id={`${idPrefix}-${index}`}
+              type="url"
+              value={value}
+              onChange={(event) => updateLink(index, event.target.value)}
+              placeholder="Paste a shared Google Drive file link"
+              aria-invalid={!isValidVisualLink(value)}
+              className={projectInputClass}
+            />
+            {!isValidVisualLink(value) && (
+              <span className="mt-1.5 block text-[10px] font-semibold text-[#8B3E3E]">
+                Use a valid shared Google Drive file link.
+              </span>
+            )}
+          </div>
+          {values.length > 1 && (
+            <button
+              type="button"
+              onClick={() => removeLink(index)}
+              className="mt-2 shrink-0 text-[11px] font-semibold text-[#9A4040] hover:underline"
+              aria-label={`Remove Google Drive visual link ${index + 1}`}
+            >
+              Remove
+            </button>
+          )}
+        </div>
+      ))}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[10px] font-normal leading-4 text-[var(--muted-foreground)]">
+          Add one or more flyers, mockups, floor plans, or other visuals.
+        </span>
+        <button
+          type="button"
+          onClick={() => onChange([...values, ""])}
+          className="text-[11px] font-semibold text-[var(--primary)] hover:underline"
+        >
+          + Add another link
+        </button>
+      </div>
+    </fieldset>
+  );
+}
+
 function EventItemVisual({ item }: { item: TaskItem }) {
-  const [hasFailed, setHasFailed] = useState(false);
-  const previewUrl = visualPreviewUrl(item.visual_url);
+  const links = itemVisualLinks(item);
+  const [activeVisual, setActiveVisual] = useState(0);
+  const [failedVisuals, setFailedVisuals] = useState<number[]>([]);
+  const activeIndex = Math.min(activeVisual, Math.max(links.length - 1, 0));
+  const activeLink = links[activeIndex] ?? null;
+  const previewUrl = visualPreviewUrl(activeLink);
+  const hasFailed = failedVisuals.includes(activeIndex);
+
+  function showVisual(index: number) {
+    setActiveVisual(Math.max(0, Math.min(index, links.length - 1)));
+  }
 
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--muted)]">
-      <div className="flex aspect-[4/3] items-center justify-center overflow-hidden">
+      <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden">
         {previewUrl && !hasFailed ? (
           <img
             src={previewUrl}
             alt={`${item.title} visual`}
             className="size-full object-contain"
-            onError={() => setHasFailed(true)}
+            onError={() =>
+              setFailedVisuals((current) =>
+                current.includes(activeIndex)
+                  ? current
+                  : [...current, activeIndex],
+              )
+            }
           />
         ) : (
           <div className="px-4 text-center">
@@ -88,19 +199,44 @@ function EventItemVisual({ item }: { item: TaskItem }) {
               </svg>
             </span>
             <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
-              {item.visual_url ? "Preview unavailable" : "No visual attached"}
+              {activeLink ? "Preview unavailable" : "No visual attached"}
             </p>
           </div>
         )}
+        {links.length > 1 && (
+          <>
+            <span className="absolute left-3 top-3 rounded-full bg-black/70 px-2.5 py-1 text-[9px] font-semibold text-white">
+              {activeIndex + 1} of {links.length}
+            </span>
+            <button
+              type="button"
+              disabled={activeIndex === 0}
+              onClick={() => showVisual(activeIndex - 1)}
+              aria-label="Show previous visual"
+              className="absolute left-3 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-lg text-[#241936] shadow disabled:opacity-35"
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              disabled={activeIndex === links.length - 1}
+              onClick={() => showVisual(activeIndex + 1)}
+              aria-label="Show next visual"
+              className="absolute right-3 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-lg text-[#241936] shadow disabled:opacity-35"
+            >
+              ›
+            </button>
+          </>
+        )}
       </div>
-      {item.visual_url && (
+      {activeLink && (
         <a
-          href={item.visual_url}
+          href={activeLink}
           target="_blank"
           rel="noreferrer"
           className="block border-t border-[var(--border)] bg-[var(--card)] px-3 py-2 text-center text-[10px] font-semibold text-[var(--primary)] hover:underline"
         >
-          Open in Google Drive ↗
+          Open visual {links.length > 1 ? activeIndex + 1 : ""} in Google Drive ↗
         </a>
       )}
     </div>
@@ -190,14 +326,14 @@ export function TaskItemsEditor({
   const [items, setItems] = useState<TaskItem[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [visualLink, setVisualLink] = useState("");
+  const [visualLinks, setVisualLinks] = useState([""]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [itemToEdit, setItemToEdit] = useState<TaskItem | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
-  const [editVisualLink, setEditVisualLink] = useState("");
+  const [editVisualLinks, setEditVisualLinks] = useState([""]);
   const [itemToAssign, setItemToAssign] = useState<TaskItem | null>(null);
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const [isSavingAssignees, setIsSavingAssignees] = useState(false);
@@ -234,8 +370,8 @@ export function TaskItemsEditor({
   async function addItem(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!title.trim() || isSaving) return;
-    if (supportsVisuals && !isValidVisualLink(visualLink)) {
-      setError("Add a valid Google Drive file link for the visual.");
+    if (supportsVisuals && !areValidVisualLinks(visualLinks)) {
+      setError("Add valid Google Drive file links for the visuals.");
       return;
     }
     setIsSaving(true);
@@ -245,13 +381,15 @@ export function TaskItemsEditor({
       `${title}\n${description}`,
       members,
     );
+    const savedVisualLinks = normalizedVisualLinks(visualLinks);
     const { data, error: insertError } = await supabase
       .from("division_task_items")
       .insert({
         division_task_id: taskId,
         title: title.trim(),
         description: description.trim() || null,
-        visual_url: supportsVisuals ? visualLink.trim() || null : null,
+        visual_url: supportsVisuals ? savedVisualLinks[0] ?? null : null,
+        visual_urls: supportsVisuals ? savedVisualLinks : [],
         mentioned_usernames: mentionedUsernames,
         watcher_usernames: Array.from(
           new Set([
@@ -272,7 +410,7 @@ export function TaskItemsEditor({
     setItems((current) => [...current, data as TaskItem]);
     setTitle("");
     setDescription("");
-    setVisualLink("");
+    setVisualLinks([""]);
   }
 
   async function toggleCompleted(item: TaskItem) {
@@ -300,7 +438,8 @@ export function TaskItemsEditor({
     setItemToEdit(item);
     setEditTitle(item.title);
     setEditDescription(item.description ?? "");
-    setEditVisualLink(item.visual_url ?? "");
+    const links = itemVisualLinks(item);
+    setEditVisualLinks(links.length > 0 ? links : [""]);
     setError(null);
   }
 
@@ -308,9 +447,9 @@ export function TaskItemsEditor({
     if (!itemToEdit || !editTitle.trim() || isSaving) return;
     if (
       supportsVisuals &&
-      !isValidVisualLink(editVisualLink)
+      !areValidVisualLinks(editVisualLinks)
     ) {
-      setError("Add a valid Google Drive file link for the visual.");
+      setError("Add valid Google Drive file links for the visuals.");
       return;
     }
     setIsSaving(true);
@@ -318,10 +457,12 @@ export function TaskItemsEditor({
       `${editTitle}\n${editDescription}`,
       members,
     );
+    const savedVisualLinks = normalizedVisualLinks(editVisualLinks);
     const values = {
       title: editTitle.trim(),
       description: editDescription.trim() || null,
-      visual_url: supportsVisuals ? editVisualLink.trim() || null : null,
+      visual_url: supportsVisuals ? savedVisualLinks[0] ?? null : null,
+      visual_urls: supportsVisuals ? savedVisualLinks : [],
       mentioned_usernames: mentionedUsernames,
       watcher_usernames: Array.from(
         new Set([
@@ -489,7 +630,7 @@ export function TaskItemsEditor({
         </h2>
         <p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">
           {supportsVisuals
-            ? `Add each ${deliverableCategory} item with a name, description, and optional Google Drive visual.`
+            ? `Add each ${deliverableCategory} item with a name, description, and optional Google Drive visuals.`
             : "Add your own item names and descriptions. Nothing is pre-filled."}
         </p>
       </div>
@@ -506,27 +647,14 @@ export function TaskItemsEditor({
           />
         </label>
         {supportsVisuals && (
-          <label className="text-xs font-semibold text-[var(--foreground)]">
-            Google Drive visual link
-            <input
-              type="url"
-              value={visualLink}
-              onChange={(event) => {
-                setVisualLink(event.target.value);
-                if (error) setError(null);
-              }}
-              placeholder="Paste a shared Google Drive file link"
-              className={`mt-2 ${projectInputClass}`}
-            />
-            <span className="mt-1.5 block text-[10px] font-normal leading-4 text-[var(--muted-foreground)]">
-              Attach a flyer, mockup, floor plan, or other event visual.
-            </span>
-            {!isValidVisualLink(visualLink) && (
-              <span className="mt-1.5 block text-[10px] font-semibold text-[#8B3E3E]">
-                Use a valid shared Google Drive file link.
-              </span>
-            )}
-          </label>
+          <GoogleDriveVisualFields
+            idPrefix="new-google-drive-visual"
+            values={visualLinks}
+            onChange={(values) => {
+              setVisualLinks(values);
+              if (error) setError(null);
+            }}
+          />
         )}
         <label className="text-xs font-semibold text-[var(--foreground)]">
           Description
@@ -546,7 +674,7 @@ export function TaskItemsEditor({
             disabled={
               isSaving ||
               !title.trim() ||
-              (supportsVisuals && !isValidVisualLink(visualLink))
+              (supportsVisuals && !areValidVisualLinks(visualLinks))
             }
           >
             {isSaving ? "Adding…" : "+ Add item"}
@@ -651,7 +779,7 @@ export function TaskItemsEditor({
         isSaving={isSaving}
         submitDisabled={
           !editTitle.trim() ||
-          (supportsVisuals && !isValidVisualLink(editVisualLink))
+          (supportsVisuals && !areValidVisualLinks(editVisualLinks))
         }
         themed
         onClose={() => setItemToEdit(null)}
@@ -668,24 +796,14 @@ export function TaskItemsEditor({
             />
           </label>
           {supportsVisuals && (
-            <label className="text-xs font-semibold text-[var(--foreground)]">
-              Google Drive visual link
-              <input
-                type="url"
-                value={editVisualLink}
-                onChange={(event) => {
-                  setEditVisualLink(event.target.value);
-                  if (error) setError(null);
-                }}
-                placeholder="Paste a shared Google Drive file link"
-                className={`mt-2 ${projectInputClass}`}
-              />
-              {!isValidVisualLink(editVisualLink) && (
-                <span className="mt-1.5 block text-[10px] font-semibold text-[#8B3E3E]">
-                  Use a valid shared Google Drive file link.
-                </span>
-              )}
-            </label>
+            <GoogleDriveVisualFields
+              idPrefix="edit-google-drive-visual"
+              values={editVisualLinks}
+              onChange={(values) => {
+                setEditVisualLinks(values);
+                if (error) setError(null);
+              }}
+            />
           )}
           <label className="text-xs font-semibold text-[var(--foreground)]">
             Description

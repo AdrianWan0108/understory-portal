@@ -25,6 +25,7 @@ type PortalDivisionItem = {
   id: string;
   title: string;
   visual_url: string | null;
+  visual_urls: string[];
   sent_to_client_at: string;
   client_approvals: unknown;
   division_tasks: {
@@ -328,6 +329,7 @@ export default function ProjectsPage() {
               id,
               title,
               visual_url,
+              visual_urls,
               sent_to_client_at,
               client_approvals,
               division_tasks!inner (
@@ -481,7 +483,9 @@ export default function ProjectsPage() {
             status: details.status,
             timestamp,
             dateLabel: `${details.datePrefix} ${formatDate(timestamp)}`,
-            thumbnailSrc: previewUrl(item.visual_url),
+            thumbnailSrc: previewUrl(
+              item.visual_urls?.[0] ?? item.visual_url,
+            ),
           };
         })
         .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
