@@ -20,6 +20,19 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Google Drive gallery folder import
+
+The admin album page can import every image in a publicly shared Google Drive
+folder, including images in nested folders. Enable the Google Drive API in the
+Google Cloud project, create a restricted API key, and add it as the server-only
+`GOOGLE_DRIVE_API_KEY` environment variable locally and in Vercel. Do not use a
+`NEXT_PUBLIC_` prefix.
+
+In the admin console, open a gallery album, choose **Import Drive folder**, and
+paste a folder shared as **Anyone with the link can view**. The importer lists
+each filename and Drive link before inserting the images, and skips files that
+are already in the album.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
