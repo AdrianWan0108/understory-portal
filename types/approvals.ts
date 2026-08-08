@@ -12,6 +12,7 @@ export interface ApprovalItem {
   title: string;
   caption?: string;
   thumbnailSrc?: string;
+  videoSrc?: string;
   format?: "image" | "carousel" | "reel";
   slides?: Array<{
     number: number;

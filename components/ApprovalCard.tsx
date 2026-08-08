@@ -2,7 +2,8 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { resolveGoogleDriveFileUrls } from "@/lib/google-drive";
 import type { ApprovalItem } from "@/types/approvals";
 import { categoryConfig, statusConfig } from "@/types/approvals";
 
@@ -104,6 +105,19 @@ const toneClasses = {
   green: "border-[#BFD8C7] bg-[#EAF5ED] text-[#356346]",
 };
 
+function PlayIcon({ className = "size-5" }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+    >
+      <path d="M8 5.8v12.4a1 1 0 0 0 1.53.85l9.3-6.2a1 1 0 0 0 0-1.7l-9.3-6.2A1 1 0 0 0 8 5.8Z" />
+    </svg>
+  );
+}
+
 function ApprovalVisual({
   item,
   compact = false,
@@ -113,8 +127,15 @@ function ApprovalVisual({
 }) {
   const [activeSlide, setActiveSlide] = useState(0);
   const [failedSlides, setFailedSlides] = useState<number[]>([]);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const category = categoryConfig[item.category];
   const isCarousel = item.format === "carousel";
+  const isPlayableReel =
+    item.format === "reel" && Boolean(item.videoSrc) && !compact;
+  const driveVideoUrls = item.videoSrc
+    ? resolveGoogleDriveFileUrls(item.videoSrc)
+    : null;
   const slides =
     isCarousel && item.slides && item.slides.length > 0
       ? item.slides
@@ -127,6 +148,15 @@ function ApprovalVisual({
     setActiveSlide(Math.max(0, Math.min(index, slides.length - 1)));
   }
 
+  function playVideo() {
+    if (driveVideoUrls) {
+      setIsVideoPlaying(true);
+      return;
+    }
+
+    void videoRef.current?.play().then(() => setIsVideoPlaying(true));
+  }
+
   return (
     <div
       className={
@@ -135,7 +165,29 @@ function ApprovalVisual({
           : "relative flex aspect-square w-full items-center justify-center overflow-hidden border-b border-border bg-muted"
       }
     >
-      {activeVisual.thumbnailSrc && !hasFailed ? (
+      {isPlayableReel && isVideoPlaying && driveVideoUrls ? (
+        <iframe
+          src={`${driveVideoUrls.previewUrl}?autoplay=1`}
+          title={`${item.title} video`}
+          allow="autoplay; fullscreen"
+          allowFullScreen
+          className="absolute inset-0 size-full border-0"
+        />
+      ) : isPlayableReel && !driveVideoUrls ? (
+        <video
+          ref={videoRef}
+          src={item.videoSrc}
+          poster={activeVisual.thumbnailSrc}
+          aria-label={`${item.title} video`}
+          controls
+          playsInline
+          preload="metadata"
+          onPlay={() => setIsVideoPlaying(true)}
+          onPause={() => setIsVideoPlaying(false)}
+          onEnded={() => setIsVideoPlaying(false)}
+          className="absolute inset-0 size-full object-contain"
+        />
+      ) : activeVisual.thumbnailSrc && !hasFailed ? (
         <img
           src={activeVisual.thumbnailSrc}
           alt={
@@ -167,6 +219,17 @@ function ApprovalVisual({
             </span>
           )}
         </div>
+      )}
+
+      {isPlayableReel && !isVideoPlaying && (
+        <button
+          type="button"
+          aria-label={`Play ${item.title}`}
+          onClick={playVideo}
+          className="absolute left-1/2 top-1/2 z-20 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white/95 pl-1 text-foreground shadow-[0_10px_30px_rgba(17,28,33,0.28)] transition hover:scale-105 hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+        >
+          <PlayIcon className="size-7" />
+        </button>
       )}
 
       {isCarousel && !compact && (

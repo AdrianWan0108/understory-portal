@@ -304,7 +304,7 @@ export default function ApprovalsPage() {
               : "image";
           const image =
             format === "reel"
-              ? reelDetails.videoUrl || slides[0]?.image_url
+              ? slides[0]?.image_url || reelDetails.videoUrl
               : slides[0]?.image_url;
 
           return {
@@ -316,6 +316,10 @@ export default function ApprovalsPage() {
               title: row.title,
               caption: row.post_caption,
               thumbnailSrc: previewUrl(image),
+              videoSrc:
+                format === "reel" && reelDetails.videoUrl
+                  ? reelDetails.videoUrl
+                  : undefined,
               format,
               slides:
                 format === "carousel"
