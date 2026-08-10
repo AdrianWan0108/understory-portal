@@ -54,6 +54,7 @@ import {
   SOCIAL_POST_FORMAT_LABELS,
   isSocialPostFormat,
   normalizeReelDetails,
+  resolveInstagramEmbedUrl,
   type ReelDetails,
   type SocialPostFormat,
 } from "@/lib/social-content";
@@ -898,6 +899,13 @@ function ReferenceCell({
   onDelete: () => void;
 }) {
   const uploadedImagePath = getSlideImageStoragePath(reference.url);
+  const instagramEmbedUrl =
+    reference.platform === "instagram"
+      ? resolveInstagramEmbedUrl(reference.url)
+      : null;
+  const [failedInstagramEmbedUrl, setFailedInstagramEmbedUrl] = useState<
+    string | null
+  >(null);
   const isFigmaReference = (() => {
     try {
       const hostname = new URL(reference.url).hostname.toLowerCase();
@@ -941,6 +949,31 @@ function ReferenceCell({
         <a data-pin-do="embedPin" data-pin-width="small" href={reference.url}>
           {reference.url}
         </a>
+      ) : instagramEmbedUrl &&
+        failedInstagramEmbedUrl !== instagramEmbedUrl ? (
+        <div className="relative h-full w-full bg-[#FAF7FC]">
+          <iframe
+            src={instagramEmbedUrl}
+            title="Instagram reference preview"
+            loading="lazy"
+            scrolling="no"
+            allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+            className="pointer-events-none absolute inset-0 h-full w-full border-0 bg-white"
+            onError={() => setFailedInstagramEmbedUrl(instagramEmbedUrl)}
+          />
+          <a
+            href={reference.url}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Open Instagram reference"
+            className="absolute inset-0 z-10 block transition hover:bg-[#7D4698]/5 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#7D4698]"
+          >
+            <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full bg-[#7D4698]/90 px-2 py-1 text-[9px] font-semibold text-white shadow-sm backdrop-blur-sm">
+              <Icon name="instagram" className="size-3" />
+              Instagram
+            </span>
+          </a>
+        </div>
       ) : (
         <a
           href={reference.url}
@@ -966,7 +999,7 @@ function ReferenceCell({
           type="button"
           onClick={onDelete}
           aria-label="Remove reference"
-          className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition group-hover:opacity-100"
+          className="absolute right-1 top-1 z-20 flex size-5 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100"
         >
           <Icon name="close" className="size-3" />
         </button>
