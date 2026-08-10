@@ -581,6 +581,122 @@ function ReelVideoCard({
   );
 }
 
+function FootageLinksCard({
+  footageLinks,
+  canManage,
+  onAdd,
+  onRemove,
+}: {
+  footageLinks: string[];
+  canManage: boolean;
+  onAdd: (link: string) => void;
+  onRemove: (link: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  function submitLink(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedLink = draft.trim();
+    if (!trimmedLink) return;
+
+    let isValidUrl = true;
+    try {
+      new URL(trimmedLink);
+    } catch {
+      isValidUrl = false;
+    }
+    if (!isValidUrl) {
+      setValidationError("Paste a valid link.");
+      return;
+    }
+    if (footageLinks.includes(trimmedLink)) {
+      setValidationError("That link has already been added.");
+      return;
+    }
+
+    setValidationError(null);
+    onAdd(trimmedLink);
+    setDraft("");
+  }
+
+  return (
+    <article className="rounded-[24px] border border-[var(--border)] bg-[var(--card)] p-5 sm:col-span-2 sm:p-6">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-[var(--primary)]">
+        Footage
+      </p>
+      <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+        Raw clips for the editor to work from — add as many links as you
+        need.
+      </p>
+
+      {footageLinks.length > 0 ? (
+        <ul className="mt-4 grid gap-2">
+          {footageLinks.map((link, index) => (
+            <li
+              key={`${link}-${index}`}
+              className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3.5 py-2.5"
+            >
+              <a
+                href={link}
+                target="_blank"
+                rel="noreferrer"
+                className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--foreground)] underline underline-offset-2"
+              >
+                {link}
+              </a>
+              {canManage && (
+                <button
+                  type="button"
+                  onClick={() => onRemove(link)}
+                  aria-label="Remove footage link"
+                  className="flex size-6 shrink-0 items-center justify-center rounded-full text-[var(--muted-foreground)] transition hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                >
+                  <Icon name="close" className="size-3.5" />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-4 text-xs text-[var(--muted-foreground)]">
+          No footage links added yet.
+        </p>
+      )}
+
+      {canManage && (
+        <form onSubmit={submitLink} className="mt-4">
+          <label
+            htmlFor="footage-link"
+            className="text-xs font-semibold text-[var(--foreground)]"
+          >
+            Add a footage link
+          </label>
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              id="footage-link"
+              type="url"
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setValidationError(null);
+              }}
+              placeholder="Paste a link to raw footage"
+              className={`min-w-0 flex-1 ${teamInputClass}`}
+            />
+            <TeamButton type="submit" themed>
+              Add footage
+            </TeamButton>
+          </div>
+          {validationError && (
+            <p className="mt-2 text-xs text-[#9A5E42]">{validationError}</p>
+          )}
+        </form>
+      )}
+    </article>
+  );
+}
+
 function SlideImageUploadButton({
   onUpload,
 }: {
@@ -1210,6 +1326,8 @@ function PostDetail({
   clientInitial,
   onReelVideoSave,
   onClearReelVideo,
+  onAddFootageLink,
+  onRemoveFootageLink,
   onSlideImageSave,
   onReferenceImageUpload,
   onClearSlideImage,
@@ -1229,6 +1347,8 @@ function PostDetail({
   clientInitial: string;
   onReelVideoSave: (link: string) => void;
   onClearReelVideo: () => void;
+  onAddFootageLink: (link: string) => void;
+  onRemoveFootageLink: (link: string) => void;
   onSlideImageSave: (slideNumber: number, link: string) => void;
   onReferenceImageUpload: (
     slideId: string,
@@ -1536,6 +1656,12 @@ function PostDetail({
               canManage={canManage}
               onSave={onReelVideoSave}
               onClear={onClearReelVideo}
+            />
+            <FootageLinksCard
+              footageLinks={post.reelDetails.footageLinks}
+              canManage={canManage}
+              onAdd={onAddFootageLink}
+              onRemove={onRemoveFootageLink}
             />
             <article className="rounded-[22px] border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6">
               <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-[var(--primary)]">
@@ -2440,6 +2566,64 @@ function AugustContentCalendarContent() {
     setErrorMessage(null);
   }
 
+  async function addFootageLink(postId: number, rawLink: string) {
+    if (!canManage) return;
+    const post = posts.find((candidate) => candidate.id === postId);
+    if (!post || post.format !== "reel") return;
+    const trimmedLink = rawLink.trim();
+    if (!trimmedLink || post.reelDetails.footageLinks.includes(trimmedLink)) {
+      return;
+    }
+
+    const reelDetails = {
+      ...post.reelDetails,
+      footageLinks: [...post.reelDetails.footageLinks, trimmedLink],
+    };
+    const { error } = await supabase
+      .from("tasks")
+      .update({ reel_details: reelDetails })
+      .eq("id", post.databaseId);
+    if (error) {
+      setErrorMessage(`Could not save the footage link: ${error.message}`);
+      return;
+    }
+
+    setPosts((current) =>
+      current.map((candidate) =>
+        candidate.id === postId ? { ...candidate, reelDetails } : candidate,
+      ),
+    );
+    setErrorMessage(null);
+  }
+
+  async function removeFootageLink(postId: number, linkToRemove: string) {
+    if (!canManage) return;
+    const post = posts.find((candidate) => candidate.id === postId);
+    if (!post || post.format !== "reel") return;
+
+    const reelDetails = {
+      ...post.reelDetails,
+      footageLinks: post.reelDetails.footageLinks.filter(
+        (link) => link !== linkToRemove,
+      ),
+    };
+    const { error } = await supabase
+      .from("tasks")
+      .update({ reel_details: reelDetails })
+      .eq("id", post.databaseId);
+    if (error) {
+      setErrorMessage(`Could not remove the footage link: ${error.message}`);
+      return;
+    }
+
+    setPosts((current) =>
+      current.map((candidate) =>
+        candidate.id === postId ? { ...candidate, reelDetails } : candidate,
+      ),
+    );
+    setErrorMessage(null);
+  }
+
   async function uploadReferenceImage(
     postId: number,
     slideId: string,
@@ -3225,6 +3409,12 @@ function AugustContentCalendarContent() {
             void saveReelVideoLink(selectedPost.id, link)
           }
           onClearReelVideo={() => void clearReelVideo(selectedPost.id)}
+          onAddFootageLink={(link) =>
+            void addFootageLink(selectedPost.id, link)
+          }
+          onRemoveFootageLink={(link) =>
+            void removeFootageLink(selectedPost.id, link)
+          }
           onSlideImageSave={(slideNumber, link) =>
             void saveSlideImageLink(selectedPost.id, slideNumber, link)
           }

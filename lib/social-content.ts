@@ -13,6 +13,7 @@ export type ReelDetails = {
   script: string;
   cta: string;
   videoUrl: string;
+  footageLinks: string[];
 };
 
 export const EMPTY_REEL_DETAILS: ReelDetails = {
@@ -20,6 +21,7 @@ export const EMPTY_REEL_DETAILS: ReelDetails = {
   script: "",
   cta: "",
   videoUrl: "",
+  footageLinks: [],
 };
 
 export type SocialResearchEntry = {
@@ -82,6 +84,7 @@ export const PROJECT_ASSIGNEES = [
   "Sure",
   "Emilia",
   "Xiyangcen",
+  "Bruno",
 ] as const;
 
 export function isSocialPostFormat(
@@ -137,6 +140,11 @@ export function normalizeReelDetails(value: unknown): ReelDetails {
     script: typeof record.script === "string" ? record.script : "",
     cta: typeof record.cta === "string" ? record.cta : "",
     videoUrl: typeof record.videoUrl === "string" ? record.videoUrl : "",
+    footageLinks: Array.isArray(record.footageLinks)
+      ? record.footageLinks.filter(
+          (link): link is string => typeof link === "string" && link.trim() !== "",
+        )
+      : [],
   };
 }
 
