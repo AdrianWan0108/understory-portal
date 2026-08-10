@@ -697,6 +697,57 @@ function FootageLinksCard({
   );
 }
 
+function ReelReferencesCard({
+  referenceLinks,
+  canManage,
+  onAdd,
+  onRemove,
+}: {
+  referenceLinks: string[];
+  canManage: boolean;
+  onAdd: (link: string) => void;
+  onRemove: (link: string) => void;
+}) {
+  return (
+    <article className="rounded-[24px] border border-[var(--border)] bg-[var(--card)] p-5 sm:col-span-2 sm:p-6">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-[var(--primary)]">
+        References
+      </p>
+      <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+        Paste visual references for the editor to follow when creating this
+        Reel.
+      </p>
+
+      {canManage && (
+        <div className="mt-4 max-w-xl">
+          <ReferenceInput onAdd={onAdd} />
+        </div>
+      )}
+
+      {referenceLinks.length > 0 ? (
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+          {referenceLinks.map((link, index) => (
+            <ReferenceCell
+              key={`${link}-${index}`}
+              reference={{
+                id: `${index}-${link}`,
+                url: link,
+                platform: detectReferencePlatform(link),
+              }}
+              canManage={canManage}
+              onDelete={() => onRemove(link)}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="mt-4 text-xs text-[var(--muted-foreground)]">
+          No references yet.
+        </p>
+      )}
+    </article>
+  );
+}
+
 function SlideImageUploadButton({
   onUpload,
 }: {
@@ -1328,6 +1379,8 @@ function PostDetail({
   onClearReelVideo,
   onAddFootageLink,
   onRemoveFootageLink,
+  onAddReelReference,
+  onRemoveReelReference,
   onSlideImageSave,
   onReferenceImageUpload,
   onClearSlideImage,
@@ -1349,6 +1402,8 @@ function PostDetail({
   onClearReelVideo: () => void;
   onAddFootageLink: (link: string) => void;
   onRemoveFootageLink: (link: string) => void;
+  onAddReelReference: (link: string) => void;
+  onRemoveReelReference: (link: string) => void;
   onSlideImageSave: (slideNumber: number, link: string) => void;
   onReferenceImageUpload: (
     slideId: string,
@@ -1662,6 +1717,12 @@ function PostDetail({
               canManage={canManage}
               onAdd={onAddFootageLink}
               onRemove={onRemoveFootageLink}
+            />
+            <ReelReferencesCard
+              referenceLinks={post.reelDetails.referenceLinks}
+              canManage={canManage}
+              onAdd={onAddReelReference}
+              onRemove={onRemoveReelReference}
             />
             <article className="rounded-[22px] border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6">
               <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-[var(--primary)]">
@@ -2624,6 +2685,64 @@ function AugustContentCalendarContent() {
     setErrorMessage(null);
   }
 
+  async function addReelReference(postId: number, rawLink: string) {
+    if (!canManage) return;
+    const post = posts.find((candidate) => candidate.id === postId);
+    if (!post || post.format !== "reel") return;
+    const trimmedLink = rawLink.trim();
+    if (!trimmedLink || post.reelDetails.referenceLinks.includes(trimmedLink)) {
+      return;
+    }
+
+    const reelDetails = {
+      ...post.reelDetails,
+      referenceLinks: [...post.reelDetails.referenceLinks, trimmedLink],
+    };
+    const { error } = await supabase
+      .from("tasks")
+      .update({ reel_details: reelDetails })
+      .eq("id", post.databaseId);
+    if (error) {
+      setErrorMessage(`Could not save the reference: ${error.message}`);
+      return;
+    }
+
+    setPosts((current) =>
+      current.map((candidate) =>
+        candidate.id === postId ? { ...candidate, reelDetails } : candidate,
+      ),
+    );
+    setErrorMessage(null);
+  }
+
+  async function removeReelReference(postId: number, linkToRemove: string) {
+    if (!canManage) return;
+    const post = posts.find((candidate) => candidate.id === postId);
+    if (!post || post.format !== "reel") return;
+
+    const reelDetails = {
+      ...post.reelDetails,
+      referenceLinks: post.reelDetails.referenceLinks.filter(
+        (link) => link !== linkToRemove,
+      ),
+    };
+    const { error } = await supabase
+      .from("tasks")
+      .update({ reel_details: reelDetails })
+      .eq("id", post.databaseId);
+    if (error) {
+      setErrorMessage(`Could not remove the reference: ${error.message}`);
+      return;
+    }
+
+    setPosts((current) =>
+      current.map((candidate) =>
+        candidate.id === postId ? { ...candidate, reelDetails } : candidate,
+      ),
+    );
+    setErrorMessage(null);
+  }
+
   async function uploadReferenceImage(
     postId: number,
     slideId: string,
@@ -3134,6 +3253,8 @@ function AugustContentCalendarContent() {
               script: editor.reelDetails.script.trim(),
               cta: editor.reelDetails.cta.trim(),
               videoUrl: editor.reelDetails.videoUrl.trim(),
+              footageLinks: editor.reelDetails.footageLinks,
+              referenceLinks: editor.reelDetails.referenceLinks,
             }
           : null,
       status: editor.status,
@@ -3414,6 +3535,12 @@ function AugustContentCalendarContent() {
           }
           onRemoveFootageLink={(link) =>
             void removeFootageLink(selectedPost.id, link)
+          }
+          onAddReelReference={(link) =>
+            void addReelReference(selectedPost.id, link)
+          }
+          onRemoveReelReference={(link) =>
+            void removeReelReference(selectedPost.id, link)
           }
           onSlideImageSave={(slideNumber, link) =>
             void saveSlideImageLink(selectedPost.id, slideNumber, link)

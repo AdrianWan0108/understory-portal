@@ -14,6 +14,7 @@ export type ReelDetails = {
   cta: string;
   videoUrl: string;
   footageLinks: string[];
+  referenceLinks: string[];
 };
 
 export const EMPTY_REEL_DETAILS: ReelDetails = {
@@ -22,6 +23,7 @@ export const EMPTY_REEL_DETAILS: ReelDetails = {
   cta: "",
   videoUrl: "",
   footageLinks: [],
+  referenceLinks: [],
 };
 
 export type SocialResearchEntry = {
@@ -142,6 +144,11 @@ export function normalizeReelDetails(value: unknown): ReelDetails {
     videoUrl: typeof record.videoUrl === "string" ? record.videoUrl : "",
     footageLinks: Array.isArray(record.footageLinks)
       ? record.footageLinks.filter(
+          (link): link is string => typeof link === "string" && link.trim() !== "",
+        )
+      : [],
+    referenceLinks: Array.isArray(record.referenceLinks)
+      ? record.referenceLinks.filter(
           (link): link is string => typeof link === "string" && link.trim() !== "",
         )
       : [],
