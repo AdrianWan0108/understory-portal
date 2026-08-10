@@ -8,10 +8,10 @@ import {
   normalizeContentBriefData,
 } from "@/lib/division-tasks";
 
-export type AssistantAgent = "content" | "research";
+export type AssistantAgent = "content" | "research" | "project_manager";
 
 export function isAssistantAgent(value: unknown): value is AssistantAgent {
-  return value === "content" || value === "research";
+  return value === "content" || value === "research" || value === "project_manager";
 }
 
 // Cheapest current tier — deliberate choice for a hard-capped, predictable
@@ -22,6 +22,9 @@ export const MONTHLY_BUDGET_USD = 20;
 export const MAX_REPLY_TOKENS = 1024;
 export const MAX_HISTORY_MESSAGES = 20;
 export const MAX_PROJECT_TASKS = 30;
+// Caps the tool-call/tool-result round trips per message so a confused loop
+// can't spin (and can't quietly blow through the monthly budget in one turn).
+export const MAX_TOOL_ITERATIONS = 4;
 
 export const AGENT_SYSTEM_PROMPTS: Record<AssistantAgent, string> = {
   content:
@@ -36,6 +39,18 @@ export const AGENT_SYSTEM_PROMPTS: Record<AssistantAgent, string> = {
     "access — say so plainly if asked for something time-sensitive you can't know, rather than guessing. " +
     "If a client's current projects/tasks list is given below, treat it as accurate and up to date — use it directly to " +
     "answer status questions instead of saying you lack access.",
+  project_manager:
+    "You are the Project Manager for Understory, a small marketing agency. Your job is to help the team run its " +
+    "projects: track status across clients, flag what's overdue or stuck, and keep people in the loop. " +
+    "You have tools to read live project/task data from the Understory portal (list_clients, list_projects) — use " +
+    "them instead of guessing or relying only on the digest pasted below, especially for anything cross-client. " +
+    "You also have a tool to post directly to the team's Slack (send_team_slack_message) to one of three channels: " +
+    "'admin' (internal team channel — the default for general updates), 'mvp', or 'boardwalk' (per-client channels — " +
+    "only use these when the update is specifically about that client's work). Sending is real and immediate: state " +
+    "the exact message and target channel in your reply before or as you send it, so there's a record of what went " +
+    "out and why. Don't send Slack messages unprompted — only when the person you're talking to has asked for an " +
+    "update to go out. If a client's current projects/tasks list is given below, you may still use it, but prefer " +
+    "the live tools when the question spans more than one client or needs a current status.",
 };
 
 type ClientProfileDigest = {

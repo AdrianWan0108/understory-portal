@@ -12,8 +12,10 @@ import {
   MAX_HISTORY_MESSAGES,
   MAX_PROJECT_TASKS,
   MAX_REPLY_TOKENS,
+  MAX_TOOL_ITERATIONS,
   MODEL_ID,
   MONTHLY_BUDGET_USD,
+  type AssistantAgent,
   buildClientContext,
   buildProjectContext,
   estimateCostUsd,
@@ -22,6 +24,7 @@ import {
   isAssistantAgent,
   startOfCurrentMonthIso,
 } from "@/lib/anthropic-assistant";
+import { PROJECT_MANAGER_TOOLS, runProjectManagerTool } from "@/lib/anthropic-tools";
 
 export const runtime = "nodejs";
 
@@ -198,7 +201,7 @@ export async function POST(request: NextRequest) {
       : null;
 
   if (!isAssistantAgent(agent)) {
-    return jsonError("Choose an agent: content or research.", 422);
+    return jsonError("Choose an agent: content, research, or project_manager.", 422);
   }
   if (!message) {
     return jsonError("Message is required.", 422);
@@ -280,7 +283,7 @@ export async function POST(request: NextRequest) {
       content: row.content,
     }));
 
-  let systemPrompt = AGENT_SYSTEM_PROMPTS[conversation.agent as "content" | "research"];
+  let systemPrompt = AGENT_SYSTEM_PROMPTS[conversation.agent as AssistantAgent];
   const effectiveClientId = clientId ?? conversation.client_id;
   if (effectiveClientId) {
     const { data: clientRow } = await admin
@@ -317,23 +320,57 @@ export async function POST(request: NextRequest) {
     if (projectContext) systemPrompt += `\n\n${projectContext}`;
   }
 
-  let reply: string;
-  let inputTokens: number;
-  let outputTokens: number;
+  const tools =
+    conversation.agent === "project_manager" ? PROJECT_MANAGER_TOOLS : undefined;
+
+  let reply = "";
+  let inputTokens = 0;
+  let outputTokens = 0;
   try {
-    const response = await anthropic.messages.create({
-      model: MODEL_ID,
-      max_tokens: MAX_REPLY_TOKENS,
-      system: systemPrompt,
-      messages: [...priorMessages, { role: "user", content: message }],
-    });
-    reply = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("\n")
-      .trim();
-    inputTokens = response.usage.input_tokens;
-    outputTokens = response.usage.output_tokens;
+    const conversationMessages: Anthropic.MessageParam[] = [
+      ...priorMessages,
+      { role: "user", content: message },
+    ];
+
+    for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+      const response = await anthropic.messages.create({
+        model: MODEL_ID,
+        max_tokens: MAX_REPLY_TOKENS,
+        system: systemPrompt,
+        messages: conversationMessages,
+        ...(tools ? { tools } : {}),
+      });
+      inputTokens += response.usage.input_tokens;
+      outputTokens += response.usage.output_tokens;
+
+      const textReply = response.content
+        .filter((block): block is Anthropic.TextBlock => block.type === "text")
+        .map((block) => block.text)
+        .join("\n")
+        .trim();
+
+      const toolUseBlocks = response.content.filter(
+        (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
+      );
+
+      if (response.stop_reason !== "tool_use" || toolUseBlocks.length === 0) {
+        reply = textReply;
+        break;
+      }
+
+      conversationMessages.push({ role: "assistant", content: response.content });
+
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      for (const toolUse of toolUseBlocks) {
+        const result = await runProjectManagerTool(
+          admin,
+          toolUse.name,
+          (toolUse.input ?? {}) as Record<string, unknown>,
+        );
+        toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: result });
+      }
+      conversationMessages.push({ role: "user", content: toolResults });
+    }
   } catch (caught) {
     return jsonError(
       caught instanceof Error
@@ -343,7 +380,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!reply) reply = "(No response text was returned.)";
+  if (!reply) {
+    reply = "I hit my tool-call limit for this turn — try asking again or narrow the request.";
+  }
 
   const { error: insertUserError } = await admin
     .from("assistant_messages")

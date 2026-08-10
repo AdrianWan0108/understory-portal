@@ -9,6 +9,7 @@ import {
   isWorkspaceClientSlug,
 } from "@/lib/workspace-clients";
 import { useTeamIdentity } from "../_components/TeamIdentity";
+import { ProjectTimelineBoard } from "./_components/ProjectTimelineBoard";
 
 type ClientRow = {
   id: string;
@@ -324,6 +325,9 @@ export default function TeamHubDashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
   const [isDecisionModalOpen, setIsDecisionModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"overview" | "timeline">(
+    "overview",
+  );
 
   const isOwner = accessLevel === "owner";
 
@@ -862,6 +866,42 @@ export default function TeamHubDashboardPage() {
           </div>
         )}
 
+        <div
+          role="tablist"
+          aria-label="Dashboard view"
+          className="mt-8 inline-flex rounded-full border border-[#D7CBE0] bg-white p-1 shadow-[0_4px_16px_rgba(40,21,79,0.05)]"
+        >
+          {(
+            [
+              { id: "overview", label: "Your overview" },
+              { id: "timeline", label: "Project timeline" },
+            ] as const
+          ).map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
+                activeTab === tab.id
+                  ? "bg-[#341F60] text-white"
+                  : "text-[#5F3378] hover:bg-[#EEE3FA]"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === "timeline" && (
+          <div className="mt-8">
+            <ProjectTimelineBoard />
+          </div>
+        )}
+
+        {activeTab === "overview" && (
+          <>
         {isOwner && (
           <section
             aria-label="Owner dashboard summary"
@@ -1074,6 +1114,8 @@ export default function TeamHubDashboardPage() {
             )}
           </Card>
         </div>
+          </>
+        )}
       </div>
 
       {isOwner && isDecisionModalOpen && (

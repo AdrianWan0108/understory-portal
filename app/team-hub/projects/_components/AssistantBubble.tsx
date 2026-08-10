@@ -5,11 +5,12 @@ import { supabase } from "@/lib/supabase";
 import { WORKSPACE_CLIENTS } from "@/lib/workspace-clients";
 import { useProjectTheme } from "./ProjectThemeProvider";
 
-type Agent = "content" | "research";
+type Agent = "content" | "research" | "project_manager";
 
 const AGENT_LABELS: Record<Agent, string> = {
   content: "Content",
   research: "Research",
+  project_manager: "Project Manager",
 };
 
 type ChatMessage = {
