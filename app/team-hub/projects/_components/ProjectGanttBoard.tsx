@@ -393,6 +393,8 @@ function FrappeItemChart({
   const saveMessageTimerRef = useRef<number | null>(null);
   const dateSaveTimerRef = useRef<number | null>(null);
   const didEditDateRef = useRef(false);
+  const scrollPositionRef = useRef({ left: 0, top: 0, hasPosition: false });
+  const previousViewModeRef = useRef<GanttViewMode | null>(null);
   const [renderRevision, setRenderRevision] = useState(0);
   const [saveMessage, setSaveMessage] = useState<{
     tone: "saving" | "saved" | "error";
@@ -578,12 +580,24 @@ function FrappeItemChart({
     let labelTimer = 0;
     let positionTimer = 0;
     let observer: MutationObserver | null = null;
+    let timelineScroller: HTMLElement | null = null;
+    const shouldCenterTimeline = previousViewModeRef.current !== viewMode;
+    previousViewModeRef.current = viewMode;
+
+    const rememberScrollPosition = () => {
+      if (!timelineScroller) return;
+      scrollPositionRef.current = {
+        left: timelineScroller.scrollLeft,
+        top: timelineScroller.scrollTop,
+        hasPosition: true,
+      };
+    };
 
     function observeChart() {
       if (!observer) return;
       observer.observe(chartContainer, {
         attributes: true,
-        attributeFilter: ["x", "class"],
+        attributeFilter: ["x", "width"],
         childList: true,
         subtree: true,
       });
@@ -609,7 +623,10 @@ function FrappeItemChart({
         today_button: false,
         view_mode_select: false,
         auto_move_label: false,
-        infinite_padding: true,
+        // Frappe redraws the entire SVG while scrolling when this is enabled.
+        // A finite padded range is considerably smoother and still leaves room
+        // before and after the scheduled items in every supported view mode.
+        infinite_padding: false,
         bar_corner_radius: 8,
         bar_height: 36,
         padding: 14,
@@ -632,9 +649,31 @@ function FrappeItemChart({
       });
       labelTimer = window.setTimeout(correctChartContent, 650);
       positionTimer = window.setTimeout(() => {
-        const timelineScroller =
+        timelineScroller =
           chartContainer.querySelector<HTMLElement>(".gantt-container");
-        if (timelineScroller) centerTimelineOnToday(timelineScroller, "auto");
+        if (!timelineScroller) return;
+
+        timelineScroller.addEventListener("scroll", rememberScrollPosition, {
+          passive: true,
+        });
+
+        if (shouldCenterTimeline || !scrollPositionRef.current.hasPosition) {
+          centerTimelineOnToday(timelineScroller, "auto");
+          rememberScrollPosition();
+          return;
+        }
+
+        timelineScroller.scrollTo({
+          left: Math.min(
+            scrollPositionRef.current.left,
+            Math.max(timelineScroller.scrollWidth - timelineScroller.clientWidth, 0),
+          ),
+          top: Math.min(
+            scrollPositionRef.current.top,
+            Math.max(timelineScroller.scrollHeight - timelineScroller.clientHeight, 0),
+          ),
+          behavior: "auto",
+        });
       }, 100);
     }
 
@@ -642,6 +681,8 @@ function FrappeItemChart({
     return () => {
       isActive = false;
       observer?.disconnect();
+      rememberScrollPosition();
+      timelineScroller?.removeEventListener("scroll", rememberScrollPosition);
       window.cancelAnimationFrame(labelFrame);
       window.clearTimeout(labelTimer);
       window.clearTimeout(positionTimer);
@@ -1218,7 +1259,7 @@ export function ProjectGanttBoard({
           </header>
 
           {ganttTasks.length ? (
-            <div className="overflow-x-auto bg-[#FFFEFB] p-3 sm:p-4">
+            <div className="min-w-0 overflow-hidden bg-[#FFFEFB] p-3 sm:p-4">
               <FrappeItemChart
                 tasks={ganttTasks}
                 viewMode={viewMode}

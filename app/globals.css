@@ -35,6 +35,7 @@
   background: #ffffff;
   font-family: var(--font-geist-sans), sans-serif;
   cursor: grab;
+  overscroll-behavior: contain;
   scrollbar-gutter: stable;
   scrollbar-color: #cbbfd0 #f5f0f6;
   scrollbar-width: thin;
