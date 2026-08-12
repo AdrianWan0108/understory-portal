@@ -446,6 +446,12 @@ export default function ApprovalsPage() {
         ...(note ? { note } : {}),
       },
     ];
+    const requiredClientReviewers = Object.values(CLIENT_IDENTITIES)
+      .filter((profile) => profile.clientSlug === clientSlug)
+      .map((profile) => profile.username);
+    const hasAllClientApprovals = requiredClientReviewers.every(
+      (username) => nextReviews[username]?.status === "approved",
+    );
 
     setUpdatingId(id);
     setErrorMessage(null);
@@ -456,7 +462,14 @@ export default function ApprovalsPage() {
         client_approvals: nextReviews,
         approval_history: nextHistory,
         ...(approval.source === "social"
-          ? {}
+          ? {
+              status:
+                status === "approved" && hasAllClientApprovals
+                  ? "external_approved"
+                  : status === "changes"
+                    ? "changes_requested"
+                    : "for_review",
+            }
           : {
               status: status === "approved" ? "approved" : "production",
               completed: status === "approved",

@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GanttTask } from "frappe-gantt";
 import {
@@ -57,6 +56,7 @@ type UnderstoryGanttTask = GanttTask & {
   href: string;
   thumbnail?: string;
   sourceTable: TimelineSourceTable;
+  timelineStatus: TimelineStatus;
   persistedStart: string;
   persistedEnd: string;
 };
@@ -168,7 +168,13 @@ function socialItemStatus(post: {
   sent_to_client_at: string | null;
   posted_at: string | null;
 }, clientSlug: WorkspaceClientSlug): TimelineStatus {
-  if (post.posted_at) return "posted";
+  if (post.posted_at || post.status === "posted") return "posted";
+  if (post.status === "not_started") return "planning";
+  if (post.status === "in_progress") return "production";
+  if (post.status === "for_review") return "review";
+  if (post.status === "internal_approved") return "internal-approved";
+  if (post.status === "external_approved") return "external-approved";
+  if (post.status === "changes_requested") return "changes-requested";
   if (
     post.status === "needs_revision" ||
     hasChangesRequested(post.internal_approvals) ||
@@ -199,8 +205,21 @@ function socialItemStatus(post: {
   ) {
     return "review";
   }
-  if (post.status === "in_progress") return "production";
   return "planning";
+}
+
+function socialDatabaseStatus(status: TimelineStatus) {
+  const statuses: Record<TimelineStatus, string> = {
+    planning: "not_started",
+    production: "in_progress",
+    review: "for_review",
+    approved: "internal_approved",
+    "internal-approved": "internal_approved",
+    "external-approved": "external_approved",
+    "changes-requested": "changes_requested",
+    posted: "posted",
+  };
+  return statuses[status];
 }
 
 function websiteItemStatus(value: string): DivisionTaskStatus {
@@ -356,6 +375,7 @@ function FrappeItemChart({
   tasks,
   viewMode,
   onDateChange,
+  onStatusChange,
 }: {
   tasks: UnderstoryGanttTask[];
   viewMode: GanttViewMode;
@@ -364,8 +384,11 @@ function FrappeItemChart({
     startDate: string,
     dueDate: string,
   ) => Promise<void>;
+  onStatusChange: (
+    task: UnderstoryGanttTask,
+    status: TimelineStatus,
+  ) => Promise<void>;
 }) {
-  const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const saveMessageTimerRef = useRef<number | null>(null);
   const dateSaveTimerRef = useRef<number | null>(null);
@@ -375,6 +398,9 @@ function FrappeItemChart({
     tone: "saving" | "saved" | "error";
     text: string;
   } | null>(null);
+  const [selectedTask, setSelectedTask] =
+    useState<UnderstoryGanttTask | null>(null);
+  const [isSavingStatus, setIsSavingStatus] = useState(false);
   const panRef = useRef<{
     pointerId: number;
     startX: number;
@@ -500,6 +526,49 @@ function FrappeItemChart({
     [persistDateChange],
   );
 
+  async function changeSelectedStatus(status: TimelineStatus) {
+    if (!selectedTask || isSavingStatus) return;
+    const previousStatus = selectedTask.timelineStatus;
+    setIsSavingStatus(true);
+    setSaveMessage({ tone: "saving", text: "Saving status…" });
+    try {
+      await onStatusChange(selectedTask, status);
+      const nextTask = {
+        ...selectedTask,
+        timelineStatus: status,
+        custom_class: `gantt-status-${status}`,
+      };
+      containerRef.current
+        ?.querySelectorAll<SVGGElement>(".bar-wrapper")
+        .forEach((wrapper) => {
+          if (wrapper.getAttribute("data-id") !== selectedTask.id) return;
+          Array.from(wrapper.classList)
+            .filter((className) => className.startsWith("gantt-status-"))
+            .forEach((className) => wrapper.classList.remove(className));
+          wrapper.classList.add(`gantt-status-${status}`);
+        });
+      setSelectedTask(nextTask);
+      setSaveMessage({ tone: "saved", text: "Status saved" });
+      saveMessageTimerRef.current = window.setTimeout(
+        () => setSaveMessage(null),
+        2200,
+      );
+    } catch (statusError) {
+      setSelectedTask((current) =>
+        current ? { ...current, timelineStatus: previousStatus } : current,
+      );
+      setSaveMessage({
+        tone: "error",
+        text:
+          statusError instanceof Error
+            ? statusError.message
+            : "Could not save the status.",
+      });
+    } finally {
+      setIsSavingStatus(false);
+    }
+  }
+
   useEffect(() => {
     const mountedContainer = containerRef.current;
     if (!mountedContainer || tasks.length === 0) return;
@@ -550,8 +619,7 @@ function FrappeItemChart({
         },
         on_click: (task) => {
           if (didPanRef.current || didEditDateRef.current) return;
-          const href = (task as UnderstoryGanttTask).href;
-          if (href) router.push(href);
+          setSelectedTask(task as UnderstoryGanttTask);
         },
       });
       observer = new MutationObserver(() => {
@@ -579,7 +647,7 @@ function FrappeItemChart({
       window.clearTimeout(positionTimer);
       chartContainer.replaceChildren();
     };
-  }, [queueDateChange, renderRevision, router, tasks, viewMode]);
+  }, [queueDateChange, renderRevision, tasks, viewMode]);
 
   useEffect(
     () => () => {
@@ -646,6 +714,54 @@ function FrappeItemChart({
         </button>
         </div>
       </div>
+      {selectedTask && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-[#DCCFE3] bg-[#F9F3FC] px-3 py-2.5 sm:px-4">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[11px] font-semibold text-[#4B3765]">
+              {selectedTask.name}
+            </p>
+            <p className="mt-0.5 text-[9px] uppercase tracking-[0.1em] text-[#8B7895]">
+              Individual work item
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-[10px] font-semibold text-[#5F3378]">
+            Status
+            <select
+              value={selectedTask.timelineStatus}
+              disabled={isSavingStatus}
+              onChange={(event) =>
+                void changeSelectedStatus(
+                  event.target.value as TimelineStatus,
+                )
+              }
+              className="rounded-full border border-[#CDBAD9] bg-white px-3 py-1.5 text-[11px] text-[#4B3765] focus:border-[#7D4698] focus:outline-none disabled:opacity-60"
+            >
+              {(selectedTask.sourceTable === "tasks"
+                ? socialTimelineStatuses
+                : DIVISION_TASK_STATUSES
+              ).map((status) => (
+                <option key={status} value={status}>
+                  {timelineStatusDetails[status].label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Link
+            href={selectedTask.href}
+            className="text-[10px] font-semibold text-[#7D4698] hover:underline"
+          >
+            Open item →
+          </Link>
+          <button
+            type="button"
+            onClick={() => setSelectedTask(null)}
+            aria-label="Close status editor"
+            className="flex size-7 items-center justify-center rounded-full text-[#8B7895] hover:bg-white"
+          >
+            ×
+          </button>
+        </div>
+      )}
       <div
         className="relative"
         onPointerDown={startPanning}
@@ -672,6 +788,7 @@ export function ProjectGanttBoard({
   const [groups, setGroups] = useState<TaskGroup[] | null>(null);
   const [viewMode, setViewMode] = useState<GanttViewMode>("Day");
   const [error, setError] = useState<string | null>(null);
+  const [refreshRevision, setRefreshRevision] = useState(0);
 
   async function saveTimelineDates(
     task: UnderstoryGanttTask,
@@ -688,11 +805,53 @@ export function ProjectGanttBoard({
     }
   }
 
+  async function saveTimelineStatus(
+    task: UnderstoryGanttTask,
+    status: TimelineStatus,
+  ) {
+    const payload =
+      task.sourceTable === "tasks"
+        ? {
+            status: socialDatabaseStatus(status),
+            posted_at: status === "posted" ? new Date().toISOString() : null,
+          }
+        : {
+            status: status as DivisionTaskStatus,
+            completed: status === "approved",
+            updated_at: new Date().toISOString(),
+          };
+    const { error: saveError } = await supabase
+      .from(task.sourceTable)
+      .update(payload)
+      .eq("id", task.id);
+
+    if (saveError) {
+      throw new Error(`Could not save status: ${saveError.message}`);
+    }
+    setRefreshRevision((current) => current + 1);
+  }
+
+  useEffect(() => {
+    const table =
+      division === "social-media" ? "tasks" : "division_task_items";
+    const channel = supabase
+      .channel(`project-gantt-${clientSlug}-${division}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table },
+        () => setRefreshRevision((current) => current + 1),
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [clientSlug, division]);
+
   useEffect(() => {
     let isActive = true;
 
     async function load() {
-      setGroups(null);
       setError(null);
 
       const clientResult = await supabase
@@ -927,7 +1086,7 @@ export function ProjectGanttBoard({
     return () => {
       isActive = false;
     };
-  }, [clientSlug, division]);
+  }, [clientSlug, division, refreshRevision]);
 
   const preparedGroups = useMemo(
     () =>
@@ -957,6 +1116,7 @@ export function ProjectGanttBoard({
             href: item.href,
             sourceTable:
               division === "social-media" ? "tasks" : "division_task_items",
+            timelineStatus: item.status,
             persistedStart: start,
             persistedEnd: item.dueDate!,
           };
@@ -1063,6 +1223,7 @@ export function ProjectGanttBoard({
                 tasks={ganttTasks}
                 viewMode={viewMode}
                 onDateChange={saveTimelineDates}
+                onStatusChange={saveTimelineStatus}
               />
             </div>
           ) : (

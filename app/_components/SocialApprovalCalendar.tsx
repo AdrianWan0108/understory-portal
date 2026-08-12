@@ -825,6 +825,22 @@ export function SocialApprovalCalendar({
       ...(note ? { note } : {}),
     };
     const nextHistory = [...post.approval_history, historyEntry];
+    const nextWorkflowStatus =
+      status === "changes"
+        ? "changes_requested"
+        : mode === "client"
+          ? approvalStatusForReviewerKeys(
+              nextReviews,
+              requiredReviewers.map((reviewer) => reviewer.key),
+            ) === "approved"
+            ? "external_approved"
+            : "for_review"
+          : approvalStatusForReviewerKeys(
+                nextReviews,
+                requiredReviewers.map((reviewer) => reviewer.key),
+              ) === "approved"
+            ? "internal_approved"
+            : "for_review";
 
     setIsSaving(true);
     const { error: saveError } = await supabase
@@ -832,9 +848,7 @@ export function SocialApprovalCalendar({
       .update({
         [reviewColumn]: nextReviews,
         approval_history: nextHistory,
-        ...(mode === "internal" && status === "changes"
-          ? { status: "needs_revision" }
-          : {}),
+        status: nextWorkflowStatus,
       })
       .eq("id", post.id);
     setIsSaving(false);
@@ -894,7 +908,7 @@ export function SocialApprovalCalendar({
       .update({
         sent_to_client_at: timestamp,
         sent_to_client_by: currentReviewer.name,
-        status: "approved",
+        status: "for_review",
         client_approvals: {},
       })
       .in(
@@ -964,7 +978,7 @@ export function SocialApprovalCalendar({
       .update({
         sent_to_client_at: timestamp,
         sent_to_client_by: currentReviewer.name,
-        status: "approved",
+        status: "for_review",
         client_approvals: {},
       })
       .eq("id", post.id)
@@ -1013,7 +1027,11 @@ export function SocialApprovalCalendar({
     setError(null);
     const { error: saveError } = await supabase
       .from("tasks")
-      .update({ posted_at: postedAt, posted_by: postedBy })
+      .update({
+        posted_at: postedAt,
+        posted_by: postedBy,
+        status: isPosted ? "posted" : "external_approved",
+      })
       .eq("id", post.id);
     setIsSaving(false);
 

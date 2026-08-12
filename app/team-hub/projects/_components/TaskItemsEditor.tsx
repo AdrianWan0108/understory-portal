@@ -364,6 +364,27 @@ export function TaskItemsEditor({
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [sendingItemId, setSendingItemId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [syncRevision, setSyncRevision] = useState(0);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`task-items-${taskId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "division_task_items",
+          filter: `division_task_id=eq.${taskId}`,
+        },
+        () => setSyncRevision((current) => current + 1),
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [taskId]);
 
   useEffect(() => {
     let isActive = true;
@@ -389,7 +410,7 @@ export function TaskItemsEditor({
     return () => {
       isActive = false;
     };
-  }, [taskId]);
+  }, [syncRevision, taskId]);
 
   async function addItem(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

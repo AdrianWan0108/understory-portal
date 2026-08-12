@@ -65,9 +65,12 @@ const MAX_SLIDE_IMAGE_BYTES = 20 * 1024 * 1024;
 
 type PostStatus =
   | "not_started"
+  | "in_progress"
   | "for_review"
-  | "needs_revision"
-  | "approved";
+  | "internal_approved"
+  | "external_approved"
+  | "changes_requested"
+  | "posted";
 
 type ReferencePlatform = "pinterest" | "instagram" | "other";
 
@@ -160,10 +163,20 @@ type TaskRow = {
   task_slides: TaskSlideRow[] | null;
 };
 
-function isPostStatus(status: string): status is PostStatus {
-  return ["not_started", "for_review", "needs_revision", "approved"].includes(
-    status,
-  );
+function socialPostStatus(status: string): PostStatus {
+  if (status === "approved") return "internal_approved";
+  if (status === "needs_revision") return "changes_requested";
+  return [
+    "not_started",
+    "in_progress",
+    "for_review",
+    "internal_approved",
+    "external_approved",
+    "changes_requested",
+    "posted",
+  ].includes(status)
+    ? (status as PostStatus)
+    : "not_started";
 }
 
 function mapTaskRows(rows: TaskRow[]): Post[] {
@@ -172,7 +185,7 @@ function mapTaskRows(rows: TaskRow[]): Post[] {
     databaseId: task.id,
     title: task.title,
     brief: task.brief,
-    status: isPostStatus(task.status) ? task.status : "not_started",
+    status: socialPostStatus(task.status),
     format: isSocialPostFormat(task.format) ? task.format : "carousel",
     postCaption: task.post_caption,
     visualNote: task.visual_note ?? "",
@@ -216,20 +229,35 @@ const statusDetails: Record<
     className: "border-[#DED0E7] bg-white text-[#695677]",
     dot: "bg-[#A693AF]",
   },
+  in_progress: {
+    label: "In progress",
+    className: "border-[#E8CF91] bg-[#FFF4D2] text-[#7B5A08]",
+    dot: "bg-[#D3A72B]",
+  },
   for_review: {
-    label: "For review",
-    className: "border-[#E3C687] bg-[#FFF6E2] text-[#805B21]",
-    dot: "bg-[#D09A3B]",
+    label: "Awaiting approvals",
+    className: "border-[#BFCBE7] bg-[#EDF2FF] text-[#405A91]",
+    dot: "bg-[#6683C1]",
   },
-  needs_revision: {
-    label: "Needs revision",
-    className: "border-[#E5C990] bg-[#FFF7E6] text-[#855F20]",
-    dot: "bg-[#D19C3F]",
+  internal_approved: {
+    label: "Internal approved",
+    className: "border-[#D2BFDE] bg-[#F3EAF8] text-[#654277]",
+    dot: "bg-[#8B5AA3]",
   },
-  approved: {
-    label: "Approved",
+  external_approved: {
+    label: "External approved",
     className: "border-[#BBD3C2] bg-[#EDF7F0] text-[#477156]",
     dot: "bg-[#669B78]",
+  },
+  changes_requested: {
+    label: "Changes requested",
+    className: "border-[#DFC1B9] bg-[#F8ECE8] text-[#854D43]",
+    dot: "bg-[#B16954]",
+  },
+  posted: {
+    label: "Posted",
+    className: "border-[#CDC4D2] bg-[#F0EDF2] text-[#514758]",
+    dot: "bg-[#756B7B]",
   },
 };
 
@@ -2278,6 +2306,7 @@ function AugustContentCalendarContent() {
     canScrollRight: false,
     hasOverflow: false,
   });
+  const [syncRevision, setSyncRevision] = useState(0);
   const postRailRef = useRef<HTMLDivElement>(null);
 
   const selectedPost = posts.find((post) => post.id === selectedPostId);
@@ -2303,6 +2332,27 @@ function AugustContentCalendarContent() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, []);
+
+  useEffect(() => {
+    if (!clientId) return;
+    const channel = supabase
+      .channel(`social-calendar-status-${clientId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "tasks",
+          filter: `client_id=eq.${clientId}`,
+        },
+        () => setSyncRevision((current) => current + 1),
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [clientId]);
 
   useEffect(() => {
     if (!isTeamProfileReady || !teamProfile) return;
@@ -2485,6 +2535,7 @@ function AugustContentCalendarContent() {
     isTeamProfileReady,
     requestedCalendarId,
     requestedPostId,
+    syncRevision,
     teamProfile,
   ]);
 
@@ -2575,11 +2626,15 @@ function AugustContentCalendarContent() {
             sent_to_client_at: null,
             sent_to_client_by: null,
             client_approvals: {},
+            posted_at: null,
+            posted_by: null,
           }
         : {
             status,
             internal_approval_task_id: null,
             internal_review_submitted_at: null,
+            posted_at: null,
+            posted_by: null,
           };
 
     const { error } = await supabase
@@ -3342,6 +3397,12 @@ function AugustContentCalendarContent() {
             }
           : null,
       status: editor.status,
+      posted_at:
+        editor.status === "posted"
+          ? editor.post?.status === "posted"
+            ? undefined
+            : new Date().toISOString()
+          : null,
       start_date: editor.startDate || null,
       due_date: editor.dueDate || null,
       division_task_id: calendarTaskId,
