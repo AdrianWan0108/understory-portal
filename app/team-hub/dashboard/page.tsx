@@ -9,7 +9,6 @@ import {
   isWorkspaceClientSlug,
 } from "@/lib/workspace-clients";
 import { useTeamIdentity } from "../_components/TeamIdentity";
-import { ProjectTimelineBoard } from "./_components/ProjectTimelineBoard";
 
 type ClientRow = {
   id: string;
@@ -221,74 +220,157 @@ function Card({
   );
 }
 
-function OwnerSummaryCard({
-  value,
-  label,
-  detail,
-  href,
-  onClick,
-  attention = false,
-  expanded,
+function SecondaryCard({
+  id,
+  title,
+  eyebrow,
+  children,
 }: {
-  value: string | number;
-  label: string;
-  detail: string;
-  href?: string;
-  onClick?: () => void;
-  attention?: boolean;
-  expanded?: boolean;
+  id?: string;
+  title: string;
+  eyebrow: string;
+  children: React.ReactNode;
 }) {
-  const className = `group block min-h-36 w-full rounded-[22px] border p-5 text-left shadow-[0_7px_24px_rgba(40,21,79,0.05)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(40,21,79,0.1)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7D4698] ${
-    attention
-      ? "border-[#D9B45E] bg-[linear-gradient(145deg,#FFF4C7,#FFFDF8)]"
-      : "border-[#D7CBE0] bg-white"
-  }`;
-  const content = (
-    <>
-      <span
-        className={`block text-3xl font-semibold tracking-[-0.04em] ${
-          attention ? "text-[#805A00]" : "text-[#341F60]"
-        }`}
-      >
-        {value}
-      </span>
-      <span
-        className={`mt-3 block text-sm font-semibold ${
-          attention ? "text-[#725000]" : "text-[#341F60]"
-        }`}
-      >
-        {label}
-      </span>
-      <span className="mt-1 block text-[11px] leading-5 text-[#8B7895]">
-        {detail}
-      </span>
-      <span
-        aria-hidden="true"
-        className={`mt-3 block text-sm transition group-hover:translate-x-1 ${
-          attention ? "text-[#A87600]" : "text-[#7D4698]"
-        }`}
-      >
-        {onClick ? "View queue →" : "Jump to section →"}
-      </span>
-    </>
+  return (
+    <section
+      id={id}
+      className="scroll-mt-24 rounded-[20px] border border-[#E1D7E6] bg-white/70 p-5"
+    >
+      <p className="text-[9px] font-bold uppercase tracking-[0.17em] text-[#9A88A4]">
+        {eyebrow}
+      </p>
+      <h2 className="mt-1 text-base font-semibold tracking-[-0.02em] text-[#4B3765]">
+        {title}
+      </h2>
+      <div className="mt-4">{children}</div>
+    </section>
   );
+}
 
-  if (onClick) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        aria-expanded={expanded}
-        className={className}
-      >
-        {content}
-      </button>
-    );
-  }
+function DecisionPriorityPanel({
+  decisions,
+  isLoading,
+  expanded,
+  onOpen,
+}: {
+  decisions: DecisionItem[];
+  isLoading: boolean;
+  expanded: boolean;
+  onOpen: () => void;
+}) {
+  const hasDecisions = !isLoading && decisions.length > 0;
 
   return (
-    <a href={href} className={className}>
-      {content}
+    <section
+      aria-labelledby="today-priority-title"
+      className={`mt-8 overflow-hidden rounded-[28px] border shadow-[0_16px_48px_rgba(40,21,79,0.13)] ${
+        hasDecisions
+          ? "border-[#5A377A] bg-[#341F60] text-white"
+          : "border-[#D7CBE0] bg-[linear-gradient(135deg,#FFFDF8,#F7F0FB)] text-[#341F60]"
+      }`}
+    >
+      <div className="grid gap-6 p-6 sm:p-7 lg:grid-cols-[minmax(0,0.8fr)_minmax(360px,1.2fr)] lg:items-center">
+        <div>
+          <p
+            className={`text-[10px] font-bold uppercase tracking-[0.2em] ${
+              hasDecisions ? "text-[#F4CE45]" : "text-[#7D4698]"
+            }`}
+          >
+            Today&rsquo;s priority
+          </p>
+          <div className="mt-3 flex items-end gap-4">
+            <span className="text-5xl font-semibold leading-none tracking-[-0.06em] sm:text-6xl">
+              {isLoading ? "—" : decisions.length}
+            </span>
+            <h2
+              id="today-priority-title"
+              className="pb-1 text-xl font-semibold tracking-[-0.03em] sm:text-2xl"
+            >
+              Needs your decision
+            </h2>
+          </div>
+          <p
+            className={`mt-4 max-w-xl text-sm leading-6 ${
+              hasDecisions ? "text-white/68" : "text-[#75647F]"
+            }`}
+          >
+            {hasDecisions
+              ? "Start here: these reviews and approvals are waiting on you before work can move forward."
+              : isLoading
+                ? "Loading your decision queue."
+                : "Nothing is blocked on your decision right now."}
+          </p>
+          <button
+            type="button"
+            onClick={onOpen}
+            aria-expanded={expanded}
+            className={`mt-5 inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-xs font-bold transition focus-visible:outline-2 focus-visible:outline-offset-2 ${
+              hasDecisions
+                ? "bg-[#F4CE45] text-[#341F60] hover:bg-[#FFE57C] focus-visible:outline-[#F4CE45]"
+                : "bg-[#341F60] text-white hover:bg-[#4B2A74] focus-visible:outline-[#7D4698]"
+            }`}
+          >
+            Open full queue <span aria-hidden="true">→</span>
+          </button>
+        </div>
+
+        {hasDecisions && (
+          <div className="divide-y divide-white/10 rounded-2xl border border-white/12 bg-white/7 px-4">
+            {decisions.slice(0, 3).map((decision) => (
+              <Link
+                key={decision.id}
+                href={decision.href}
+                className="group flex items-center gap-3 py-3.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F4CE45]"
+              >
+                <span className="hidden w-16 shrink-0 rounded-full bg-white/10 px-2 py-1 text-center text-[8px] font-bold uppercase tracking-[0.1em] text-[#F4CE45] sm:inline">
+                  {decisionLabels[decision.kind]}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-white">
+                    {decision.description}
+                  </span>
+                  <span className="mt-1 block text-[11px] text-white/55">
+                    {decision.clientName} · {relativeDate(decision.createdAt)}
+                  </span>
+                </span>
+                <span className="text-white/35 transition group-hover:translate-x-1 group-hover:text-[#F4CE45]">
+                  →
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function PassiveSummary({
+  href,
+  value,
+  label,
+}: {
+  href: string;
+  value: string | number;
+  label: string;
+}) {
+  const isEmpty = value === 0;
+  return (
+    <a
+      href={href}
+      className={`flex items-center gap-3 rounded-2xl border px-4 py-3 transition hover:border-[#BFA9CC] hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7D4698] ${
+        isEmpty
+          ? "border-[#E7DDEA] bg-white/45 text-[#9A88A4]"
+          : "border-[#D7CBE0] bg-[#FFFDF8] text-[#341F60]"
+      }`}
+    >
+      <span className={`text-xl font-semibold ${isEmpty ? "opacity-55" : ""}`}>
+        {value}
+      </span>
+      <span className="text-xs font-medium">{label}</span>
+      <span aria-hidden="true" className="ml-auto text-[#AA98B4]">
+        →
+      </span>
     </a>
   );
 }
@@ -298,6 +380,14 @@ function EmptyState({ children }: { children: React.ReactNode }) {
     <div className="rounded-2xl border border-dashed border-[#D7CBE0] bg-[#FFFDF8] px-5 py-8 text-center text-sm leading-6 text-[#75647F]">
       {children}
     </div>
+  );
+}
+
+function QuietEmptyState({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="rounded-xl border border-dashed border-[#E1D7E6] bg-[#FFFDF8]/60 px-4 py-4 text-xs leading-5 text-[#9A88A4]">
+      {children}
+    </p>
   );
 }
 
@@ -325,9 +415,6 @@ export default function TeamHubDashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
   const [isDecisionModalOpen, setIsDecisionModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "timeline">(
-    "overview",
-  );
 
   const isOwner = accessLevel === "owner";
 
@@ -866,81 +953,40 @@ export default function TeamHubDashboardPage() {
           </div>
         )}
 
-        <div
-          role="tablist"
-          aria-label="Dashboard view"
-          className="mt-8 inline-flex rounded-full border border-[#D7CBE0] bg-white p-1 shadow-[0_4px_16px_rgba(40,21,79,0.05)]"
-        >
-          {(
-            [
-              { id: "overview", label: "Your overview" },
-              { id: "timeline", label: "Project timeline" },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={activeTab === tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
-                activeTab === tab.id
-                  ? "bg-[#341F60] text-white"
-                  : "text-[#5F3378] hover:bg-[#EEE3FA]"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        <div className="mt-8">
+            {isOwner && (
+              <>
+                <DecisionPriorityPanel
+                  decisions={decisions}
+                  isLoading={isLoading}
+                  expanded={isDecisionModalOpen}
+                  onOpen={() => setIsDecisionModalOpen(true)}
+                />
+                <section
+                  aria-label="Dashboard at a glance"
+                  className="mt-4 grid gap-3 sm:grid-cols-3"
+                >
+                  <PassiveSummary
+                    href="#assigned-tasks"
+                    value={isLoading ? "—" : assignedTasks.length}
+                    label="Tasks you’re watching"
+                  />
+                  <PassiveSummary
+                    href="#recent-activity"
+                    value={isLoading ? "—" : activityTodayCount}
+                    label="Updates today"
+                  />
+                  <PassiveSummary
+                    href="#upcoming-meetings"
+                    value={isLoading ? "—" : meetings.length}
+                    label="Upcoming meetings"
+                  />
+                </section>
+              </>
+            )}
 
-        {activeTab === "timeline" && (
-          <div className="mt-8">
-            <ProjectTimelineBoard />
-          </div>
-        )}
-
-        {activeTab === "overview" && (
-          <>
-        {isOwner && (
-          <section
-            aria-label="Owner dashboard summary"
-            className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
-          >
-            <OwnerSummaryCard
-              value={isLoading ? "—" : decisions.length}
-              label="Needs your decision"
-              detail={
-                isLoading
-                  ? "Loading owner queue"
-                  : `${decisions.length} ${decisions.length === 1 ? "item" : "items"} to review`
-              }
-              attention={!isLoading && decisions.length > 0}
-              expanded={isDecisionModalOpen}
-              onClick={() => setIsDecisionModalOpen(true)}
-            />
-            <OwnerSummaryCard
-              value={isLoading ? "—" : assignedTasks.length}
-              label="Tasks you’re watching"
-              detail="See who is in charge across active tasks"
-              href="#assigned-tasks"
-            />
-            <OwnerSummaryCard
-              value={isLoading ? "—" : activityTodayCount}
-              label="Recent activity"
-              detail="Relevant updates today"
-              href="#recent-activity"
-            />
-            <OwnerSummaryCard
-              value={isLoading ? "—" : meetings.length}
-              label="Upcoming meetings"
-              detail="Scheduled across all clients"
-              href="#upcoming-meetings"
-            />
-          </section>
-        )}
-
-        <div className="mt-8 grid gap-6 xl:grid-cols-3">
+        <div className="mt-8 grid gap-6 xl:grid-cols-5">
+          <div className="xl:col-span-3">
           <Card
             id="mentions"
             title={`Mentions${isLoading ? "" : ` (${mentionedTasks.length})`}`}
@@ -979,7 +1025,9 @@ export default function TeamHubDashboardPage() {
               <EmptyState>No one has mentioned you in a task yet.</EmptyState>
             )}
           </Card>
+          </div>
 
+          <div className="xl:col-span-2">
           <Card
             id="assigned-tasks"
             title={isOwner ? "Tasks you’re watching" : "Tasks assigned to you"}
@@ -1033,8 +1081,11 @@ export default function TeamHubDashboardPage() {
               </EmptyState>
             )}
           </Card>
+          </div>
+        </div>
 
-          <Card
+        <div className="mt-6 grid gap-5 xl:grid-cols-2">
+          <SecondaryCard
             id="recent-activity"
             title="Project updates"
             eyebrow="Recent activity"
@@ -1065,13 +1116,13 @@ export default function TeamHubDashboardPage() {
                 ))}
               </ol>
             ) : (
-              <EmptyState>
+              <QuietEmptyState>
                 No project updates related to your work yet.
-              </EmptyState>
+              </QuietEmptyState>
             )}
-          </Card>
+          </SecondaryCard>
 
-          <Card
+          <SecondaryCard
             id="upcoming-meetings"
             title="Upcoming meetings"
             eyebrow="Company schedule"
@@ -1110,12 +1161,11 @@ export default function TeamHubDashboardPage() {
                 ))}
               </div>
             ) : (
-              <EmptyState>No upcoming meetings scheduled.</EmptyState>
+              <QuietEmptyState>No upcoming meetings scheduled.</QuietEmptyState>
             )}
-          </Card>
+          </SecondaryCard>
         </div>
-          </>
-        )}
+        </div>
       </div>
 
       {isOwner && isDecisionModalOpen && (

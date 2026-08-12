@@ -455,6 +455,12 @@ export default function ApprovalsPage() {
       .update({
         client_approvals: nextReviews,
         approval_history: nextHistory,
+        ...(approval.source === "social"
+          ? {}
+          : {
+              status: status === "approved" ? "approved" : "production",
+              completed: status === "approved",
+            }),
       })
       .eq("id", id);
     updateQuery =

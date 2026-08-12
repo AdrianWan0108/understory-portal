@@ -4,7 +4,9 @@ import {
   TEAM_IDENTITIES,
   TEAM_SESSION_COOKIE,
 } from "@/lib/team-auth";
+import { syncClientReview } from "@/lib/client-review-sync";
 import { sendSlackMessage, type SlackWebhookTarget } from "@/lib/slack";
+import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import {
   WORKSPACE_CLIENTS,
   isWorkspaceClientSlug,
@@ -188,27 +190,26 @@ export async function POST(request: NextRequest) {
   try {
     if (notification.type === "client_review") {
       const clientName = WORKSPACE_CLIENTS[notification.clientSlug].name;
-      const action =
-        notification.action === "approved"
-          ? "approved"
-          : "requested changes on";
-      await sendSlackMessage(
-        notification.clientSlug,
-        `${clientName} ${action} '${notification.title}' — reviewer: ${notification.reviewerName}`,
-      );
-
-      if (notification.action === "requested_changes") {
-        const assignedTo = notification.assigneeNames?.length
-          ? notification.assigneeNames.join(", ")
-          : "the social media team";
-        const commentSuffix = notification.comment
-          ? `: "${notification.comment}"`
-          : "";
-        await sendSlackMessage(
-          "admin",
-          `⚠️ ${clientName} requested changes on '${notification.title}' — assigned to ${assignedTo}${commentSuffix}`,
+      const supabaseAdmin = getSupabaseAdmin();
+      if (!supabaseAdmin) {
+        return NextResponse.json(
+          { error: "Supabase server configuration is unavailable." },
+          { status: 503 },
         );
       }
+
+      await syncClientReview(
+        { ...notification, clientName },
+        {
+          writeActivity: async (activity) => {
+            const { error } = await supabaseAdmin
+              .from("team_activity_log")
+              .insert(activity);
+            if (error) throw error;
+          },
+          sendSlackMessage,
+        },
+      );
     } else if (notification.type === "task_review") {
       const teamProfile = teamProfileFromRequest(request);
       if (!teamProfile) {
@@ -259,8 +260,13 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     console.error("Slack webhook request failed:", error);
-    return NextResponse.json({ sent: false });
+    return NextResponse.json({ sent: false }, { status: 502 });
   }
 
-  return NextResponse.json({ sent: true });
+  return NextResponse.json({
+    sent: true,
+    ...(notification.type === "client_review"
+      ? { activityLogged: true }
+      : {}),
+  });
 }

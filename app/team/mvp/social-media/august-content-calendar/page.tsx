@@ -98,6 +98,8 @@ type Post = {
   postCaption: string;
   visualNote: string;
   reelDetails: ReelDetails;
+  startDate: string;
+  dueDate: string;
   assignedTo: string | null;
   assigneeUsernames: string[];
   watcherUsernames: string[];
@@ -148,6 +150,8 @@ type TaskRow = {
   post_caption: string;
   visual_note: string | null;
   reel_details: unknown;
+  start_date: string | null;
+  due_date: string | null;
   assigned_to: string | null;
   assignee_usernames: string[] | null;
   watcher_usernames: string[] | null;
@@ -173,6 +177,8 @@ function mapTaskRows(rows: TaskRow[]): Post[] {
     postCaption: task.post_caption,
     visualNote: task.visual_note ?? "",
     reelDetails: normalizeReelDetails(task.reel_details),
+    startDate: task.start_date ?? "",
+    dueDate: task.due_date ?? "",
     assignedTo: task.assigned_to,
     assigneeUsernames: normalizeAssigneeUsernames(
       task.assignee_usernames,
@@ -1924,6 +1930,8 @@ type PostEditorState = {
   visualNote: string;
   reelDetails: ReelDetails;
   status: PostStatus;
+  startDate: string;
+  dueDate: string;
   assignedTo: string;
 };
 
@@ -1953,6 +1961,11 @@ function PostEditorModal({
       isSaving={isSaving}
       submitDisabled={
         !editor?.title.trim() ||
+        Boolean(
+          editor?.startDate &&
+            editor.dueDate &&
+            editor.startDate > editor.dueDate,
+        ) ||
         (editor.format === "reel" &&
           Boolean(editor.reelDetails.videoUrl.trim()) &&
           !resolveGoogleDriveFileUrls(editor.reelDetails.videoUrl))
@@ -2179,6 +2192,32 @@ function PostEditorModal({
               </label>
             )}
           </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="text-xs font-semibold text-[#341F60]">
+              Start date
+              <input
+                type="date"
+                value={editor.startDate}
+                max={editor.dueDate || undefined}
+                onChange={(event) =>
+                  onChange({ ...editor, startDate: event.target.value })
+                }
+                className={`mt-2 ${teamInputClass}`}
+              />
+            </label>
+            <label className="text-xs font-semibold text-[#341F60]">
+              Due date
+              <input
+                type="date"
+                value={editor.dueDate}
+                min={editor.startDate || undefined}
+                onChange={(event) =>
+                  onChange({ ...editor, dueDate: event.target.value })
+                }
+                className={`mt-2 ${teamInputClass}`}
+              />
+            </label>
+          </div>
         </div>
       )}
     </TeamModal>
@@ -2361,7 +2400,7 @@ function AugustContentCalendarContent() {
 
       const activeCalendarId = calendar?.id ?? null;
       setCalendarTaskId(activeCalendarId);
-      setCalendarTitle(calendar?.title ?? "August content calendar");
+      setCalendarTitle(calendar?.title ?? "Content calendar");
       setCalendarDescription(
         calendar?.description ||
           "Open a post to review the copy, visual direction, and captions for every slide.",
@@ -2379,6 +2418,8 @@ function AugustContentCalendarContent() {
             post_caption,
             visual_note,
             reel_details,
+            start_date,
+            due_date,
             assigned_to,
             assignee_usernames,
             watcher_usernames,
@@ -3240,12 +3281,22 @@ function AugustContentCalendarContent() {
       visualNote: post?.visualNote ?? "",
       reelDetails: post?.reelDetails ?? { ...EMPTY_REEL_DETAILS },
       status: post?.status ?? "not_started",
+      startDate: post?.startDate ?? "",
+      dueDate: post?.dueDate ?? "",
       assignedTo: post?.assignedTo ?? "",
     });
   }
 
   async function savePost() {
     if (!canManage || !editor || !clientId || !editor.title.trim()) return;
+    if (
+      editor.startDate &&
+      editor.dueDate &&
+      editor.startDate > editor.dueDate
+    ) {
+      setErrorMessage("The start date must be on or before the due date.");
+      return;
+    }
     setIsSavingPost(true);
     const initialUsername = teamUsernameForName(editor.assignedTo);
     const mentionedUsernames = extractMentionedUsernames(
@@ -3291,6 +3342,8 @@ function AugustContentCalendarContent() {
             }
           : null,
       status: editor.status,
+      start_date: editor.startDate || null,
+      due_date: editor.dueDate || null,
       division_task_id: calendarTaskId,
       mentioned_usernames: savedMentionedUsernames,
       watcher_usernames: savedWatcherUsernames,

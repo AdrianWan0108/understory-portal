@@ -1,4 +1,210 @@
+@import "frappe-gantt";
 @import "tailwindcss";
+
+/* Frappe Gantt is isolated behind this class so its palette follows the
+ * Understory Dashboard instead of leaking into other portal surfaces. */
+.understory-gantt {
+  --g-arrow-color: #84778c;
+  --g-bar-color: #e8e3ea;
+  --g-bar-border: transparent;
+  --g-tick-color-thick: #e1d9e5;
+  --g-tick-color: #f0ebf2;
+  --g-actions-background: #f4edf7;
+  --g-border-color: #ebe4ed;
+  --g-text-muted: #83758b;
+  --g-text-light: #5f3378;
+  --g-text-dark: #44354c;
+  --g-progress-color: #d6ccd9;
+  --g-handle-color: #7d4698;
+  --g-weekend-label-color: #f2ecf4;
+  --g-expected-progress: #d6ccd9;
+  --g-header-background: #fffdfa;
+  --g-row-color: #fffefa;
+  --g-row-border-color: #ece6ee;
+  --g-today-highlight: #6f3c89;
+  --g-popup-actions: #eee3fa;
+  --g-weekend-highlight-color: #faf7fb;
+  width: 100%;
+}
+
+.understory-gantt .gantt-container {
+  min-height: 9rem;
+  max-height: 32rem;
+  border: 1px solid #e7ddea;
+  border-radius: 14px;
+  background: #ffffff;
+  font-family: var(--font-geist-sans), sans-serif;
+  cursor: grab;
+  scrollbar-gutter: stable;
+  scrollbar-color: #cbbfd0 #f5f0f6;
+  scrollbar-width: thin;
+}
+
+.understory-gantt .gantt-container::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.understory-gantt .gantt-container::-webkit-scrollbar-track {
+  background: #f5f0f6;
+  border-radius: 999px;
+}
+
+.understory-gantt .gantt-container::-webkit-scrollbar-thumb {
+  background: #cbbfd0;
+  border: 2px solid #f5f0f6;
+  border-radius: 999px;
+}
+
+.understory-gantt .gantt-container[data-panning="true"] {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.understory-gantt .gantt .bar-label {
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  text-anchor: start;
+}
+
+.understory-gantt .gantt .bar-wrapper .bar {
+  outline: none !important;
+  stroke: none !important;
+  stroke-width: 0 !important;
+  stroke-dasharray: none !important;
+}
+
+.understory-gantt .gantt .bar-wrapper:hover .handle.left,
+.understory-gantt .gantt .bar-wrapper:hover .handle.right,
+.understory-gantt .gantt .handle.left.active,
+.understory-gantt .gantt .handle.right.active {
+  fill: #6f3c89;
+  opacity: 1;
+}
+
+.understory-gantt .gantt .handle.left,
+.understory-gantt .gantt .handle.right {
+  cursor: ew-resize;
+}
+
+.understory-gantt [class*="gantt-status-planning"] .bar,
+.gantt-legend-planning {
+  fill: #e8e3ea;
+  background-color: #e8e3ea;
+}
+
+.understory-gantt [class*="gantt-status-planning"] .bar-progress {
+  fill: #d6cfd9;
+}
+
+.understory-gantt [class*="gantt-status-planning"] .bar-label {
+  fill: #4e4555;
+}
+
+.understory-gantt [class*="gantt-status-production"] .bar,
+.gantt-legend-production {
+  fill: #f7e5a6;
+  background-color: #f7e5a6;
+}
+
+.understory-gantt [class*="gantt-status-production"] .bar-progress {
+  fill: #efd478;
+}
+
+.understory-gantt [class*="gantt-status-production"] .bar-label {
+  fill: #5b4312;
+}
+
+.understory-gantt [class*="gantt-status-review"] .bar,
+.gantt-legend-review {
+  fill: #d5e2f5;
+  background-color: #d5e2f5;
+}
+
+.understory-gantt [class*="gantt-status-review"] .bar-progress {
+  fill: #b9cfee;
+}
+
+.understory-gantt [class*="gantt-status-review"] .bar-label {
+  fill: #294f78;
+}
+
+.understory-gantt [class*="gantt-status-approved"] .bar,
+.gantt-legend-approved {
+  fill: #d6eadb;
+  background-color: #d6eadb;
+}
+
+.understory-gantt [class*="gantt-status-approved"] .bar-progress {
+  fill: #b9d9c1;
+}
+
+.understory-gantt [class*="gantt-status-approved"] .bar-label {
+  fill: #315d3e;
+}
+
+.understory-gantt .gantt-status-internal-approved .bar,
+.gantt-legend-internal-approved {
+  fill: #e8ddf0;
+  background-color: #e8ddf0;
+}
+
+.understory-gantt .gantt-status-internal-approved .bar-label {
+  fill: #654277;
+}
+
+.understory-gantt .gantt-status-external-approved .bar,
+.gantt-legend-external-approved {
+  fill: #d5eadc;
+  background-color: #d5eadc;
+}
+
+.understory-gantt .gantt-status-external-approved .bar-label {
+  fill: #356346;
+}
+
+.understory-gantt .gantt-status-changes-requested .bar,
+.gantt-legend-changes-requested {
+  fill: #f2ddd8;
+  background-color: #f2ddd8;
+}
+
+.understory-gantt .gantt-status-changes-requested .bar-label {
+  fill: #854d43;
+}
+
+.understory-gantt .gantt-status-posted .bar,
+.gantt-legend-posted {
+  fill: #dcd6e0;
+  background-color: #dcd6e0;
+}
+
+.understory-gantt .gantt-status-posted .bar-label {
+  fill: #514758;
+}
+
+.understory-gantt .current-highlight {
+  width: 2px;
+  z-index: 1002;
+}
+
+.understory-gantt .current-date-highlight {
+  background: #eee3fa;
+  color: #5f3378;
+}
+
+.understory-gantt .current-ball-highlight {
+  background: #6f3c89;
+}
+
+.understory-gantt .side-header button,
+.understory-gantt .side-header select {
+  color: #5f3378;
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+}
 
 :root,
 [data-theme="verdant"] {

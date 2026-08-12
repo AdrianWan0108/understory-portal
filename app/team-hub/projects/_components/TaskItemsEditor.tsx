@@ -16,6 +16,11 @@ import {
 } from "@/lib/team-assignments";
 import { supabase } from "@/lib/supabase";
 import {
+  DIVISION_TASK_STATUSES,
+  DIVISION_TASK_STATUS_DETAILS,
+  type DivisionTaskStatus,
+} from "@/lib/division-tasks";
+import {
   TaskPeopleButton,
   TaskPeopleModal,
   useTaskTeamMembers,
@@ -34,6 +39,9 @@ type TaskItem = {
   visual_url: string | null;
   visual_urls: string[];
   completed: boolean;
+  status: DivisionTaskStatus;
+  start_date: string | null;
+  due_date: string | null;
   assignee_usernames: string[];
   watcher_usernames: string[];
   mentioned_usernames: string[];
@@ -45,7 +53,7 @@ type TaskItem = {
 };
 
 const TASK_ITEM_SELECT =
-  "id, division_task_id, title, description, visual_url, visual_urls, completed, assignee_usernames, watcher_usernames, mentioned_usernames, sent_to_client_at, sent_to_client_by, client_approvals, approval_history, created_at";
+  "id, division_task_id, title, description, visual_url, visual_urls, completed, status, start_date, due_date, assignee_usernames, watcher_usernames, mentioned_usernames, sent_to_client_at, sent_to_client_by, client_approvals, approval_history, created_at";
 
 function visualPreviewUrl(value: string | null) {
   if (!value) return null;
@@ -76,6 +84,15 @@ function itemVisualLinks(item: TaskItem) {
 
 function areValidVisualLinks(values: string[]) {
   return values.every(isValidVisualLink);
+}
+
+function formatItemDate(value: string) {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-CA", {
+    month: "short",
+    day: "numeric",
+  }).format(date);
 }
 
 function GoogleDriveVisualFields({
@@ -326,6 +343,9 @@ export function TaskItemsEditor({
   const [items, setItems] = useState<TaskItem[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [status, setStatus] = useState<DivisionTaskStatus>("planning");
+  const [startDate, setStartDate] = useState("");
+  const [dueDate, setDueDate] = useState("");
   const [visualLinks, setVisualLinks] = useState([""]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -333,6 +353,10 @@ export function TaskItemsEditor({
   const [itemToEdit, setItemToEdit] = useState<TaskItem | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [editStatus, setEditStatus] =
+    useState<DivisionTaskStatus>("planning");
+  const [editStartDate, setEditStartDate] = useState("");
+  const [editDueDate, setEditDueDate] = useState("");
   const [editVisualLinks, setEditVisualLinks] = useState([""]);
   const [itemToAssign, setItemToAssign] = useState<TaskItem | null>(null);
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
@@ -370,6 +394,10 @@ export function TaskItemsEditor({
   async function addItem(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!title.trim() || isSaving) return;
+    if (startDate && dueDate && startDate > dueDate) {
+      setError("The item start date must be on or before its deadline.");
+      return;
+    }
     if (supportsVisuals && !areValidVisualLinks(visualLinks)) {
       setError("Add valid Google Drive file links for the visuals.");
       return;
@@ -388,6 +416,10 @@ export function TaskItemsEditor({
         division_task_id: taskId,
         title: title.trim(),
         description: description.trim() || null,
+        status,
+        completed: status === "approved",
+        start_date: startDate || null,
+        due_date: dueDate || null,
         visual_url: supportsVisuals ? savedVisualLinks[0] ?? null : null,
         visual_urls: supportsVisuals ? savedVisualLinks : [],
         mentioned_usernames: mentionedUsernames,
@@ -410,19 +442,29 @@ export function TaskItemsEditor({
     setItems((current) => [...current, data as TaskItem]);
     setTitle("");
     setDescription("");
+    setStatus("planning");
+    setStartDate("");
+    setDueDate("");
     setVisualLinks([""]);
   }
 
   async function toggleCompleted(item: TaskItem) {
     const completed = !item.completed;
+    const status = completed
+      ? "approved"
+      : item.status === "approved"
+        ? "production"
+        : item.status;
     setItems((current) =>
       current.map((candidate) =>
-        candidate.id === item.id ? { ...candidate, completed } : candidate,
+        candidate.id === item.id
+          ? { ...candidate, completed, status }
+          : candidate,
       ),
     );
     const { error: updateError } = await supabase
       .from("division_task_items")
-      .update({ completed, updated_at: new Date().toISOString() })
+      .update({ completed, status, updated_at: new Date().toISOString() })
       .eq("id", item.id);
     if (updateError) {
       setItems((current) =>
@@ -438,6 +480,9 @@ export function TaskItemsEditor({
     setItemToEdit(item);
     setEditTitle(item.title);
     setEditDescription(item.description ?? "");
+    setEditStatus(item.status);
+    setEditStartDate(item.start_date ?? "");
+    setEditDueDate(item.due_date ?? "");
     const links = itemVisualLinks(item);
     setEditVisualLinks(links.length > 0 ? links : [""]);
     setError(null);
@@ -445,6 +490,10 @@ export function TaskItemsEditor({
 
   async function saveEdit() {
     if (!itemToEdit || !editTitle.trim() || isSaving) return;
+    if (editStartDate && editDueDate && editStartDate > editDueDate) {
+      setError("The item start date must be on or before its deadline.");
+      return;
+    }
     if (
       supportsVisuals &&
       !areValidVisualLinks(editVisualLinks)
@@ -461,6 +510,10 @@ export function TaskItemsEditor({
     const values = {
       title: editTitle.trim(),
       description: editDescription.trim() || null,
+      status: editStatus,
+      completed: editStatus === "approved",
+      start_date: editStartDate || null,
+      due_date: editDueDate || null,
       visual_url: supportsVisuals ? savedVisualLinks[0] ?? null : null,
       visual_urls: supportsVisuals ? savedVisualLinks : [],
       mentioned_usernames: mentionedUsernames,
@@ -576,6 +629,8 @@ export function TaskItemsEditor({
         sent_to_client_at: timestamp,
         sent_to_client_by: currentTeamMemberName,
         client_approvals: {},
+        status: "review",
+        completed: false,
         updated_at: timestamp,
       })
       .eq("id", item.id)
@@ -610,6 +665,8 @@ export function TaskItemsEditor({
               sent_to_client_at: timestamp,
               sent_to_client_by: currentTeamMemberName,
               client_approvals: {},
+              status: "review",
+              completed: false,
             }
           : candidate,
       ),
@@ -667,6 +724,44 @@ export function TaskItemsEditor({
             className={`mt-2 resize-y ${projectInputClass}`}
           />
         </label>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="text-xs font-semibold text-[var(--foreground)]">
+            Status
+            <select
+              value={status}
+              onChange={(event) =>
+                setStatus(event.target.value as DivisionTaskStatus)
+              }
+              className={`mt-2 ${projectInputClass}`}
+            >
+              {DIVISION_TASK_STATUSES.map((option) => (
+                <option key={option} value={option}>
+                  {DIVISION_TASK_STATUS_DETAILS[option].label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs font-semibold text-[var(--foreground)]">
+            Start date
+            <input
+              type="date"
+              value={startDate}
+              max={dueDate || undefined}
+              onChange={(event) => setStartDate(event.target.value)}
+              className={`mt-2 ${projectInputClass}`}
+            />
+          </label>
+          <label className="text-xs font-semibold text-[var(--foreground)]">
+            Deadline
+            <input
+              type="date"
+              value={dueDate}
+              min={startDate || undefined}
+              onChange={(event) => setDueDate(event.target.value)}
+              className={`mt-2 ${projectInputClass}`}
+            />
+          </label>
+        </div>
         <div className="flex justify-end">
           <TeamButton
             type="submit"
@@ -696,6 +791,7 @@ export function TaskItemsEditor({
               .map(teamNameForUsername)
               .filter((value): value is string => Boolean(value));
             const decision = clientDecision(item.client_approvals);
+            const statusDetails = DIVISION_TASK_STATUS_DETAILS[item.status];
             return (
               <article
                 key={item.id}
@@ -726,6 +822,22 @@ export function TaskItemsEditor({
                       )}
                     </div>
                     {item.description && <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-[var(--muted-foreground)]">{item.description}</p>}
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full border px-2 py-1 text-[9px] font-bold uppercase tracking-[0.07em] ${statusDetails.className}`}>
+                        {statusDetails.label}
+                      </span>
+                      {(item.start_date || item.due_date) && (
+                        <span className="text-[10px] font-semibold text-[var(--muted-foreground)]">
+                          {item.start_date
+                            ? formatItemDate(item.start_date)
+                            : "Start TBD"}
+                          {" → "}
+                          {item.due_date
+                            ? formatItemDate(item.due_date)
+                            : "Deadline TBD"}
+                        </span>
+                      )}
+                    </div>
                     {!supportsVisuals && <p className="mt-2 text-[10px] text-[var(--muted-foreground)]">{watcherNames.join(" + ")} watching</p>}
                   </div>
                   </div>
@@ -816,6 +928,44 @@ export function TaskItemsEditor({
               className={`mt-2 resize-y ${projectInputClass}`}
             />
           </label>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <label className="text-xs font-semibold text-[var(--foreground)]">
+              Status
+              <select
+                value={editStatus}
+                onChange={(event) =>
+                  setEditStatus(event.target.value as DivisionTaskStatus)
+                }
+                className={`mt-2 ${projectInputClass}`}
+              >
+                {DIVISION_TASK_STATUSES.map((option) => (
+                  <option key={option} value={option}>
+                    {DIVISION_TASK_STATUS_DETAILS[option].label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs font-semibold text-[var(--foreground)]">
+              Start date
+              <input
+                type="date"
+                value={editStartDate}
+                max={editDueDate || undefined}
+                onChange={(event) => setEditStartDate(event.target.value)}
+                className={`mt-2 ${projectInputClass}`}
+              />
+            </label>
+            <label className="text-xs font-semibold text-[var(--foreground)]">
+              Deadline
+              <input
+                type="date"
+                value={editDueDate}
+                min={editStartDate || undefined}
+                onChange={(event) => setEditDueDate(event.target.value)}
+                className={`mt-2 ${projectInputClass}`}
+              />
+            </label>
+          </div>
         </div>
       </TeamModal>
 

@@ -50,7 +50,10 @@ export function ContentBriefEditor({
 
     const { error } = await supabase
       .from("division_tasks")
-      .update({ content_brief_data: brief })
+      .update({
+        content_brief_data: brief,
+        due_date: brief.due_date || null,
+      })
       .eq("id", taskId);
     setIsSaving(false);
 

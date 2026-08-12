@@ -50,8 +50,20 @@ type DivisionTask = {
   figjam_embed_url: string | null;
   watcher_usernames: string[];
   mentioned_usernames: string[];
+  start_date: string | null;
+  due_date: string | null;
   created_at: string;
 };
+
+function formatDueDate(value: string) {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-CA", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
 
 export default function DivisionTaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>();
@@ -77,7 +89,7 @@ export default function DivisionTaskDetailPage() {
       const { data, error: taskError } = await supabase
         .from("division_tasks")
         .select(
-          "id, client_id, division, title, description, status, template_type, content_brief_data, filming_card_data, figjam_embed_url, watcher_usernames, mentioned_usernames, created_at",
+          "id, client_id, division, title, description, status, template_type, content_brief_data, filming_card_data, figjam_embed_url, watcher_usernames, mentioned_usernames, start_date, due_date, created_at",
         )
         .eq("id", taskId)
         .single();
@@ -260,6 +272,17 @@ export default function DivisionTaskDetailPage() {
                   <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
                     {task.title}
                   </h1>
+                  {(task.start_date || task.due_date) && (
+                    <p className="mt-3 inline-flex rounded-full bg-[var(--card)] px-3 py-1.5 text-xs font-semibold text-[var(--primary)] shadow-sm">
+                      {task.start_date
+                        ? `Starts ${formatDueDate(task.start_date)}`
+                        : "Start date not set"}
+                      {" · "}
+                      {task.due_date
+                        ? `Due ${formatDueDate(task.due_date)}`
+                        : "Deadline not set"}
+                    </p>
+                  )}
                   {isEditingDescription ? (
                     <div className="mt-4 max-w-3xl">
                       <TaskMentionTextarea

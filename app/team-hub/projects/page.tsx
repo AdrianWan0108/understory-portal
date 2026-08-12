@@ -15,6 +15,7 @@ import {
   DIVISION_TASK_STATUSES,
   DIVISION_TASK_STATUS_DETAILS,
   EMPTY_CONTENT_BRIEF_DATA,
+  normalizeContentBriefData,
   specializedDivisionHref,
   type Division,
   type DivisionTaskStatus,
@@ -35,6 +36,7 @@ import {
   TeamButton,
   TeamModal,
 } from "../_components/TeamHubUi";
+import { ProjectGanttBoard } from "./_components/ProjectGanttBoard";
 import { useProjectTheme } from "./_components/ProjectThemeProvider";
 import {
   TaskMentionInput,
@@ -57,6 +59,8 @@ type DivisionTask = {
   assignee_usernames: string[];
   watcher_usernames: string[];
   mentioned_usernames: string[];
+  start_date: string | null;
+  due_date: string | null;
   created_at: string;
 };
 
@@ -224,6 +228,25 @@ const fallbackTeamMembers: TeamMember[] = Object.values(TEAM_IDENTITIES).map(
   }),
 );
 
+function formatTaskDueDate(value: string) {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-CA", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+function taskScheduleLabel(task: DivisionTask) {
+  if (task.start_date && task.due_date) {
+    return `${formatTaskDueDate(task.start_date)} – ${formatTaskDueDate(task.due_date)}`;
+  }
+  if (task.due_date) return `Due ${formatTaskDueDate(task.due_date)}`;
+  if (task.start_date) return `Starts ${formatTaskDueDate(task.start_date)}`;
+  return "Set dates";
+}
+
 export default function TeamHubProjectsPage() {
   const { accessLevel, isReady: isIdentityReady } = useTeamIdentity();
   const isOwner = isIdentityReady && accessLevel === "owner";
@@ -244,6 +267,8 @@ export default function TeamHubProjectsPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<DivisionTaskStatus>("planning");
+  const [startDate, setStartDate] = useState("");
+  const [dueDate, setDueDate] = useState("");
   const [taskToDelete, setTaskToDelete] = useState<DivisionTask | null>(
     null,
   );
@@ -252,11 +277,23 @@ export default function TeamHubProjectsPage() {
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const [isSavingAssignees, setIsSavingAssignees] = useState(false);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const [taskToSchedule, setTaskToSchedule] = useState<DivisionTask | null>(
+    null,
+  );
+  const [startDateDraft, setStartDateDraft] = useState("");
+  const [deadlineDraft, setDeadlineDraft] = useState("");
+  const [isSavingDeadline, setIsSavingDeadline] = useState(false);
+  const [deadlineError, setDeadlineError] = useState<string | null>(null);
 
   const clientOptions = WORKSPACE_CLIENT_SLUGS.map((slug) => ({
     value: slug,
     label: WORKSPACE_CLIENTS[slug].name,
   }));
+  const availableSocialMediaTemplates = socialMediaTemplates.filter(
+    (template) =>
+      template.id !== "content_calendar" ||
+      !tasks.some((task) => task.template_type === "content_calendar"),
+  );
 
   useEffect(() => {
     let isActive = true;
@@ -308,7 +345,7 @@ export default function TeamHubProjectsPage() {
       const { data, error: taskError } = await supabase
         .from("division_tasks")
         .select(
-          "id, client_id, division, title, description, status, template_type, content_brief_data, filming_card_data, research_entries, figjam_embed_url, assignee_usernames, watcher_usernames, mentioned_usernames, created_at",
+          "id, client_id, division, title, description, status, template_type, content_brief_data, filming_card_data, research_entries, figjam_embed_url, assignee_usernames, watcher_usernames, mentioned_usernames, start_date, due_date, created_at",
         )
         .eq("client_id", clientRecord.id)
         .eq("division", division)
@@ -340,6 +377,8 @@ export default function TeamHubProjectsPage() {
     setTitle("");
     setDescription("");
     setStatus("planning");
+    setStartDate("");
+    setDueDate("");
     setSelectedTemplate("generic");
   }
 
@@ -348,12 +387,18 @@ export default function TeamHubProjectsPage() {
     setTitle(template.defaultTitle);
     setDescription("");
     setStatus("planning");
+    setStartDate("");
+    setDueDate("");
     setIsChoosingTemplate(false);
     setIsAddingTask(true);
   }
 
   async function addTask() {
     if (!clientId || !title.trim() || isSaving) return;
+    if (startDate && dueDate && startDate > dueDate) {
+      setError("The project start date must be on or before its deadline.");
+      return;
+    }
 
     setIsSaving(true);
     setError(null);
@@ -369,10 +414,12 @@ export default function TeamHubProjectsPage() {
         title: title.trim(),
         description: description.trim() || null,
         status,
+        start_date: startDate || null,
+        due_date: dueDate || null,
         template_type: selectedTemplate,
         content_brief_data:
           selectedTemplate === "content_brief"
-            ? EMPTY_CONTENT_BRIEF_DATA
+            ? { ...EMPTY_CONTENT_BRIEF_DATA, due_date: dueDate }
             : null,
         filming_card_data: null,
         research_entries: [],
@@ -385,7 +432,7 @@ export default function TeamHubProjectsPage() {
         ),
       })
       .select(
-        "id, client_id, division, title, description, status, template_type, content_brief_data, filming_card_data, research_entries, figjam_embed_url, assignee_usernames, watcher_usernames, mentioned_usernames, created_at",
+        "id, client_id, division, title, description, status, template_type, content_brief_data, filming_card_data, research_entries, figjam_embed_url, assignee_usernames, watcher_usernames, mentioned_usernames, start_date, due_date, created_at",
       )
       .single();
     setIsSaving(false);
@@ -474,6 +521,73 @@ export default function TeamHubProjectsPage() {
     closePeoplePicker();
   }
 
+  function openDeadlineEditor(task: DivisionTask) {
+    if (!isOwner) return;
+    setTaskToSchedule(task);
+    setStartDateDraft(task.start_date ?? "");
+    setDeadlineDraft(task.due_date ?? "");
+    setDeadlineError(null);
+  }
+
+  function closeDeadlineEditor() {
+    if (isSavingDeadline) return;
+    setTaskToSchedule(null);
+    setStartDateDraft("");
+    setDeadlineDraft("");
+    setDeadlineError(null);
+  }
+
+  async function saveDeadline() {
+    if (!isOwner || !taskToSchedule || isSavingDeadline) return;
+    if (startDateDraft && deadlineDraft && startDateDraft > deadlineDraft) {
+      setDeadlineError("The start date must be on or before the deadline.");
+      return;
+    }
+    const nextStartDate = startDateDraft || null;
+    const nextDueDate = deadlineDraft || null;
+    setIsSavingDeadline(true);
+    setDeadlineError(null);
+
+    const update: {
+      start_date: string | null;
+      due_date: string | null;
+      content_brief_data?: typeof EMPTY_CONTENT_BRIEF_DATA;
+    } = { start_date: nextStartDate, due_date: nextDueDate };
+    if (taskToSchedule.template_type === "content_brief") {
+      update.content_brief_data = {
+        ...normalizeContentBriefData(taskToSchedule.content_brief_data),
+        due_date: deadlineDraft,
+      };
+    }
+
+    const { error: updateError } = await supabase
+      .from("division_tasks")
+      .update(update)
+      .eq("id", taskToSchedule.id);
+    setIsSavingDeadline(false);
+
+    if (updateError) {
+      setDeadlineError(`Could not save the deadline: ${updateError.message}`);
+      return;
+    }
+
+    setTasks((current) =>
+      current.map((task) =>
+        task.id === taskToSchedule.id
+          ? {
+              ...task,
+              start_date: nextStartDate,
+              due_date: nextDueDate,
+              ...(update.content_brief_data
+                ? { content_brief_data: update.content_brief_data }
+                : {}),
+            }
+          : task,
+      ),
+    );
+    closeDeadlineEditor();
+  }
+
   return (
     <main className="px-5 py-10 sm:px-8 sm:py-14 lg:px-12">
       <div className="mx-auto max-w-6xl">
@@ -543,6 +657,26 @@ export default function TeamHubProjectsPage() {
             );
           })}
         </nav>
+
+        <section className="mt-9 border-b border-[var(--border)] pb-9">
+          <div className="mb-6">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--primary)]">
+              {WORKSPACE_CLIENTS[client].name} · {DIVISION_LABELS[division]}
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[var(--foreground)]">
+              Item timeline and status
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted-foreground)]">
+              Track individual item deadlines, status, and assignees for this
+              division.
+            </p>
+          </div>
+          <ProjectGanttBoard
+            key={`${client}-${division}`}
+            clientSlug={client}
+            division={division}
+          />
+        </section>
 
         <section className="mt-8">
           <div className="flex flex-col gap-4 border-b border-[var(--border)] pb-6 sm:flex-row sm:items-end sm:justify-between">
@@ -649,7 +783,7 @@ export default function TeamHubProjectsPage() {
                           : "Open task details"}
                       </p>
                     </Link>
-                    <div className="flex items-center justify-between gap-3 border-t border-[var(--border)] px-5 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-5 py-3">
                       <div className="min-w-0">
                         <button
                           type="button"
@@ -700,15 +834,34 @@ export default function TeamHubProjectsPage() {
                           </p>
                         )}
                       </div>
+                      <div className="ml-auto flex items-center gap-3">
+                        {isOwner ? (
+                          <button
+                            type="button"
+                            onClick={() => openDeadlineEditor(task)}
+                            className={`shrink-0 rounded-full px-2.5 py-1.5 text-[10px] font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
+                              task.start_date || task.due_date
+                                ? "bg-[var(--muted)] text-[var(--primary)] hover:brightness-95"
+                                : "border border-dashed border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                            }`}
+                          >
+                            {taskScheduleLabel(task)}
+                          </button>
+                        ) : task.start_date || task.due_date ? (
+                          <span className="shrink-0 rounded-full bg-[var(--muted)] px-2.5 py-1.5 text-[10px] font-semibold text-[var(--primary)]">
+                            {taskScheduleLabel(task)}
+                          </span>
+                        ) : null}
                       {isOwner && (
                         <button
                           type="button"
                           onClick={() => setTaskToDelete(task)}
                           className="shrink-0 text-xs font-semibold text-[#9A4040] underline decoration-transparent underline-offset-4 transition hover:decoration-current focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9A4040]"
                         >
-                          Delete task
+                          Delete
                         </button>
                       )}
+                      </div>
                     </div>
                   </article>
                 );
@@ -724,6 +877,7 @@ export default function TeamHubProjectsPage() {
               </p>
             </div>
           )}
+
         </section>
       </div>
 
@@ -738,7 +892,7 @@ export default function TeamHubProjectsPage() {
       >
         <div className="grid gap-3">
           {(division === "social-media"
-            ? socialMediaTemplates
+            ? availableSocialMediaTemplates
             : [genericTemplate]
           ).map((template) => (
             <button
@@ -819,6 +973,90 @@ export default function TeamHubProjectsPage() {
               </select>
             </label>
           )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="text-xs font-semibold text-[var(--foreground)]">
+              Start date
+              <input
+                type="date"
+                value={startDate}
+                max={dueDate || undefined}
+                onChange={(event) => setStartDate(event.target.value)}
+                className={`mt-2 ${projectInputClass}`}
+              />
+            </label>
+            <label className="text-xs font-semibold text-[var(--foreground)]">
+              Deadline
+              <input
+                type="date"
+                value={dueDate}
+                min={startDate || undefined}
+                onChange={(event) => setDueDate(event.target.value)}
+                className={`mt-2 ${projectInputClass}`}
+              />
+            </label>
+            <span className="text-[10px] font-normal leading-4 text-[var(--muted-foreground)] sm:col-span-2">
+              Optional. Complete date ranges appear as true spans in the
+              Projects timeline.
+            </span>
+          </div>
+        </div>
+      </TeamModal>
+
+      <TeamModal
+        open={Boolean(taskToSchedule)}
+        title="Set project dates"
+        description={
+          taskToSchedule
+            ? `Set the working span for “${taskToSchedule.title}”, or leave either date empty while the schedule is still being planned.`
+            : undefined
+        }
+        submitLabel="Save dates"
+        isSaving={isSavingDeadline}
+        themed
+        onClose={closeDeadlineEditor}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void saveDeadline();
+        }}
+      >
+        <div className="grid gap-4">
+          {deadlineError && (
+            <p
+              role="alert"
+              className="rounded-xl border border-[#E4B9B9] bg-[#FFF0F0] px-4 py-3 text-sm text-[#8B3E3E]"
+            >
+              {deadlineError}
+            </p>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="text-xs font-semibold text-[var(--foreground)]">
+              Start date
+              <input
+                type="date"
+                autoFocus
+                value={startDateDraft}
+                max={deadlineDraft || undefined}
+                onChange={(event) => {
+                  setStartDateDraft(event.target.value);
+                  setDeadlineError(null);
+                }}
+                className={`mt-2 ${projectInputClass}`}
+              />
+            </label>
+            <label className="text-xs font-semibold text-[var(--foreground)]">
+              Deadline
+              <input
+                type="date"
+                value={deadlineDraft}
+                min={startDateDraft || undefined}
+                onChange={(event) => {
+                  setDeadlineDraft(event.target.value);
+                  setDeadlineError(null);
+                }}
+                className={`mt-2 ${projectInputClass}`}
+              />
+            </label>
+          </div>
         </div>
       </TeamModal>
 

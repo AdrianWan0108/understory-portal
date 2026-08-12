@@ -98,17 +98,17 @@ export const DIVISION_TASK_STATUS_DETAILS: Record<
   { label: string; className: string; dot: string }
 > = {
   planning: {
-    label: "Planning",
+    label: "Not started",
     className: "border-[#DDD5E1] bg-[#F5F2F6] text-[#695E70]",
     dot: "bg-[#9A8FA0]",
   },
   production: {
-    label: "Production",
+    label: "In progress",
     className: "border-[#E8CF91] bg-[#FFF4D2] text-[#7B5A08]",
     dot: "bg-[#D3A72B]",
   },
   review: {
-    label: "Review",
+    label: "Awaiting approvals",
     className: "border-[#BFCBE7] bg-[#EDF2FF] text-[#405A91]",
     dot: "bg-[#6683C1]",
   },
