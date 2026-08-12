@@ -52,25 +52,21 @@ import {
   PROJECT_ASSIGNEES,
   SOCIAL_POST_FORMATS,
   SOCIAL_POST_FORMAT_LABELS,
+  SOCIAL_POST_STATUS_LABELS,
   isSocialPostFormat,
   normalizeReelDetails,
+  normalizeSocialPostStatus,
   resolveInstagramEmbedUrl,
   type ReelDetails,
   type SocialPostFormat,
+  type SocialPostStatus,
 } from "@/lib/social-content";
 import { UnderstoryBrand } from "../../../_components/UnderstoryBrand";
 
 const SLIDE_IMAGE_BUCKET = "client-assets";
 const MAX_SLIDE_IMAGE_BYTES = 20 * 1024 * 1024;
 
-type PostStatus =
-  | "not_started"
-  | "in_progress"
-  | "for_review"
-  | "internal_approved"
-  | "external_approved"
-  | "changes_requested"
-  | "posted";
+type PostStatus = SocialPostStatus;
 
 type ReferencePlatform = "pinterest" | "instagram" | "other";
 
@@ -163,29 +159,13 @@ type TaskRow = {
   task_slides: TaskSlideRow[] | null;
 };
 
-function socialPostStatus(status: string): PostStatus {
-  if (status === "approved") return "internal_approved";
-  if (status === "needs_revision") return "changes_requested";
-  return [
-    "not_started",
-    "in_progress",
-    "for_review",
-    "internal_approved",
-    "external_approved",
-    "changes_requested",
-    "posted",
-  ].includes(status)
-    ? (status as PostStatus)
-    : "not_started";
-}
-
 function mapTaskRows(rows: TaskRow[]): Post[] {
   return rows.map((task, index) => ({
     id: index + 1,
     databaseId: task.id,
     title: task.title,
     brief: task.brief,
-    status: socialPostStatus(task.status),
+    status: normalizeSocialPostStatus(task.status),
     format: isSocialPostFormat(task.format) ? task.format : "carousel",
     postCaption: task.post_caption,
     visualNote: task.visual_note ?? "",
@@ -225,37 +205,37 @@ const statusDetails: Record<
   { label: string; className: string; dot: string }
 > = {
   not_started: {
-    label: "Not started",
+    label: SOCIAL_POST_STATUS_LABELS.not_started,
     className: "border-[#DED0E7] bg-white text-[#695677]",
     dot: "bg-[#A693AF]",
   },
   in_progress: {
-    label: "In progress",
+    label: SOCIAL_POST_STATUS_LABELS.in_progress,
     className: "border-[#E8CF91] bg-[#FFF4D2] text-[#7B5A08]",
     dot: "bg-[#D3A72B]",
   },
   for_review: {
-    label: "Awaiting approvals",
+    label: SOCIAL_POST_STATUS_LABELS.for_review,
     className: "border-[#BFCBE7] bg-[#EDF2FF] text-[#405A91]",
     dot: "bg-[#6683C1]",
   },
   internal_approved: {
-    label: "Internal approved",
+    label: SOCIAL_POST_STATUS_LABELS.internal_approved,
     className: "border-[#D2BFDE] bg-[#F3EAF8] text-[#654277]",
     dot: "bg-[#8B5AA3]",
   },
   external_approved: {
-    label: "External approved",
+    label: SOCIAL_POST_STATUS_LABELS.external_approved,
     className: "border-[#BBD3C2] bg-[#EDF7F0] text-[#477156]",
     dot: "bg-[#669B78]",
   },
   changes_requested: {
-    label: "Changes requested",
+    label: SOCIAL_POST_STATUS_LABELS.changes_requested,
     className: "border-[#DFC1B9] bg-[#F8ECE8] text-[#854D43]",
     dot: "bg-[#B16954]",
   },
   posted: {
-    label: "Posted",
+    label: SOCIAL_POST_STATUS_LABELS.posted,
     className: "border-[#CDC4D2] bg-[#F0EDF2] text-[#514758]",
     dot: "bg-[#756B7B]",
   },

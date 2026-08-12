@@ -9,7 +9,10 @@ import {
 import { sendSlackNotification } from "@/lib/slack-notifications";
 import {
   normalizeReelDetails,
+  normalizeSocialPostStatus,
+  SOCIAL_POST_STATUS_LABELS,
   type ReelDetails,
+  type SocialPostStatus,
 } from "@/lib/social-content";
 import { supabase } from "@/lib/supabase";
 import { TEAM_IDENTITIES } from "@/lib/team-auth";
@@ -57,6 +60,7 @@ type ApprovalPost = {
   id: string;
   client_id: string;
   title: string;
+  status: SocialPostStatus;
   format: string | null;
   reel_details: ReelDetails;
   post_caption: string;
@@ -79,6 +83,7 @@ type ApprovalPost = {
 
 type TaskRow = Omit<
   ApprovalPost,
+  | "status"
   | "internal_approvals"
   | "client_approvals"
   | "approval_history"
@@ -86,6 +91,7 @@ type TaskRow = Omit<
   | "assignee_usernames"
   | "task_slides"
 > & {
+  status: unknown;
   internal_approvals: unknown;
   client_approvals: unknown;
   approval_history: unknown;
@@ -122,6 +128,47 @@ const reviewStyles: Record<
     label: "Changes requested",
     pill: "bg-[#F4E7E2] text-[#875344]",
     dot: "bg-[#B16954]",
+  },
+};
+
+const workflowStyles: Record<
+  SocialPostStatus,
+  { label: string; pill: string; dot: string }
+> = {
+  not_started: {
+    label: SOCIAL_POST_STATUS_LABELS.not_started,
+    pill: "bg-[#F5F2F6] text-[#695E70]",
+    dot: "bg-[#9A8FA0]",
+  },
+  in_progress: {
+    label: SOCIAL_POST_STATUS_LABELS.in_progress,
+    pill: "bg-[#FFF4D2] text-[#7B5A08]",
+    dot: "bg-[#D3A72B]",
+  },
+  for_review: {
+    label: SOCIAL_POST_STATUS_LABELS.for_review,
+    pill: "bg-[#EDF2FF] text-[#405A91]",
+    dot: "bg-[#6683C1]",
+  },
+  internal_approved: {
+    label: SOCIAL_POST_STATUS_LABELS.internal_approved,
+    pill: "bg-[#F3EAF8] text-[#654277]",
+    dot: "bg-[#8B5AA3]",
+  },
+  external_approved: {
+    label: SOCIAL_POST_STATUS_LABELS.external_approved,
+    pill: "bg-[#EDF7F0] text-[#477156]",
+    dot: "bg-[#669B78]",
+  },
+  changes_requested: {
+    label: SOCIAL_POST_STATUS_LABELS.changes_requested,
+    pill: "bg-[#F8ECE8] text-[#854D43]",
+    dot: "bg-[#B16954]",
+  },
+  posted: {
+    label: SOCIAL_POST_STATUS_LABELS.posted,
+    pill: "bg-[#F0EDF2] text-[#514758]",
+    dot: "bg-[#756B7B]",
   },
 };
 
@@ -199,6 +246,7 @@ function normalizeHistory(value: unknown): ApprovalHistoryEntry[] {
 function mapPost(row: TaskRow): ApprovalPost {
   return {
     ...row,
+    status: normalizeSocialPostStatus(row.status),
     internal_approvals: normalizeReviews(row.internal_approvals),
     client_approvals: normalizeReviews(row.client_approvals),
     approval_history: normalizeHistory(row.approval_history),
@@ -254,6 +302,16 @@ function overallStatus(
     return "approved";
   }
   return "pending";
+}
+
+function approvalDisplayStyle(
+  post: ApprovalPost,
+  mode: Props["mode"],
+  reviewers: ApprovalReviewer[],
+) {
+  return mode === "internal"
+    ? workflowStyles[post.status]
+    : reviewStyles[overallStatus(post, mode, reviewers)];
 }
 
 function approvalStatusForReviewerKeys(
@@ -403,6 +461,30 @@ export function SocialApprovalCalendar({
   const [isSending, setIsSending] = useState(false);
   const [draggingPostId, setDraggingPostId] = useState<string | null>(null);
   const [dragOverDateKey, setDragOverDateKey] = useState<string | null>(null);
+  const [syncRevision, setSyncRevision] = useState(0);
+
+  useEffect(() => {
+    if (!resolvedClientId) return;
+    const channel = supabase
+      .channel(
+        `social-approval-status-${mode}-${resolvedClientId}-${workspaceId ?? clientSlug ?? "client"}`,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "tasks",
+          filter: `client_id=eq.${resolvedClientId}`,
+        },
+        () => setSyncRevision((current) => current + 1),
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [clientSlug, mode, resolvedClientId, workspaceId]);
 
   useEffect(() => {
     let isActive = true;
@@ -484,6 +566,7 @@ export function SocialApprovalCalendar({
             id,
             client_id,
             title,
+            status,
             format,
             reel_details,
             post_caption,
@@ -541,7 +624,7 @@ export function SocialApprovalCalendar({
     return () => {
       isActive = false;
     };
-  }, [clientName, clientSlug, mode, workspaceId]);
+  }, [clientName, clientSlug, mode, syncRevision, workspaceId]);
 
   const selectedPost =
     posts.find((post) => post.id === selectedId) ?? null;
@@ -825,7 +908,7 @@ export function SocialApprovalCalendar({
       ...(note ? { note } : {}),
     };
     const nextHistory = [...post.approval_history, historyEntry];
-    const nextWorkflowStatus =
+    const nextWorkflowStatus: SocialPostStatus =
       status === "changes"
         ? "changes_requested"
         : mode === "client"
@@ -861,6 +944,7 @@ export function SocialApprovalCalendar({
     updatePost(post.id, {
       [reviewColumn]: nextReviews,
       approval_history: nextHistory,
+      status: nextWorkflowStatus,
     });
     if (mode === "client" && clientSlug) {
       void sendSlackNotification({
@@ -945,6 +1029,7 @@ export function SocialApprovalCalendar({
               sent_to_client_at: timestamp,
               sent_to_client_by: currentReviewer.name,
               client_approvals: {},
+              status: "for_review",
             }
           : post,
       ),
@@ -1007,6 +1092,7 @@ export function SocialApprovalCalendar({
       sent_to_client_at: timestamp,
       sent_to_client_by: currentReviewer.name,
       client_approvals: {},
+      status: "for_review",
     });
     setFeedback(`${post.title} was resent to the client for a new review.`);
   }
@@ -1042,7 +1128,11 @@ export function SocialApprovalCalendar({
       return;
     }
 
-    updatePost(post.id, { posted_at: postedAt, posted_by: postedBy });
+    updatePost(post.id, {
+      posted_at: postedAt,
+      posted_by: postedBy,
+      status: isPosted ? "posted" : "external_approved",
+    });
     setFeedback(
       isPosted
         ? `${post.title} marked as posted and archived.`
@@ -1410,7 +1500,7 @@ export function SocialApprovalCalendar({
                       )}
                       <div className="mt-2 space-y-2">
                         {dayPosts.map((post) => {
-                          const status = overallStatus(
+                          const statusStyle = approvalDisplayStyle(
                             post,
                             mode,
                             requiredReviewers,
@@ -1469,7 +1559,7 @@ export function SocialApprovalCalendar({
                                     minute: "2-digit",
                                   }).format(new Date(post.scheduled_at!))}
                                 </span>
-                                {post.posted_at ? (
+                                {post.posted_at && mode === "client" ? (
                                   <span className="mt-2 flex items-center gap-1.5 text-[9px] font-semibold text-[#267149]">
                                     <span className="size-1.5 rounded-full bg-[#3A9B63]" />
                                     Archived
@@ -1477,9 +1567,9 @@ export function SocialApprovalCalendar({
                                 ) : (
                                   <span className="mt-2 flex items-center gap-1.5 text-[9px]">
                                     <span
-                                      className={`size-1.5 rounded-full ${reviewStyles[status].dot}`}
+                                      className={`size-1.5 rounded-full ${statusStyle.dot}`}
                                     />
-                                    {reviewStyles[status].label}
+                                    {statusStyle.label}
                                   </span>
                                 )}
                                 {!post.posted_at &&
@@ -1666,23 +1756,21 @@ export function SocialApprovalCalendar({
                   {formatLabel(selectedPost.format)} ·{" "}
                   {formatDate(selectedPost.scheduled_at, true)}
                 </p>
-                {selectedPost.posted_at ? (
+                {selectedPost.posted_at && mode === "client" ? (
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EAF5ED] px-2.5 py-1 text-[10px] font-semibold text-[#267149]">
                     <span className="size-1.5 rounded-full bg-[#3A9B63]" />
                     Archived
                   </span>
                 ) : (
                   <span
-                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-                      reviewStyles[
-                        overallStatus(selectedPost, mode, requiredReviewers)
-                      ].pill
-                    }`}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${approvalDisplayStyle(selectedPost, mode, requiredReviewers).pill}`}
                   >
                     {
-                      reviewStyles[
-                        overallStatus(selectedPost, mode, requiredReviewers)
-                      ].label
+                      approvalDisplayStyle(
+                        selectedPost,
+                        mode,
+                        requiredReviewers,
+                      ).label
                     }
                   </span>
                 )}

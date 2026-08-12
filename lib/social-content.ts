@@ -8,6 +8,37 @@ export const SOCIAL_POST_FORMAT_LABELS: Record<SocialPostFormat, string> = {
   image: "Image",
 };
 
+export const SOCIAL_POST_STATUSES = [
+  "not_started",
+  "in_progress",
+  "for_review",
+  "internal_approved",
+  "external_approved",
+  "changes_requested",
+  "posted",
+] as const;
+
+export type SocialPostStatus = (typeof SOCIAL_POST_STATUSES)[number];
+
+export const SOCIAL_POST_STATUS_LABELS: Record<SocialPostStatus, string> = {
+  not_started: "Not started",
+  in_progress: "In progress",
+  for_review: "Awaiting approvals",
+  internal_approved: "Internal approved",
+  external_approved: "External approved",
+  changes_requested: "Changes requested",
+  posted: "Posted",
+};
+
+export function normalizeSocialPostStatus(value: unknown): SocialPostStatus {
+  if (value === "approved") return "internal_approved";
+  if (value === "needs_revision") return "changes_requested";
+  return typeof value === "string" &&
+    SOCIAL_POST_STATUSES.includes(value as SocialPostStatus)
+    ? (value as SocialPostStatus)
+    : "not_started";
+}
+
 export type ReelDetails = {
   hook: string;
   script: string;
