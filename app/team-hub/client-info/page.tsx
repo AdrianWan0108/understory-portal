@@ -10,6 +10,7 @@ type ClientRow = {
   id: string;
   name: string;
   slug: string;
+  logo_url: string | null;
 };
 
 type ClientProfileSummary = {
@@ -35,7 +36,10 @@ export default function TeamHubClientInfoPage() {
     async function load() {
       setIsLoading(true);
       const [clientsResult, profilesResult, photosResult] = await Promise.all([
-        supabase.from("clients").select("id, name, slug").order("name"),
+        supabase
+          .from("clients")
+          .select("id, name, slug, logo_url")
+          .order("name"),
         supabase
           .from("client_profiles")
           .select("client_id, industry, overview"),
@@ -139,9 +143,18 @@ export default function TeamHubClientInfoPage() {
                   </div>
                 )}
                 <div className="p-5">
-                  <h2 className="text-lg font-semibold text-[#341F60]">
-                    {client.name}
-                  </h2>
+                  <div className="flex items-center gap-2">
+                    {client.logo_url ? (
+                      <img
+                        src={client.logo_url}
+                        alt=""
+                        className="h-6 w-6 rounded-full border border-[#D7CBE0] bg-white object-contain"
+                      />
+                    ) : null}
+                    <h2 className="text-lg font-semibold text-[#341F60]">
+                      {client.name}
+                    </h2>
+                  </div>
                   <p className="mt-1 text-xs font-semibold uppercase tracking-[0.08em] text-[#8B7895]">
                     {client.industry || "Industry not set"}
                   </p>
