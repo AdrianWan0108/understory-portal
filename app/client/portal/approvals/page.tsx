@@ -54,6 +54,7 @@ type SocialApprovalRow = {
   task_slides: Array<{
     slide_number: number;
     image_url: string | null;
+    slide_caption: string | null;
   }> | null;
 };
 
@@ -245,7 +246,8 @@ export default function ApprovalsPage() {
             assignee_usernames,
             task_slides (
               slide_number,
-              image_url
+              image_url,
+              slide_caption
             )
           `,
           )
@@ -314,7 +316,7 @@ export default function ApprovalsPage() {
               category: "social_media",
               client: client.name,
               title: row.title,
-              caption: row.post_caption,
+              caption: slides[0]?.slide_caption || row.post_caption,
               thumbnailSrc: previewUrl(image),
               videoSrc:
                 format === "reel" && reelDetails.videoUrl
@@ -326,6 +328,7 @@ export default function ApprovalsPage() {
                   ? slides.map((slide) => ({
                       number: slide.slide_number,
                       thumbnailSrc: previewUrl(slide.image_url),
+                      caption: slide.slide_caption ?? undefined,
                     }))
                   : undefined,
               status: approvalStatusFor(reviews, reviewer.username),

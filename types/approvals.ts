@@ -17,6 +17,7 @@ export interface ApprovalItem {
   slides?: Array<{
     number: number;
     thumbnailSrc?: string;
+    caption?: string;
   }>;
   status: ApprovalStatus;
   submittedAt: string;

@@ -121,11 +121,16 @@ function PlayIcon({ className = "size-5" }: { className?: string }) {
 function ApprovalVisual({
   item,
   compact = false,
+  activeSlide: controlledActiveSlide,
+  onActiveSlideChange,
 }: {
   item: ApprovalItem;
   compact?: boolean;
+  activeSlide?: number;
+  onActiveSlideChange?: (index: number) => void;
 }) {
-  const [activeSlide, setActiveSlide] = useState(0);
+  const [internalActiveSlide, setInternalActiveSlide] = useState(0);
+  const activeSlide = controlledActiveSlide ?? internalActiveSlide;
   const [failedSlides, setFailedSlides] = useState<number[]>([]);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -145,7 +150,12 @@ function ApprovalVisual({
   const hasFailed = failedSlides.includes(slideIndex);
 
   function showSlide(index: number) {
-    setActiveSlide(Math.max(0, Math.min(index, slides.length - 1)));
+    const next = Math.max(0, Math.min(index, slides.length - 1));
+    if (onActiveSlideChange) {
+      onActiveSlideChange(next);
+    } else {
+      setInternalActiveSlide(next);
+    }
   }
 
   function playVideo() {
@@ -296,6 +306,13 @@ export default function ApprovalCard({
   const [comment, setComment] = useState("");
   const [commentError, setCommentError] = useState(false);
   const [isRequestingChanges, setIsRequestingChanges] = useState(false);
+  const [activeSlide, setActiveSlide] = useState(0);
+  const isCarousel = item.format === "carousel";
+  const carouselSlides =
+    isCarousel && item.slides && item.slides.length > 0 ? item.slides : null;
+  const displayCaption = carouselSlides
+    ? carouselSlides[Math.min(activeSlide, carouselSlides.length - 1)]?.caption
+    : item.caption;
 
   function requestChanges() {
     const note = comment.trim();
@@ -309,7 +326,11 @@ export default function ApprovalCard({
   if (reviewLayout) {
     return (
       <article className="flex h-full min-w-0 flex-col overflow-hidden rounded-[20px] border border-border bg-card shadow-[0_8px_24px_rgba(52,31,96,0.065)]">
-        <ApprovalVisual item={item} />
+        <ApprovalVisual
+          item={item}
+          activeSlide={activeSlide}
+          onActiveSlideChange={setActiveSlide}
+        />
 
         <div className="flex flex-1 flex-col p-4">
           <h3 className="text-lg font-semibold leading-6 tracking-[-0.02em] text-foreground">
@@ -318,10 +339,14 @@ export default function ApprovalCard({
 
           <div className="mt-4 border-t border-border pt-4">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              {item.category === "social_media" ? "Caption" : "Description"}
+              {item.category === "social_media"
+                ? carouselSlides
+                  ? `Slide ${Math.min(activeSlide, carouselSlides.length - 1) + 1} caption`
+                  : "Caption"
+                : "Description"}
             </p>
             <p className="mt-2 max-h-28 overflow-y-auto whitespace-pre-line pr-1 text-xs leading-5 text-foreground/75">
-              {item.caption?.trim() ||
+              {displayCaption?.trim() ||
                 (item.category === "social_media"
                   ? "No caption provided."
                   : "No description provided.")}
