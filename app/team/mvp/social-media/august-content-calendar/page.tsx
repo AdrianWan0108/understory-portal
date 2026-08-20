@@ -229,6 +229,11 @@ const statusDetails: Record<
     className: "border-[#BBD3C2] bg-[#EDF7F0] text-[#477156]",
     dot: "bg-[#669B78]",
   },
+  scheduled: {
+    label: SOCIAL_POST_STATUS_LABELS.scheduled,
+    className: "border-[#A9CDD5] bg-[#E8F4F7] text-[#2F6470]",
+    dot: "bg-[#4E8793]",
+  },
   changes_requested: {
     label: SOCIAL_POST_STATUS_LABELS.changes_requested,
     className: "border-[#DFC1B9] bg-[#F8ECE8] text-[#854D43]",
@@ -2173,11 +2178,15 @@ function PostEditorModal({
                 }
                 className={`mt-2 ${teamInputClass}`}
               >
-                {Object.entries(statusDetails).map(([value, details]) => (
-                  <option key={value} value={value}>
-                    {details.label}
-                  </option>
-                ))}
+                {Object.entries(statusDetails)
+                  .filter(
+                    ([value]) => value !== "scheduled" && value !== "posted",
+                  )
+                  .map(([value, details]) => (
+                    <option key={value} value={value}>
+                      {details.label}
+                    </option>
+                  ))}
               </select>
             </label>
             {!editor.post && (
@@ -2261,9 +2270,6 @@ function AugustContentCalendarContent() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
   const [calendarTaskId, setCalendarTaskId] = useState<string | null>(null);
-  const [calendarTitle, setCalendarTitle] = useState(
-    "August content calendar",
-  );
   const [calendarDescription, setCalendarDescription] = useState(
     "Open a post to review the copy, visual direction, and captions for every slide.",
   );
@@ -2364,8 +2370,8 @@ function AugustContentCalendarContent() {
         if (!isActive) return;
         if (error || !data) {
           setErrorMessage(
-            `Could not load this content calendar: ${
-              error?.message ?? "Calendar not found."
+            `Could not load this Production workspace: ${
+              error?.message ?? "Production workspace not found."
             }`,
           );
           setIsLoading(false);
@@ -2384,7 +2390,7 @@ function AugustContentCalendarContent() {
         if (!isActive || clientError || !isWorkspaceClientSlug(resolvedSlug)) {
           if (isActive) {
             setErrorMessage(
-              `Could not resolve this calendar's client: ${
+              `Could not resolve this Production workspace's client: ${
                 clientError?.message ?? "Client not found."
               }`,
             );
@@ -2430,7 +2436,6 @@ function AugustContentCalendarContent() {
 
       const activeCalendarId = calendar?.id ?? null;
       setCalendarTaskId(activeCalendarId);
-      setCalendarTitle(calendar?.title ?? "Content calendar");
       setCalendarDescription(
         calendar?.description ||
           "Open a post to review the copy, visual direction, and captions for every slide.",
@@ -2472,6 +2477,7 @@ function AugustContentCalendarContent() {
           `,
         )
         .eq("client_id", resolvedClientId)
+        .is("posted_at", null)
         .order("created_at", { ascending: true });
       query = activeCalendarId
         ? query.eq("division_task_id", activeCalendarId)
@@ -2486,7 +2492,7 @@ function AugustContentCalendarContent() {
       if (!isActive) return;
 
       if (error) {
-        setErrorMessage(`Could not load the content calendar: ${error.message}`);
+        setErrorMessage(`Could not load Production: ${error.message}`);
         setIsLoading(false);
         return;
       }
@@ -2585,7 +2591,7 @@ function AugustContentCalendarContent() {
         setErrorMessage(
           `Could not submit this post internally: ${
             approvalTaskError?.message ??
-            "Create the Internal Approval task first."
+            "Create the Content Calendar task first."
           }`,
         );
         return;
@@ -3306,7 +3312,7 @@ function AugustContentCalendarContent() {
   }
 
   function openPostEditor(post?: Post) {
-    if (!canManage) return;
+    if (!canManage || post?.status === "scheduled") return;
     setEditor({
       post,
       format: post?.format ?? "carousel",
@@ -3323,7 +3329,15 @@ function AugustContentCalendarContent() {
   }
 
   async function savePost() {
-    if (!canManage || !editor || !clientId || !editor.title.trim()) return;
+    if (
+      !canManage ||
+      !editor ||
+      !clientId ||
+      !editor.title.trim() ||
+      editor.post?.status === "scheduled"
+    ) {
+      return;
+    }
     if (
       editor.startDate &&
       editor.dueDate &&
@@ -3474,10 +3488,10 @@ function AugustContentCalendarContent() {
         <section className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
           <div>
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#7D4698]">
-              Content production · Content calendar
+              Social media · Production
             </p>
             <h1 className="text-3xl font-semibold tracking-[-0.04em] text-[#341F60] sm:text-4xl lg:text-[42px]">
-              {clientLabel} — Social media · {calendarTitle}
+              {clientLabel} — Social media · Production
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[#75647F] sm:text-base">
               {calendarDescription}
@@ -3586,7 +3600,7 @@ function AugustContentCalendarContent() {
                         void updateStatus(post.id, "not_started")
                       }
                       onOpen={() => setSelectedPostId(post.id)}
-                      canManage={canManage}
+                      canManage={canManage && post.status !== "scheduled"}
                       members={teamMembers}
                       onManagePeople={() => openPeoplePicker(post)}
                       onEdit={() => openPostEditor(post)}
@@ -3640,7 +3654,7 @@ function AugustContentCalendarContent() {
         </section>
 
         <footer className="mt-10 flex flex-col gap-1 border-t border-[#E0D4E8] py-6 text-xs text-[#8B7895] sm:flex-row sm:justify-between">
-          <p>{clientLabel} · Internal content workspace</p>
+          <p>{clientLabel} · Production workspace</p>
           <p>Changes are saved automatically.</p>
         </footer>
       </main>
@@ -3693,7 +3707,7 @@ function AugustContentCalendarContent() {
           }
           isReorderingSlides={isReorderingSlides}
           onClose={() => setSelectedPostId(null)}
-          canManage={canManage}
+          canManage={canManage && selectedPost.status !== "scheduled"}
         />
       )}
       <PostEditorModal

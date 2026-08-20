@@ -160,6 +160,11 @@ const workflowStyles: Record<
     pill: "bg-[#EDF7F0] text-[#477156]",
     dot: "bg-[#669B78]",
   },
+  scheduled: {
+    label: SOCIAL_POST_STATUS_LABELS.scheduled,
+    pill: "bg-[#E8F4F7] text-[#2F6470]",
+    dot: "bg-[#4E8793]",
+  },
   changes_requested: {
     label: SOCIAL_POST_STATUS_LABELS.changes_requested,
     pill: "bg-[#F8ECE8] text-[#854D43]",
@@ -309,6 +314,7 @@ function approvalDisplayStyle(
   mode: Props["mode"],
   reviewers: ApprovalReviewer[],
 ) {
+  if (post.status === "scheduled") return workflowStyles.scheduled;
   return mode === "internal"
     ? workflowStyles[post.status]
     : reviewStyles[overallStatus(post, mode, reviewers)];
@@ -439,8 +445,10 @@ export function SocialApprovalCalendar({
   const [resolvedClientSlug, setResolvedClientSlug] = useState<string | null>(
     clientSlug ?? null,
   );
-  const [workspaceTitle, setWorkspaceTitle] = useState("Internal Approval");
   const [posts, setPosts] = useState<ApprovalPost[]>([]);
+  const [collectionView, setCollectionView] = useState<"active" | "archive">(
+    "active",
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -498,7 +506,7 @@ export function SocialApprovalCalendar({
 
       if (mode === "internal") {
         if (!workspaceId) {
-          setError("This Internal Approval task is missing its workspace ID.");
+          setError("This Content Calendar is missing its workspace ID.");
           setIsLoading(false);
           return;
         }
@@ -514,7 +522,7 @@ export function SocialApprovalCalendar({
         if (!isActive) return;
         if (workspaceError || !workspace) {
           setError(
-            `Could not load Internal Approval: ${
+            `Could not load Content Calendar: ${
               workspaceError?.message ?? "Task not found."
             }`,
           );
@@ -528,7 +536,6 @@ export function SocialApprovalCalendar({
         clientId = workspace.client_id;
         nextClientName = clientRecord?.name ?? "Client";
         setResolvedClientSlug(clientRecord?.slug ?? null);
-        setWorkspaceTitle(workspace.title);
       } else {
         if (!clientSlug) {
           setError("Choose a client profile to view social approvals.");
@@ -628,6 +635,21 @@ export function SocialApprovalCalendar({
 
   const selectedPost =
     posts.find((post) => post.id === selectedId) ?? null;
+  const selectedApprovalHistory =
+    selectedPost?.approval_history.filter(
+      (entry) => mode === "internal" || entry.stage === "client",
+    ) ?? [];
+  const clientReviewerKeys = useMemo(
+    () =>
+      resolvedClientSlug
+        ? (CLIENT_REVIEWER_KEYS_BY_SLUG[resolvedClientSlug] ?? [])
+        : [],
+    [resolvedClientSlug],
+  );
+  const visiblePosts = posts.filter((post) =>
+    collectionView === "archive" ? Boolean(post.posted_at) : !post.posted_at,
+  );
+  const archiveCount = posts.filter((post) => post.posted_at).length;
   const selectedReelVideoUrls =
     selectedPost?.format === "reel"
       ? resolveGoogleDriveFileUrls(selectedPost.reel_details.videoUrl)
@@ -649,6 +671,36 @@ export function SocialApprovalCalendar({
     setIsRequestingChanges(false);
     setSelectedSlide(0);
     setFeedback(null);
+  }
+
+  function showCollection(nextView: "active" | "archive") {
+    setCollectionView(nextView);
+    setSelectedId(null);
+    const firstDatedPost = posts.find(
+      (post) =>
+        Boolean(
+          nextView === "archive" ? post.posted_at : post.scheduled_at,
+        ) &&
+        (nextView === "archive" ? Boolean(post.posted_at) : !post.posted_at),
+    );
+    const firstDate = firstDatedPost
+      ? nextView === "archive"
+        ? firstDatedPost.posted_at
+        : firstDatedPost.scheduled_at
+      : null;
+    if (firstDate) {
+      const date = new Date(firstDate);
+      setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+    }
+  }
+
+  function hasCompletedClientApproval(post: ApprovalPost) {
+    return (
+      approvalStatusForReviewerKeys(
+        post.client_approvals,
+        clientReviewerKeys,
+      ) === "approved"
+    );
   }
 
   const internalCounts = useMemo(
@@ -681,9 +733,6 @@ export function SocialApprovalCalendar({
     [posts],
   );
   const externalCounts = useMemo(() => {
-    const reviewerKeys = resolvedClientSlug
-      ? (CLIENT_REVIEWER_KEYS_BY_SLUG[resolvedClientSlug] ?? [])
-      : [];
     const sentPosts = posts.filter(
       (post) => post.sent_to_client_at && !post.posted_at,
     );
@@ -691,21 +740,30 @@ export function SocialApprovalCalendar({
     return {
       pending: sentPosts.filter(
         (post) =>
-          approvalStatusForReviewerKeys(post.client_approvals, reviewerKeys) ===
+          approvalStatusForReviewerKeys(
+            post.client_approvals,
+            clientReviewerKeys,
+          ) ===
           "pending",
       ).length,
       changes: sentPosts.filter(
         (post) =>
-          approvalStatusForReviewerKeys(post.client_approvals, reviewerKeys) ===
+          approvalStatusForReviewerKeys(
+            post.client_approvals,
+            clientReviewerKeys,
+          ) ===
           "changes",
       ).length,
       approved: sentPosts.filter(
         (post) =>
-          approvalStatusForReviewerKeys(post.client_approvals, reviewerKeys) ===
+          approvalStatusForReviewerKeys(
+            post.client_approvals,
+            clientReviewerKeys,
+          ) ===
           "approved",
       ).length,
     };
-  }, [posts, resolvedClientSlug]);
+  }, [clientReviewerKeys, posts]);
 
   const year = visibleMonth.getFullYear();
   const month = visibleMonth.getMonth();
@@ -717,22 +775,25 @@ export function SocialApprovalCalendar({
   ];
   while (calendarCells.length % 7 !== 0) calendarCells.push(null);
 
+  const collectionDate = (post: ApprovalPost) =>
+    collectionView === "archive" ? post.posted_at : post.scheduled_at;
+
   const postsByDate = new Map<string, ApprovalPost[]>();
-  posts.forEach((post) => {
-    const key = toDateKey(post.scheduled_at);
+  visiblePosts.forEach((post) => {
+    const key = toDateKey(collectionDate(post));
     if (!key) return;
     postsByDate.set(key, [...(postsByDate.get(key) ?? []), post]);
   });
 
-  const unscheduledPosts = posts.filter(
-    (post) => !post.scheduled_at && !post.posted_at,
+  const unscheduledPosts = visiblePosts.filter(
+    (post) => !post.scheduled_at,
   );
-  const scheduledPosts = posts
-    .filter((post) => post.scheduled_at)
+  const scheduledPosts = visiblePosts
+    .filter((post) => collectionDate(post))
     .sort(
       (a, b) =>
-        new Date(b.scheduled_at!).getTime() -
-        new Date(a.scheduled_at!).getTime(),
+        new Date(collectionDate(b)!).getTime() -
+        new Date(collectionDate(a)!).getTime(),
     );
   const readyUnsent = posts.filter(
     (post) =>
@@ -752,7 +813,14 @@ export function SocialApprovalCalendar({
   }
 
   async function reschedulePost(post: ApprovalPost, dateKey: string) {
-    if (mode !== "internal" || post.posted_at || isSaving) return;
+    if (
+      mode !== "internal" ||
+      post.posted_at ||
+      post.status === "scheduled" ||
+      isSaving
+    ) {
+      return;
+    }
     const [targetYear, targetMonth, targetDay] = dateKey
       .split("-")
       .map(Number);
@@ -779,7 +847,14 @@ export function SocialApprovalCalendar({
   }
 
   async function savePlanning(post: ApprovalPost) {
-    if (mode !== "internal" || post.posted_at || isSaving) return;
+    if (
+      mode !== "internal" ||
+      post.posted_at ||
+      post.status === "scheduled" ||
+      isSaving
+    ) {
+      return;
+    }
     setIsSaving(true);
     setError(null);
     const scheduledAt = scheduleDraft
@@ -844,6 +919,7 @@ export function SocialApprovalCalendar({
     if (
       mode !== "internal" ||
       post.posted_at ||
+      post.status === "scheduled" ||
       !currentReviewer ||
       isSaving
     ) {
@@ -881,7 +957,14 @@ export function SocialApprovalCalendar({
     post: ApprovalPost,
     status: Exclude<ReviewStatus, "pending">,
   ) {
-    if (!currentReviewer || isSaving) return;
+    if (
+      !currentReviewer ||
+      post.posted_at ||
+      post.status === "scheduled" ||
+      isSaving
+    ) {
+      return;
+    }
     const note = status === "changes" ? commentDraft.trim() : "";
     if (status === "changes" && !note) return;
 
@@ -1097,11 +1180,56 @@ export function SocialApprovalCalendar({
     setFeedback(`${post.title} was resent to the client for a new review.`);
   }
 
+  async function setScheduledState(post: ApprovalPost, isScheduled: boolean) {
+    if (
+      mode !== "internal" ||
+      !canSendToClient ||
+      !currentReviewer ||
+      post.posted_at ||
+      isSaving ||
+      (isScheduled &&
+        (post.status !== "external_approved" ||
+          !post.sent_to_client_at ||
+          !post.scheduled_at ||
+          !hasCompletedClientApproval(post))) ||
+      (!isScheduled && post.status !== "scheduled")
+    ) {
+      return;
+    }
+
+    const status: SocialPostStatus = isScheduled
+      ? "scheduled"
+      : "external_approved";
+    setIsSaving(true);
+    setError(null);
+    const { error: saveError } = await supabase
+      .from("tasks")
+      .update({ status })
+      .eq("id", post.id);
+    setIsSaving(false);
+
+    if (saveError) {
+      setError(
+        `Could not ${isScheduled ? "mark this post as scheduled" : "move this post back to client approved"}: ${saveError.message}`,
+      );
+      return;
+    }
+
+    updatePost(post.id, { status });
+    setFeedback(
+      isScheduled
+        ? `${post.title} is queued in Meta and ready to auto-publish.`
+        : `${post.title} moved back to client approved. Remove it from Meta’s queue before changing its publishing details.`,
+    );
+  }
+
   async function setPostedState(post: ApprovalPost, isPosted: boolean) {
     if (
       mode !== "internal" ||
       !canSendToClient ||
       !currentReviewer ||
+      (isPosted && post.status !== "scheduled") ||
+      (!isPosted && !post.posted_at) ||
       isSaving
     ) {
       return;
@@ -1116,7 +1244,7 @@ export function SocialApprovalCalendar({
       .update({
         posted_at: postedAt,
         posted_by: postedBy,
-        status: isPosted ? "posted" : "external_approved",
+        status: isPosted ? "posted" : "scheduled",
       })
       .eq("id", post.id);
     setIsSaving(false);
@@ -1131,7 +1259,7 @@ export function SocialApprovalCalendar({
     updatePost(post.id, {
       posted_at: postedAt,
       posted_by: postedBy,
-      status: isPosted ? "posted" : "external_approved",
+      status: isPosted ? "posted" : "scheduled",
     });
     setFeedback(
       isPosted
@@ -1152,13 +1280,13 @@ export function SocialApprovalCalendar({
           <div>
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--primary)]">
               {mode === "internal"
-                ? "Social media · Internal review"
+                ? "Social media · Content planning"
                 : "Projects · Social media"}
             </p>
             <h1
               className={`${fraunces.className} text-4xl font-medium leading-tight tracking-tight sm:text-5xl`}
             >
-              {mode === "internal" ? workspaceTitle : "Social media calendar"}
+              {mode === "internal" ? "Content Calendar" : "Social media calendar"}
             </h1>
             <p
               className={`${fraunces.className} mt-2 italic text-lg text-[var(--foreground)]/55`}
@@ -1167,6 +1295,30 @@ export function SocialApprovalCalendar({
             </p>
           </div>
         </header>
+
+        <nav
+          aria-label="Social post collection"
+          className="mt-6 inline-flex rounded-full border border-[var(--border)] bg-[var(--muted)] p-1"
+        >
+          {[
+            { key: "active" as const, label: "Active", count: posts.length - archiveCount },
+            { key: "archive" as const, label: "Archive", count: archiveCount },
+          ].map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              aria-pressed={collectionView === item.key}
+              onClick={() => showCollection(item.key)}
+              className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
+                collectionView === item.key
+                  ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm"
+                  : "text-[var(--foreground)]/55 hover:text-[var(--foreground)]"
+              }`}
+            >
+              {item.label} ({item.count})
+            </button>
+          ))}
+        </nav>
 
         {error && (
           <p
@@ -1185,6 +1337,8 @@ export function SocialApprovalCalendar({
           </p>
         )}
 
+        {collectionView === "active" && (
+          <>
         <section aria-labelledby="internal-approval-summary" className="mt-8">
           <div className="mb-3 flex items-center gap-3">
             <h2
@@ -1293,6 +1447,8 @@ export function SocialApprovalCalendar({
             ))}
           </div>
         </section>
+          </>
+        )}
 
         <div className="mt-10 grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] xl:items-start">
           <section aria-labelledby="approval-grid-heading" className="xl:sticky xl:top-6 xl:order-2">
@@ -1304,15 +1460,16 @@ export function SocialApprovalCalendar({
                 Feed preview
               </h2>
               <p className="mt-1 text-xs text-[var(--foreground)]/50">
-                Scheduled posts with the newest publish date first,
-                Instagram-grid style — plan how the feed will look before
-                sending it out.
+                {collectionView === "archive"
+                  ? "Published posts with the newest publication time first."
+                  : "Planned posts with the newest publish date first, Instagram-grid style."}
               </p>
             </div>
             {scheduledPosts.length === 0 ? (
               <p className="rounded-[24px] border border-dashed border-[var(--border)] bg-[var(--card)] px-6 py-14 text-center text-sm text-[var(--foreground)]/45">
-                Schedule a date and time for posts to see them here in feed
-                order.
+                {collectionView === "archive"
+                  ? "No published posts are in the Archive yet."
+                  : "Schedule a date and time for posts to see them here in feed order."}
               </p>
             ) : (
               <div className="grid grid-cols-3 gap-0.5 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:gap-px">
@@ -1323,7 +1480,7 @@ export function SocialApprovalCalendar({
                       key={post.id}
                       type="button"
                       onClick={() => openPost(post)}
-                      aria-label={`${post.title} — ${formatDate(post.scheduled_at, true)}`}
+                      aria-label={`${post.title} — ${formatDate(collectionDate(post), true)}`}
                       className="group relative aspect-square bg-[var(--muted)] bg-cover bg-center transition hover:opacity-90"
                       style={
                         previewUrl
@@ -1390,12 +1547,14 @@ export function SocialApprovalCalendar({
               </h2>
               <p className="mt-1 text-xs text-[var(--foreground)]/50">
                 {mode === "internal"
-                  ? "Open a post to plan its date, time, caption, and final confirmation."
+                  ? collectionView === "archive"
+                    ? "Open a published post to review its approvals and publication details."
+                    : "Open a post to plan its date, time, caption, and final confirmation."
                   : "Open a post to review the final creative and caption."}
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {mode === "internal" && canSendToClient && (
+              {collectionView === "active" && mode === "internal" && canSendToClient && (
                 <button
                   type="button"
                   disabled={!readyUnsentForMonth.length || isSending}
@@ -1482,7 +1641,7 @@ export function SocialApprovalCalendar({
                         if (mode !== "internal" || !dateKey) return;
                         event.preventDefault();
                         const postId = event.dataTransfer.getData("text/plain");
-                        const post = posts.find((item) => item.id === postId);
+                        const post = visiblePosts.find((item) => item.id === postId);
                         setDragOverDateKey(null);
                         setDraggingPostId(null);
                         if (post) void reschedulePost(post, dateKey);
@@ -1510,7 +1669,11 @@ export function SocialApprovalCalendar({
                             <button
                               key={post.id}
                               type="button"
-                              draggable={mode === "internal" && !post.posted_at}
+                              draggable={
+                                mode === "internal" &&
+                                !post.posted_at &&
+                                post.status !== "scheduled"
+                              }
                               onClick={() => openPost(post)}
                               onDragStart={(event) => {
                                 event.dataTransfer.setData(
@@ -1525,7 +1688,9 @@ export function SocialApprovalCalendar({
                                 setDragOverDateKey(null);
                               }}
                               className={`relative w-full overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)] text-left shadow-sm transition hover:border-[var(--primary)] ${
-                                mode === "internal" && !post.posted_at
+                                mode === "internal" &&
+                                !post.posted_at &&
+                                post.status !== "scheduled"
                                   ? "cursor-grab active:cursor-grabbing"
                                   : ""
                               } ${draggingPostId === post.id ? "opacity-40" : ""}`}
@@ -1557,7 +1722,7 @@ export function SocialApprovalCalendar({
                                   {new Intl.DateTimeFormat("en-CA", {
                                     hour: "numeric",
                                     minute: "2-digit",
-                                  }).format(new Date(post.scheduled_at!))}
+                                  }).format(new Date(collectionDate(post)!))}
                                 </span>
                                 {post.posted_at && mode === "client" ? (
                                   <span className="mt-2 flex items-center gap-1.5 text-[9px] font-semibold text-[#267149]">
@@ -1594,7 +1759,7 @@ export function SocialApprovalCalendar({
           </section>
         </div>
 
-        {mode === "internal" && unscheduledPosts.length > 0 && (
+        {collectionView === "active" && mode === "internal" && unscheduledPosts.length > 0 && (
           <section className="mt-8">
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--primary)]">
               Needs scheduling
@@ -1634,17 +1799,21 @@ export function SocialApprovalCalendar({
           </section>
         )}
 
-        {!isLoading && posts.length === 0 && (
+        {!isLoading && visiblePosts.length === 0 && (
           <section className="mt-8 rounded-[24px] border border-dashed border-[var(--border)] bg-[var(--card)] px-6 py-14 text-center">
             <p className="text-sm font-semibold">
-              {mode === "internal"
-                ? "No posts have been submitted internally yet."
-                : "No social media approvals yet."}
+              {collectionView === "archive"
+                ? "No published posts are in the Archive yet."
+                : mode === "internal"
+                  ? "No posts have been submitted internally yet."
+                  : "No social media approvals yet."}
             </p>
             <p className="mt-1 text-xs text-[var(--foreground)]/45">
-              {mode === "internal"
-                ? "Posts appear here when the team chooses “Submit for review” in a content calendar."
-                : `Posts sent for ${resolvedClientName}’s review will appear here.`}
+              {collectionView === "archive"
+                ? "Posts move here automatically when posted_at is recorded."
+                : mode === "internal"
+                  ? "Posts appear here when the team chooses “Submit for review” in Production."
+                  : `Posts sent for ${resolvedClientName}’s review will appear here.`}
             </p>
           </section>
         )}
@@ -1802,7 +1971,10 @@ export function SocialApprovalCalendar({
                     Planned publishing date and time
                     <input
                       type="datetime-local"
-                      disabled={Boolean(selectedPost.posted_at)}
+                      disabled={
+                        Boolean(selectedPost.posted_at) ||
+                        selectedPost.status === "scheduled"
+                      }
                       value={scheduleDraft}
                       onChange={(event) => setScheduleDraft(event.target.value)}
                       className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
@@ -1814,7 +1986,10 @@ export function SocialApprovalCalendar({
                         Slide {selectedSlide + 1} caption
                         <textarea
                           rows={5}
-                          disabled={Boolean(selectedPost.posted_at)}
+                          disabled={
+                            Boolean(selectedPost.posted_at) ||
+                            selectedPost.status === "scheduled"
+                          }
                           value={
                             slideCaptionDrafts[
                               selectedPost.task_slides[selectedSlide].id
@@ -1843,7 +2018,10 @@ export function SocialApprovalCalendar({
                       : "Final caption"}
                     <textarea
                       rows={8}
-                      disabled={Boolean(selectedPost.posted_at)}
+                      disabled={
+                        Boolean(selectedPost.posted_at) ||
+                        selectedPost.status === "scheduled"
+                      }
                       value={captionDraft}
                       onChange={(event) => setCaptionDraft(event.target.value)}
                       className="mt-2 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm leading-6"
@@ -1851,7 +2029,11 @@ export function SocialApprovalCalendar({
                   </label>
                   <button
                     type="button"
-                    disabled={Boolean(selectedPost.posted_at) || isSaving}
+                    disabled={
+                      Boolean(selectedPost.posted_at) ||
+                      selectedPost.status === "scheduled" ||
+                      isSaving
+                    }
                     onClick={() => void savePlanning(selectedPost)}
                     className="w-fit rounded-full border border-[var(--border)] px-4 py-2 text-xs font-semibold hover:bg-[var(--muted)] disabled:opacity-50"
                   >
@@ -1861,6 +2043,7 @@ export function SocialApprovalCalendar({
                     type="button"
                     disabled={
                       Boolean(selectedPost.posted_at) ||
+                      selectedPost.status === "scheduled" ||
                       !currentReviewer ||
                       isSaving
                     }
@@ -2021,7 +2204,44 @@ export function SocialApprovalCalendar({
                   </div>
                 )}
 
-              {currentReviewer && !selectedPost.posted_at && (
+              {selectedApprovalHistory.length > 0 && (
+                <div className="mt-7 border-t border-[var(--border)] pt-6">
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]/55">
+                    Approval history
+                  </h3>
+                  <ol className="mt-3 space-y-2">
+                    {[...selectedApprovalHistory]
+                      .reverse()
+                      .map((entry, index) => (
+                        <li
+                          key={`${entry.stage}-${entry.reviewer_key}-${entry.at}-${index}`}
+                          className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-xs font-semibold">
+                              {entry.reviewer_name}{" "}
+                              {entry.status === "approved"
+                                ? "approved"
+                                : "requested changes"}
+                            </p>
+                            <span className="text-[10px] uppercase tracking-[0.12em] text-[var(--foreground)]/40">
+                              {entry.stage} · {formatDate(entry.at, true)}
+                            </span>
+                          </div>
+                          {entry.note && (
+                            <p className="mt-2 text-xs leading-5 text-[var(--foreground)]/60">
+                              {entry.note}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                  </ol>
+                </div>
+              )}
+
+              {currentReviewer &&
+                !selectedPost.posted_at &&
+                selectedPost.status !== "scheduled" && (
                 <div className="mt-5 border-t border-[var(--border)] pt-5">
                   <div className="flex flex-wrap gap-2.5">
                     <button
@@ -2129,17 +2349,59 @@ export function SocialApprovalCalendar({
                             {isSending ? "Resending…" : "Resend to client"}
                           </button>
                         </div>
-                      ) : selectedPost.sent_to_client_at ? (
+                      ) : selectedPost.status === "scheduled" ? (
+                        <div className="mt-4 rounded-2xl border border-[#A9CDD5] bg-[#E8F4F7] p-4 text-center">
+                          <p className="text-sm font-semibold text-[#2F6470]">
+                            Queued in Meta
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-[#2F6470]/75">
+                            This post is waiting to auto-publish. Remove it from
+                            Meta’s queue before changing its publishing details.
+                          </p>
+                          <div className="mt-4 flex flex-wrap justify-center gap-2">
+                            <button
+                              type="button"
+                              disabled={!currentReviewer || isSaving}
+                              onClick={() =>
+                                void setScheduledState(selectedPost, false)
+                              }
+                              className="rounded-full border border-[#6FA1AC] bg-white px-4 py-2 text-xs font-semibold text-[#2F6470] disabled:opacity-40"
+                            >
+                              Move back to client approved
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!currentReviewer || isSaving}
+                              onClick={() =>
+                                void setPostedState(selectedPost, true)
+                              }
+                              className="rounded-full bg-[#2F8A57] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
+                            >
+                              {isSaving ? "Archiving…" : "Mark as posted"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : selectedPost.status === "external_approved" &&
+                        hasCompletedClientApproval(selectedPost) ? (
                         <button
                           type="button"
-                          disabled={!currentReviewer || isSaving}
-                          onClick={() =>
-                            void setPostedState(selectedPost, true)
+                          disabled={
+                            !currentReviewer ||
+                            !selectedPost.scheduled_at ||
+                            isSaving
                           }
-                          className="mt-4 w-full rounded-full bg-[#2F8A57] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#267149] disabled:opacity-40"
+                          onClick={() =>
+                            void setScheduledState(selectedPost, true)
+                          }
+                          className="mt-4 w-full rounded-full bg-[#2F6470] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#285660] disabled:opacity-40"
                         >
-                          {isSaving ? "Archiving…" : "Mark as posted"}
+                          {isSaving ? "Saving…" : "Confirm queued in Meta"}
                         </button>
+                      ) : selectedPost.sent_to_client_at ? (
+                        <p className="mt-4 text-center text-xs leading-5 text-[var(--foreground)]/50">
+                          Waiting for all required client approvals before this
+                          post can be queued in Meta.
+                        </p>
                       ) : null}
                     </>
                   )}

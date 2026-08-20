@@ -80,10 +80,10 @@ type TemplateOption = {
 const socialMediaTemplates: TemplateOption[] = [
   {
     id: "internal_approval",
-    label: "Internal Approval",
+    label: "Content Calendar",
     description:
-      "Review submitted social posts, plan their publishing date and time, confirm the final caption, then send them to the client portal.",
-    defaultTitle: "Internal Approval",
+      "Review submitted posts, plan publishing dates, collect approvals, and queue approved work for publishing.",
+    defaultTitle: "Content Calendar",
   },
   {
     id: "content_brief",
@@ -94,10 +94,10 @@ const socialMediaTemplates: TemplateOption[] = [
   },
   {
     id: "content_calendar",
-    label: "Content calendar",
+    label: "Production",
     description:
-      "Create an empty post-and-slide review workspace using the existing calendar structure.",
-    defaultTitle: "Content calendar",
+      "Draft posts, write captions, build slides, and prepare social creative for review.",
+    defaultTitle: "Production",
   },
   {
     id: "analytics_results_hub",
@@ -107,6 +107,22 @@ const socialMediaTemplates: TemplateOption[] = [
     defaultTitle: "Social media content research",
   },
 ];
+
+function taskDisplayTitle(task: DivisionTask) {
+  if (
+    task.template_type === "internal_approval" &&
+    task.title.toLowerCase() === "internal approval"
+  ) {
+    return "Content Calendar";
+  }
+  if (
+    task.template_type === "content_calendar" &&
+    task.title.toLowerCase() === "content calendar"
+  ) {
+    return "Production";
+  }
+  return task.title;
+}
 
 const genericTemplate: TemplateOption = {
   id: "generic",
@@ -722,6 +738,7 @@ export default function TeamHubProjectsPage() {
           ) : tasks.length ? (
             <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {tasks.map((task) => {
+                const displayTitle = taskDisplayTitle(task);
                 const specializedHref = specializedDivisionHref(
                   task.division,
                   client,
@@ -772,7 +789,7 @@ export default function TeamHubProjectsPage() {
                         </span>
                       </div>
                       <h3 className="mt-5 text-lg font-semibold tracking-[-0.02em] text-[var(--foreground)]">
-                        {task.title}
+                        {displayTitle}
                       </h3>
                       <p className="mt-2 line-clamp-3 text-sm leading-6 text-[var(--muted-foreground)]">
                         {task.description || "No description yet."}
@@ -792,7 +809,7 @@ export default function TeamHubProjectsPage() {
                           className="inline-flex min-w-0 items-center gap-2 rounded-full text-xs font-semibold text-[var(--foreground)] transition hover:text-[var(--primary)] disabled:cursor-default disabled:hover:text-[var(--foreground)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                           aria-label={`${
                             assignedMembers.length ? "Edit people on" : "Assign people to"
-                          } ${task.title}`}
+                          } ${displayTitle}`}
                         >
                           {assignedMembers.length ? (
                             <span

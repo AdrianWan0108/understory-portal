@@ -14,6 +14,7 @@ export const SOCIAL_POST_STATUSES = [
   "for_review",
   "internal_approved",
   "external_approved",
+  "scheduled",
   "changes_requested",
   "posted",
 ] as const;
@@ -26,6 +27,7 @@ export const SOCIAL_POST_STATUS_LABELS: Record<SocialPostStatus, string> = {
   for_review: "Awaiting approvals",
   internal_approved: "Internal approved",
   external_approved: "External approved",
+  scheduled: "Scheduled",
   changes_requested: "Changes requested",
   posted: "Posted",
 };

@@ -30,6 +30,7 @@ type TimelineStatus =
   | DivisionTaskStatus
   | "internal-approved"
   | "external-approved"
+  | "scheduled"
   | "changes-requested"
   | "posted";
 
@@ -71,6 +72,7 @@ const socialTimelineStatuses: TimelineStatus[] = [
   "review",
   "internal-approved",
   "external-approved",
+  "scheduled",
   "changes-requested",
   "posted",
 ];
@@ -92,6 +94,7 @@ const timelineStatusDetails: Record<
   approved: { label: "Approved" },
   "internal-approved": { label: "Internal approved" },
   "external-approved": { label: "External approved" },
+  scheduled: { label: "Scheduled" },
   "changes-requested": { label: "Changes requested" },
   posted: { label: "Posted" },
 };
@@ -174,6 +177,7 @@ function socialItemStatus(post: {
   if (post.status === "for_review") return "review";
   if (post.status === "internal_approved") return "internal-approved";
   if (post.status === "external_approved") return "external-approved";
+  if (post.status === "scheduled") return "scheduled";
   if (post.status === "changes_requested") return "changes-requested";
   if (
     post.status === "needs_revision" ||
@@ -216,6 +220,7 @@ function socialDatabaseStatus(status: TimelineStatus) {
     approved: "internal_approved",
     "internal-approved": "internal_approved",
     "external-approved": "external_approved",
+    scheduled: "scheduled",
     "changes-requested": "changes_requested",
     posted: "posted",
   };
@@ -769,7 +774,11 @@ function FrappeItemChart({
             Status
             <select
               value={selectedTask.timelineStatus}
-              disabled={isSavingStatus}
+              disabled={
+                isSavingStatus ||
+                (selectedTask.sourceTable === "tasks" &&
+                  selectedTask.timelineStatus === "scheduled")
+              }
               onChange={(event) =>
                 void changeSelectedStatus(
                   event.target.value as TimelineStatus,
@@ -778,7 +787,11 @@ function FrappeItemChart({
               className="rounded-full border border-[#CDBAD9] bg-white px-3 py-1.5 text-[11px] text-[#4B3765] focus:border-[#7D4698] focus:outline-none disabled:opacity-60"
             >
               {(selectedTask.sourceTable === "tasks"
-                ? socialTimelineStatuses
+                ? socialTimelineStatuses.filter(
+                    (status) =>
+                      (status !== "scheduled" && status !== "posted") ||
+                      status === selectedTask.timelineStatus,
+                  )
                 : DIVISION_TASK_STATUSES
               ).map((status) => (
                 <option key={status} value={status}>
@@ -850,6 +863,16 @@ export function ProjectGanttBoard({
     task: UnderstoryGanttTask,
     status: TimelineStatus,
   ) {
+    if (
+      task.sourceTable === "tasks" &&
+      (task.timelineStatus === "scheduled" ||
+        status === "scheduled" ||
+        status === "posted")
+    ) {
+      throw new Error(
+        "Use Content Calendar to confirm Meta scheduling and publication.",
+      );
+    }
     const payload =
       task.sourceTable === "tasks"
         ? {
@@ -943,6 +966,7 @@ export function ProjectGanttBoard({
               "id, division_task_id, title, status, start_date, due_date, scheduled_at, internal_approvals, client_approvals, sent_to_client_at, posted_at, assigned_to, assignee_usernames, created_at",
             )
             .eq("client_id", clientId)
+            .is("posted_at", null)
             .order("created_at", { ascending: true })
             .limit(1000),
         ]);
@@ -967,7 +991,7 @@ export function ProjectGanttBoard({
         const latestCalendar = calendars.at(-1);
         const combinedGroup: TaskGroup = {
           taskId: `content-calendar-${clientId}`,
-          taskTitle: "Content calendar",
+          taskTitle: "Production",
           href: latestCalendar
             ? socialCalendarHref(latestCalendar.id)
             : "/team-hub/projects",

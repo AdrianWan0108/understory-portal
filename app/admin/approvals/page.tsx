@@ -21,6 +21,7 @@ type PortalApproval = {
   category: "Social media" | "Branding" | "Event";
   title: string;
   status: "Awaiting review" | "Approved" | "Changes requested";
+  workflowStatus: string | null;
   sentAt: string;
   workspaceId: string | null;
 };
@@ -28,6 +29,7 @@ type PortalApproval = {
 type SocialRow = {
   id: string;
   title: string;
+  status: string;
   sent_to_client_at: string;
   client_approvals: unknown;
   internal_approval_task_id: string | null;
@@ -86,7 +88,7 @@ export default function AdminApprovalsPage() {
       supabase
         .from("tasks")
         .select(
-          "id, title, sent_to_client_at, client_approvals, internal_approval_task_id",
+          "id, title, status, sent_to_client_at, client_approvals, internal_approval_task_id",
         )
         .eq("client_id", clientId)
         .not("sent_to_client_at", "is", null)
@@ -116,6 +118,7 @@ export default function AdminApprovalsPage() {
         category: "Social media",
         title: row.title,
         status: approvalStatus(row.client_approvals),
+        workflowStatus: row.status,
         sentAt: row.sent_to_client_at,
         workspaceId: row.internal_approval_task_id,
       }),
@@ -132,6 +135,7 @@ export default function AdminApprovalsPage() {
         category: parent?.division === "branding" ? "Branding" : "Event",
         title: row.title,
         status: approvalStatus(row.client_approvals),
+        workflowStatus: null,
         sentAt: row.sent_to_client_at,
         workspaceId: row.division_task_id,
       };
@@ -150,6 +154,12 @@ export default function AdminApprovalsPage() {
 
   async function removeFromPortal() {
     if (!removeTarget || isRemoving) return;
+    if (removeTarget.workflowStatus === "scheduled") {
+      setError(
+        "Remove this post from Meta’s queue and move it back to client approved in Content Calendar first.",
+      );
+      return;
+    }
     setIsRemoving(true);
     const { error: mutationError } = await supabase
       .from(
@@ -229,9 +239,12 @@ export default function AdminApprovalsPage() {
                   )}
                   <AdminButton
                     tone="danger"
+                    disabled={approval.workflowStatus === "scheduled"}
                     onClick={() => setRemoveTarget(approval)}
                   >
-                    Remove from portal
+                    {approval.workflowStatus === "scheduled"
+                      ? "Queued in Meta"
+                      : "Remove from portal"}
                   </AdminButton>
                 </div>
               </article>

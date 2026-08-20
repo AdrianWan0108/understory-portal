@@ -254,6 +254,7 @@ export default function ApprovalsPage() {
           .eq("client_id", client.id)
           .not("sent_to_client_at", "is", null)
           .is("posted_at", null)
+          .neq("status", "scheduled")
           .order("sent_to_client_at", { ascending: false }),
         supabase
           .from("division_task_items")

@@ -165,6 +165,16 @@
   fill: #356346;
 }
 
+.understory-gantt .gantt-status-scheduled .bar,
+.gantt-legend-scheduled {
+  fill: #d8eaee;
+  background-color: #d8eaee;
+}
+
+.understory-gantt .gantt-status-scheduled .bar-label {
+  fill: #2f6470;
+}
+
 .understory-gantt .gantt-status-changes-requested .bar,
 .gantt-legend-changes-requested {
   fill: #f2ddd8;

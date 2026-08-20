@@ -111,6 +111,7 @@ const statusLabels: Record<string, string> = {
   needs_revision: "Needs revision",
   internal_approved: "Internal approved",
   external_approved: "External approved",
+  scheduled: "Scheduled",
   changes_requested: "Changes requested",
   posted: "Posted",
   approved: "Approved",
@@ -137,6 +138,22 @@ function formatStatus(status: string) {
       .replaceAll("_", " ")
       .replace(/\b\w/g, (letter) => letter.toUpperCase())
   );
+}
+
+function divisionTaskDisplayTitle(task: DivisionTaskRow) {
+  if (
+    task.template_type === "internal_approval" &&
+    task.title.toLowerCase() === "internal approval"
+  ) {
+    return "Content Calendar";
+  }
+  if (
+    task.template_type === "content_calendar" &&
+    task.title.toLowerCase() === "content calendar"
+  ) {
+    return "Production";
+  }
+  return task.title;
 }
 
 function formatDateTime(value: string) {
@@ -470,6 +487,7 @@ export default function TeamHubDashboardPage() {
             isOwner ? "watcher_usernames" : "assignee_usernames",
             [activeUsername],
           )
+          .is("posted_at", null)
           .order("created_at", { ascending: false }),
         supabase
           .from("division_task_items")
@@ -508,6 +526,7 @@ export default function TeamHubDashboardPage() {
             "id, client_id, title, status, assigned_to, assignee_usernames, created_at",
           )
           .contains("mentioned_usernames", [activeUsername])
+          .is("posted_at", null)
           .order("created_at", { ascending: false }),
         supabase
           .from("team_activity_log")
@@ -588,7 +607,7 @@ export default function TeamHubDashboardPage() {
           return {
             id: `project-${task.id}`,
             source: "project" as const,
-            title: task.title,
+            title: divisionTaskDisplayTitle(task),
             clientName: client.name,
             clientSlug: client.slug,
             status: task.status,
@@ -662,7 +681,7 @@ export default function TeamHubDashboardPage() {
           return {
             id: `mention-project-${task.id}`,
             source: "project" as const,
-            title: task.title,
+            title: divisionTaskDisplayTitle(task),
             clientName: client.name,
             clientSlug: client.slug,
             status: task.status,

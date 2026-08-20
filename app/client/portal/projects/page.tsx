@@ -357,6 +357,7 @@ export default function ProjectsPage() {
           )
           .eq("client_id", client.id)
           .not("sent_to_client_at", "is", null)
+          .is("posted_at", null)
           .order("sent_to_client_at", { ascending: false }),
       ]);
 
