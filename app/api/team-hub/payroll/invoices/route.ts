@@ -50,6 +50,12 @@ export async function POST(request: NextRequest) {
   }
   try {
     const body = (await request.json()) as Record<string, unknown>;
+    if (body.approved !== true) {
+      return Response.json(
+        { error: "Review and approve the invoice PDF before sending it." },
+        { status: 422 },
+      );
+    }
     return Response.json(
       await submitStaffInvoice(caller.username, body.month),
       { status: 201 },

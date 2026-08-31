@@ -19,6 +19,7 @@ type Invoice = {
   status: "submitted" | "paid";
   submittedAt: string;
   href: string;
+  pdfHref: string;
 };
 
 type Workspace = {
@@ -78,10 +79,22 @@ export default function MonthlyInvoiceWorkspace({
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isApproved, setIsApproved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const clearPreview = useCallback(() => {
+    setPreviewUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return null;
+    });
+    setIsApproved(false);
+  }, []);
 
   const load = useCallback(async () => {
     setIsLoading(true);
+    clearPreview();
     try {
       const response = await fetch(
         `/api/team-hub/payroll/invoices?month=${encodeURIComponent(month)}`,
@@ -103,21 +116,64 @@ export default function MonthlyInvoiceWorkspace({
     } finally {
       setIsLoading(false);
     }
-  }, [month]);
+  }, [clearPreview, month]);
 
   useEffect(() => {
     void load();
   }, [load, refreshToken]);
 
+  useEffect(
+    () => () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    },
+    [previewUrl],
+  );
+
+  async function previewInvoice() {
+    if (isPreviewing || !workspace?.entries.length || workspace.invoice) return;
+    setIsPreviewing(true);
+    setError(null);
+    clearPreview();
+    try {
+      const response = await fetch(
+        `/api/team-hub/payroll/invoices/preview?month=${encodeURIComponent(month)}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(body.error || "Could not create the invoice PDF.");
+      }
+      const blob = await response.blob();
+      setPreviewUrl(URL.createObjectURL(blob));
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not create the invoice PDF.",
+      );
+    } finally {
+      setIsPreviewing(false);
+    }
+  }
+
   async function sendInvoice() {
-    if (isSending || !workspace?.entries.length || workspace.invoice) return;
+    if (
+      isSending ||
+      !workspace?.entries.length ||
+      workspace.invoice ||
+      !previewUrl ||
+      !isApproved
+    )
+      return;
     setIsSending(true);
     setError(null);
     try {
       const response = await fetch("/api/team-hub/payroll/invoices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ month }),
+        body: JSON.stringify({ month, approved: true }),
       });
       const body = (await response.json().catch(() => ({}))) as Workspace;
       if (!response.ok) {
@@ -245,6 +301,44 @@ export default function MonthlyInvoiceWorkspace({
             )}
           </div>
 
+          {previewUrl && !workspace.invoice && (
+            <section className="border-b border-[#E9E0EF] bg-[#F7F1FA] px-5 py-5 sm:px-6">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-[#341F60]">
+                    Invoice PDF preview
+                  </p>
+                  <p className="mt-1 text-xs text-[#75647F]">
+                    This exact layout will be saved and sent to Finance.
+                  </p>
+                </div>
+                <a
+                  href={previewUrl}
+                  download={`invoice-${month}.pdf`}
+                  className="rounded-full border border-[#CDBAD9] bg-white px-4 py-2 text-xs font-semibold text-[#7D4698] hover:bg-[#EEE3FA]"
+                >
+                  Download preview PDF
+                </a>
+              </div>
+              <iframe
+                title={`${monthLabel(month)} invoice PDF preview`}
+                src={previewUrl}
+                className="h-[720px] w-full rounded-2xl border border-[#D7CBE0] bg-white"
+              />
+              <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-2xl border border-[#CDBAD9] bg-white p-4 text-sm text-[#341F60]">
+                <input
+                  type="checkbox"
+                  checked={isApproved}
+                  onChange={(event) => setIsApproved(event.target.checked)}
+                  className="mt-0.5 size-4 accent-[#341F60]"
+                />
+                <span>
+                  I reviewed this PDF and confirm the dates, work, hours, and total are correct. Send this invoice to Finance.
+                </span>
+              </label>
+            </section>
+          )}
+
           <footer className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <div>
               {workspace.invoice ? (
@@ -261,19 +355,40 @@ export default function MonthlyInvoiceWorkspace({
             </div>
             {workspace.invoice ? (
               <a
-                href={workspace.invoice.href}
+                href={workspace.invoice.pdfHref}
+                target="_blank"
+                rel="noreferrer"
                 className="w-fit rounded-full border border-[#CDBAD9] px-4 py-2.5 text-xs font-semibold text-[#7D4698] hover:bg-[#EEE3FA]"
               >
-                View invoice ↗
+                Open saved PDF ↗
               </a>
             ) : (
-              <TeamButton
-                type="button"
-                disabled={isSending || !workspace.entries.length}
-                onClick={() => void sendInvoice()}
-              >
-                {isSending ? "Sending…" : "Send invoice to Finance"}
-              </TeamButton>
+              <div className="flex flex-wrap gap-2">
+                <TeamButton
+                  type="button"
+                  tone="secondary"
+                  disabled={isPreviewing || !workspace.entries.length}
+                  onClick={() => void previewInvoice()}
+                >
+                  {isPreviewing
+                    ? "Creating PDF…"
+                    : previewUrl
+                      ? "Regenerate PDF preview"
+                      : "Preview invoice PDF"}
+                </TeamButton>
+                <TeamButton
+                  type="button"
+                  disabled={
+                    isSending ||
+                    !workspace.entries.length ||
+                    !previewUrl ||
+                    !isApproved
+                  }
+                  onClick={() => void sendInvoice()}
+                >
+                  {isSending ? "Sending…" : "Approve & send to Finance"}
+                </TeamButton>
+              </div>
             )}
           </footer>
         </>

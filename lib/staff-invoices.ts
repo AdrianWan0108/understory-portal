@@ -5,6 +5,12 @@ import { sendSlackMessage } from "@/lib/slack";
 import { payrollMonthWindow } from "@/lib/payroll-time-logs-core";
 import { getPayrollMonthSnapshot } from "@/lib/payroll-time-logs";
 import { getStaffPrivateProfile } from "@/lib/staff-private-profile";
+import {
+  generateStaffInvoicePdf,
+  type StaffInvoicePdfData,
+} from "@/lib/staff-invoice-pdf";
+
+const INVOICE_BUCKET = "staff-invoice-files";
 
 type InvoiceRow = {
   id: string;
@@ -39,6 +45,7 @@ type InvoiceRow = {
   }>;
   status: "submitted" | "paid";
   submitted_at: string;
+  pdf_storage_path: string | null;
 };
 
 export class StaffInvoiceError extends Error {
@@ -88,6 +95,8 @@ function publicInvoice(row: InvoiceRow | null) {
     status: row.status,
     submittedAt: row.submitted_at,
     href: `/team-hub/payroll/invoices/${row.id}`,
+    pdfHref: `/api/team-hub/payroll/invoices/${row.id}/pdf`,
+    hasPdf: Boolean(row.pdf_storage_path),
   };
 }
 
@@ -137,7 +146,7 @@ function monthLabel(month: string) {
 
 async function ensureFinanceHubReferences(row: InvoiceRow) {
   const admin = adminClient();
-  const href = `/team-hub/payroll/invoices/${row.id}`;
+  const href = `/api/team-hub/payroll/invoices/${row.id}/pdf`;
   const { data: existing, error: existingError } = await admin
     .from("team_documents")
     .select("owner_username")
@@ -199,19 +208,13 @@ async function ensureFinanceHubReferences(row: InvoiceRow) {
   }
 }
 
-export async function submitStaffInvoice(
+async function invoiceDraft(
   teamUsername: string,
-  monthValue: unknown,
+  workspace: Awaited<ReturnType<typeof getStaffInvoiceWorkspace>>,
 ) {
-  const workspace = await getStaffInvoiceWorkspace(teamUsername, monthValue);
-  if (workspace.invoice) {
-    const existing = await invoiceForMonth(workspace.profile.id, workspace.month);
-    if (existing) await ensureFinanceHubReferences(existing);
-    return { ...workspace, invoice: publicInvoice(existing) };
-  }
   if (!workspace.entries.length || workspace.loggedHours <= 0) {
     throw new StaffInvoiceError(
-      "Log at least one hour before sending an invoice.",
+      "Log at least one hour before previewing an invoice.",
       422,
       "NO_TIME_ENTRIES",
     );
@@ -220,7 +223,7 @@ export async function submitStaffInvoice(
   const privateProfile = await getStaffPrivateProfile(teamUsername);
   if (!privateProfile) {
     throw new StaffInvoiceError(
-      "Finance must set up your legal name and payment address before you can send an invoice.",
+      "Finance must set up your legal name and payment address before you can create an invoice PDF.",
       409,
       "PRIVATE_PROFILE_REQUIRED",
     );
@@ -243,23 +246,122 @@ export async function submitStaffInvoice(
     .replace(/^Understory_/i, "")
     .replace(/[^a-z\d]/gi, "")
     .toUpperCase()}-${workspace.month.replace("-", "")}`;
+
+  return {
+    invoiceNumber,
+    staffProfileId: workspace.profile.id,
+    staffUsername: teamUsername,
+    staffName: workspace.profile.name,
+    month: workspace.month,
+    currencyCode: "CAD",
+    hourlyRate: rate,
+    totalHours: workspace.loggedHours,
+    totalAmount: workspace.estimatedPay,
+    payee: {
+      legalName: privateProfile.details.legalName,
+      address: privateProfile.details.payeeAddress,
+    },
+    lineItems,
+    submittedAt: new Date().toISOString(),
+  } satisfies StaffInvoicePdfData & {
+    staffProfileId: string;
+    staffUsername: string;
+    staffName: string;
+    hourlyRate: number;
+  };
+}
+
+export async function getStaffInvoicePreview(
+  teamUsername: string,
+  monthValue: unknown,
+) {
+  const workspace = await getStaffInvoiceWorkspace(teamUsername, monthValue);
+  if (workspace.invoice) {
+    throw new StaffInvoiceError(
+      "This invoice has already been sent. Open the saved PDF instead.",
+      409,
+      "ALREADY_SUBMITTED",
+    );
+  }
+  const draft = await invoiceDraft(teamUsername, workspace);
+  return {
+    bytes: await generateStaffInvoicePdf(draft),
+    filename: `${draft.invoiceNumber}.pdf`,
+  };
+}
+
+async function ensureInvoicePdf(row: InvoiceRow) {
+  if (row.pdf_storage_path) return row;
+  const invoice = publicInvoice(row);
+  if (!invoice) {
+    throw new StaffInvoiceError(
+      "The invoice PDF could not be prepared.",
+      500,
+      "PDF_ERROR",
+    );
+  }
+  const bytes = await generateStaffInvoicePdf(invoice);
+  const path = `${row.staff_profile_id}/${row.invoice_number}.pdf`;
+  const admin = adminClient();
+  const { error: uploadError } = await admin.storage
+    .from(INVOICE_BUCKET)
+    .upload(path, bytes, {
+      contentType: "application/pdf",
+      cacheControl: "private, max-age=0, no-store",
+      upsert: true,
+    });
+  if (uploadError) {
+    throw new StaffInvoiceError(
+      "The invoice was created, but its PDF file could not be stored.",
+      503,
+      "PDF_STORAGE_ERROR",
+    );
+  }
+  const { data, error } = await admin
+    .from("staff_invoices")
+    .update({ pdf_storage_path: path })
+    .eq("id", row.id)
+    .select("*")
+    .single();
+  if (error || !data) {
+    throw new StaffInvoiceError(
+      "The PDF was stored, but the invoice record could not be updated.",
+      503,
+      "PDF_STORAGE_ERROR",
+    );
+  }
+  return data as InvoiceRow;
+}
+
+export async function submitStaffInvoice(
+  teamUsername: string,
+  monthValue: unknown,
+) {
+  const workspace = await getStaffInvoiceWorkspace(teamUsername, monthValue);
+  if (workspace.invoice) {
+    const existing = await invoiceForMonth(workspace.profile.id, workspace.month);
+    if (existing) {
+      const withPdf = await ensureInvoicePdf(existing);
+      await ensureFinanceHubReferences(withPdf);
+      return { ...workspace, invoice: publicInvoice(withPdf) };
+    }
+  }
+
+  const draft = await invoiceDraft(teamUsername, workspace);
   const { data, error } = await adminClient()
     .from("staff_invoices")
     .insert({
-      invoice_number: invoiceNumber,
-      staff_profile_id: workspace.profile.id,
-      staff_username: teamUsername,
-      staff_name: workspace.profile.name,
-      invoice_month: workspace.month,
-      currency_code: "CAD",
-      hourly_rate: rate,
-      total_hours: workspace.loggedHours,
-      total_amount: workspace.estimatedPay,
-      payee_details: {
-        legalName: privateProfile.details.legalName,
-        address: privateProfile.details.payeeAddress,
-      },
-      line_items: lineItems,
+      invoice_number: draft.invoiceNumber,
+      staff_profile_id: draft.staffProfileId,
+      staff_username: draft.staffUsername,
+      staff_name: draft.staffName,
+      invoice_month: draft.month,
+      currency_code: draft.currencyCode,
+      hourly_rate: draft.hourlyRate,
+      total_hours: draft.totalHours,
+      total_amount: draft.totalAmount,
+      payee_details: draft.payee,
+      line_items: draft.lineItems,
       status: "submitted",
     })
     .select("*")
@@ -275,7 +377,7 @@ export async function submitStaffInvoice(
     );
   }
 
-  const invoice = data as InvoiceRow;
+  const invoice = await ensureInvoicePdf(data as InvoiceRow);
   await ensureFinanceHubReferences(invoice);
   try {
     await sendSlackMessage(
@@ -287,6 +389,53 @@ export async function submitStaffInvoice(
   }
 
   return { ...workspace, invoice: publicInvoice(invoice) };
+}
+
+export async function getStaffInvoicePdf(
+  invoiceId: string,
+  caller: { username: string; accessLevel: "owner" | "staff" },
+) {
+  if (!/^[0-9a-f-]{36}$/i.test(invoiceId)) return null;
+  const { data, error } = await adminClient()
+    .from("staff_invoices")
+    .select("*")
+    .eq("id", invoiceId)
+    .maybeSingle();
+  if (error || !data) return null;
+  let row = data as InvoiceRow;
+  if (caller.accessLevel !== "owner" && row.staff_username !== caller.username) {
+    return null;
+  }
+  row = await ensureInvoicePdf(row);
+  const { data: file, error: downloadError } = await adminClient().storage
+    .from(INVOICE_BUCKET)
+    .download(row.pdf_storage_path!);
+  if (downloadError || !file) {
+    throw new StaffInvoiceError(
+      "The saved invoice PDF could not be downloaded.",
+      503,
+      "PDF_STORAGE_ERROR",
+    );
+  }
+  return {
+    bytes: new Uint8Array(await file.arrayBuffer()),
+    filename: `${row.invoice_number}.pdf`,
+  };
+}
+
+export async function getFinanceStaffInvoices() {
+  const { data, error } = await adminClient()
+    .from("staff_invoices")
+    .select("*")
+    .order("submitted_at", { ascending: false });
+  if (error) {
+    throw new StaffInvoiceError(
+      "Could not load received staff invoices.",
+      503,
+      "STORAGE_ERROR",
+    );
+  }
+  return (data as InvoiceRow[]).map((row) => publicInvoice(row)!);
 }
 
 export async function getStaffInvoiceById(

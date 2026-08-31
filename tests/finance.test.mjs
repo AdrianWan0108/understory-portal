@@ -6,12 +6,6 @@ import {
   shouldShowFinanceNavigation,
 } from "../lib/finance-policy.ts";
 import {
-  buildFinanceDashboard,
-  requestRefreshedZohoToken,
-  safeConnectionStatus,
-  validateOAuthStateRecord,
-} from "../lib/zoho-core.ts";
-import {
   calculateStaffBudgetProgress,
   staffMonthWindow,
   validateStaffBudgetInput,
@@ -24,11 +18,11 @@ import {
   payrollWeekWindow,
   validateContractorTimeEntryInput,
 } from "../lib/payroll-time-logs-core.ts";
-import { createHash } from "node:crypto";
 import {
   maskPhoneNumber,
   privateProfileAccessCode,
 } from "../lib/staff-private-profile-core.ts";
+import { generateStaffInvoicePdf } from "../lib/staff-invoice-pdf.ts";
 
 const future = "2099-01-01T00:00:00.000Z";
 
@@ -89,77 +83,6 @@ test("a manually entered Finance URL resolves to a forbidden decision", () => {
     "forbidden",
   );
   assert.equal(financePageDecision({ kind: "forbidden" }), "forbidden");
-});
-
-test("OAuth state mismatch is rejected", () => {
-  const expected = "correct-state";
-  assert.equal(
-    validateOAuthStateRecord({
-      providedState: "wrong-state",
-      expectedStateHash: createHash("sha256").update(expected).digest("hex"),
-      expectedUserId: "user-1",
-      currentUserId: "user-1",
-      expiresAt: future,
-    }),
-    false,
-  );
-});
-
-test("connection responses never return raw Zoho tokens", () => {
-  const response = safeConnectionStatus({
-    organization_name: "Understory",
-    organization_id: "123",
-    last_synced_at: null,
-    updated_at: "2026-07-26T12:00:00.000Z",
-    encrypted_access_token: "must-not-leak",
-    encrypted_refresh_token: "must-not-leak",
-  });
-  assert.equal(response.connected, true);
-  assert.equal(JSON.stringify(response).includes("must-not-leak"), false);
-});
-
-test("access-token refresh works with a mocked Zoho response", async () => {
-  const calls = [];
-  const token = await requestRefreshedZohoToken(
-    async (url, options) => {
-      calls.push({ url, options });
-      return Response.json({
-        access_token: "new-access-token",
-        expires_in: 3600,
-      });
-    },
-    {
-      accountsDomain: "https://accounts.zohocloud.ca",
-      clientId: "client",
-      clientSecret: "secret",
-      refreshToken: "refresh",
-    },
-  );
-  assert.equal(token.access_token, "new-access-token");
-  assert.equal(calls.length, 1);
-  assert.match(String(calls[0].options.body), /grant_type=refresh_token/);
-});
-
-test("a disconnected Zoho account returns a safe empty status", () => {
-  assert.deepEqual(safeConnectionStatus(null), {
-    connected: false,
-    organizationName: null,
-    organizationId: null,
-    lastSyncedAt: null,
-  });
-});
-
-test("empty Zoho finance lists produce a valid zero dashboard", () => {
-  const result = buildFinanceDashboard({
-    invoices: [],
-    expenses: [],
-    bills: [],
-    organizationCurrencyCode: "CAD",
-    now: new Date("2026-07-26T12:00:00.000Z"),
-  });
-  assert.equal(result.invoicedThisMonth, 0);
-  assert.equal(result.expensesThisMonth, 0);
-  assert.deepEqual(result.recentInvoices, []);
 });
 
 test("staff budget month windows use an exclusive next-month boundary", () => {
@@ -311,4 +234,38 @@ test("private profile access codes use normalized name and phone last four", () 
   );
   assert.equal(maskPhoneNumber("+1 (416) 555-0198"), "••• ••• 0198");
   assert.equal(privateProfileAccessCode("Xi Yang Cen", ""), null);
+});
+
+test("staff invoice generation returns a real PDF file", async () => {
+  const bytes = await generateStaffInvoicePdf({
+    invoiceNumber: "US-TEST-202608",
+    month: "2026-08",
+    currencyCode: "CAD",
+    totalHours: 2,
+    totalAmount: 40,
+    submittedAt: "2026-08-31T12:00:00.000Z",
+    payee: {
+      legalName: "Test Contractor",
+      address: {
+        line1: "1 Test Street",
+        city: "Toronto",
+        province: "ON",
+        postalCode: "M1M 1M1",
+        country: "Canada",
+      },
+    },
+    lineItems: [
+      {
+        id: "entry-1",
+        workDate: "2026-08-01",
+        hours: 2,
+        workLabel: "Design work",
+        notes: null,
+        rate: 20,
+        amount: 40,
+      },
+    ],
+  });
+  assert.equal(Buffer.from(bytes.subarray(0, 4)).toString("ascii"), "%PDF");
+  assert.ok(bytes.length > 500);
 });

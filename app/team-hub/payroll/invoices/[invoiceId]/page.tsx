@@ -7,7 +7,6 @@ import {
   getTeamIdentityForUsername,
 } from "@/lib/team-auth";
 import { getStaffInvoiceById } from "@/lib/staff-invoices";
-import { PrintInvoiceButton } from "./PrintInvoiceButton";
 
 function currency(value: number) {
   return new Intl.NumberFormat("en-CA", {
@@ -59,7 +58,14 @@ export default async function StaffInvoicePage({
           >
             ← Back to {caller.accessLevel === "owner" ? "documents" : "payroll"}
           </Link>
-          <PrintInvoiceButton />
+          <a
+            href={invoice.pdfHref}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-full bg-[#341F60] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(40,21,79,0.16)] transition hover:bg-[#28154F]"
+          >
+            Open saved PDF
+          </a>
         </div>
 
         <article className="overflow-hidden rounded-[26px] border border-[#D7CBE0] bg-white shadow-[0_16px_50px_rgba(40,21,79,0.09)] print:rounded-none print:border-0 print:shadow-none">

@@ -149,8 +149,8 @@ export default function TeamHubManagementPage() {
               Finance
             </h2>
             <p className="mt-2 text-sm leading-6 text-[#75647F]">
-              Open the secure, read-only Zoho Books dashboard for invoices,
-              expenses, and bills.
+              Review staff hours, invoice PDF files, budgets, and protected
+              payment profiles.
             </p>
             <span className="mt-5 inline-flex items-center gap-2 text-xs font-semibold text-[#7D4698]">
               Secure Finance sign-in

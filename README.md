@@ -107,21 +107,24 @@ The sync tries email first and then `slack_user_id`. It updates existing
 profiles only and logs unmatched profiles and Slack users in the Edge Function
 logs.
 
-## Read-only Zoho Books Finance dashboard
+## Secure Finance workspace
 
 Finance lives at `/team-hub/management/finance` and uses a separate, verified
 Supabase GitHub OAuth session because the legacy Team Hub username cookie is
 not a secure identity boundary. Only profiles with `can_view_finance = true`
-can open the page or use its APIs. Supabase and GitHub tokens are exchanged
-server-side and discarded; the browser receives only an opaque, HttpOnly
-Finance session cookie.
+can open the page or use its APIs. The browser receives only an opaque,
+HttpOnly Finance session cookie. The workspace contains staff hours, budgets,
+encrypted payment profiles, and generated staff invoice PDF files. The former
+Zoho Books connection has been retired; QuickBooks is not connected yet.
 
-1. Apply `supabase/migrations/20260726000000_add_finance_zoho_books.sql`.
+1. Apply all Supabase migrations, including the staff invoice PDF/private
+   profile migrations and the migration that retires the old accounting
+   connection tables.
 2. Ensure Adrian and Karen have GitHub identities under Supabase
    **Authentication → Users** and that `profiles.user_id` points to the
    corresponding `auth.users.id`.
-3. Copy the Finance and Zoho placeholders from `.env.example` into the local
-   and Vercel environments.
+3. Copy the Finance placeholders from `.env.example` into the local and Vercel
+   environments.
 4. Export `ADRIAN_EMAIL`, `KAREN_EMAIL`, the Supabase URL, and the service-role
    key into the command environment, then run:
 
@@ -139,17 +142,6 @@ Finance session cookie.
    ```text
    https://portal.example.com/api/team-hub/finance/session/github/callback
    ```
-
-6. In the Zoho API Console, create a **Server-based Application**. Register
-   the exact `ZOHO_REDIRECT_URI` and use the Canadian accounts/API domains from
-   `.env.example` when the Books organization is in Canada.
-
-The integration requests only:
-
-- `ZohoBooks.settings.READ`
-- `ZohoBooks.invoices.READ`
-- `ZohoBooks.expenses.READ`
-- `ZohoBooks.bills.READ`
 
 Generate `TOKEN_ENCRYPTION_KEY` with either `openssl rand -base64 32` or
 `openssl rand -hex 32`. Never commit the generated value.

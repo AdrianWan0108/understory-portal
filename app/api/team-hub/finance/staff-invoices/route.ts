@@ -1,7 +1,9 @@
 import type { NextRequest } from "next/server";
 import { requireFinanceAccess } from "@/lib/finance-auth";
-import { financeRouteError } from "@/lib/finance-http";
-import { getZohoConnectionStatus } from "@/lib/zoho-books";
+import {
+  getFinanceStaffInvoices,
+  staffInvoiceRouteError,
+} from "@/lib/staff-invoices";
 
 export const runtime = "nodejs";
 
@@ -10,10 +12,12 @@ export async function GET(request: NextRequest) {
   if (!access.ok) {
     return Response.json({ error: access.error }, { status: access.status });
   }
-
   try {
-    return Response.json(await getZohoConnectionStatus());
+    return Response.json(
+      { invoices: await getFinanceStaffInvoices() },
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
   } catch (caught) {
-    return financeRouteError(caught);
+    return staffInvoiceRouteError(caught);
   }
 }
