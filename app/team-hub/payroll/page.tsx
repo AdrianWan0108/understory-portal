@@ -3,6 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useEffect, useState } from "react";
+import { ReceivedInvoicesPanel } from "../management/finance/_components/ReceivedInvoicesPanel";
 import { useTeamIdentity } from "../_components/TeamIdentity";
 import TimeLogForm from "./_components/TimeLogForm";
 import MonthlyInvoiceWorkspace from "./_components/MonthlyInvoiceWorkspace";
@@ -77,6 +78,10 @@ export default function TeamHubPayrollPage() {
             onMonthChange={setInvoiceMonth}
             refreshToken={timeLogRefreshToken}
           />
+        )}
+
+        {accessLevel === "owner" && (
+          <ReceivedInvoicesPanel endpoint="/api/team-hub/payroll/received-invoices" />
         )}
       </div>
     </main>

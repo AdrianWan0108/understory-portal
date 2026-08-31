@@ -31,7 +31,11 @@ function monthLabel(value: string) {
   }).format(new Date(`${value}-01T12:00:00.000Z`));
 }
 
-export function ReceivedInvoicesPanel() {
+export function ReceivedInvoicesPanel({
+  endpoint = "/api/team-hub/finance/staff-invoices",
+}: {
+  endpoint?: string;
+}) {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +43,7 @@ export function ReceivedInvoicesPanel() {
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await fetch("/api/team-hub/finance/staff-invoices", {
+      const response = await fetch(endpoint, {
         cache: "no-store",
       });
       const body = (await response.json().catch(() => ({}))) as {
@@ -60,7 +64,7 @@ export function ReceivedInvoicesPanel() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [endpoint]);
 
   useEffect(() => {
     void load();
