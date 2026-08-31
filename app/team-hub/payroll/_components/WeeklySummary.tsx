@@ -25,7 +25,6 @@ type WeeklySummaryProps = {
   refreshToken: number;
   selectedDate: string;
   onSelectedDateChange: (value: string) => void;
-  onSummaryChange: (summary: WeeklyTimeSummary | null) => void;
 };
 
 function localDate() {
@@ -59,7 +58,6 @@ export default function WeeklySummary({
   refreshToken,
   selectedDate,
   onSelectedDateChange,
-  onSummaryChange,
 }: WeeklySummaryProps) {
   const [summary, setSummary] = useState<WeeklyTimeSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -85,10 +83,8 @@ export default function WeeklySummary({
       const nextSummary = body as WeeklyTimeSummary;
       setSummary(nextSummary);
       setError(null);
-      onSummaryChange(nextSummary);
     } catch (caught) {
       setSummary(null);
-      onSummaryChange(null);
       setError(
         caught instanceof Error
           ? caught.message
@@ -97,7 +93,7 @@ export default function WeeklySummary({
     } finally {
       setIsLoading(false);
     }
-  }, [onSummaryChange, selectedDate]);
+  }, [selectedDate]);
 
   useEffect(() => {
     void load();
