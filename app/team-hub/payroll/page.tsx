@@ -15,6 +15,7 @@ import {
   teamInputClass,
 } from "../_components/TeamHubUi";
 import TimeLogForm from "./_components/TimeLogForm";
+import MonthlyInvoiceWorkspace from "./_components/MonthlyInvoiceWorkspace";
 import WeeklySummary, {
   type WeeklyTimeSummary,
 } from "./_components/WeeklySummary";
@@ -56,6 +57,15 @@ function formatAmount(amount: number) {
   }).format(amount);
 }
 
+function localDate() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function localMonth() {
+  return localDate().slice(0, 7);
+}
+
 function storagePath(url: string | null) {
   if (!url) return null;
   const marker = `/storage/v1/object/public/${BUCKET}/`;
@@ -79,6 +89,8 @@ export default function TeamHubPayrollPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [timeLogRefreshToken, setTimeLogRefreshToken] = useState(0);
+  const [selectedWeekDate, setSelectedWeekDate] = useState(localDate);
+  const [invoiceMonth, setInvoiceMonth] = useState(localMonth);
   const [weeklySummary, setWeeklySummary] =
     useState<WeeklyTimeSummary | null>(null);
 
@@ -120,6 +132,8 @@ export default function TeamHubPayrollPage() {
 
   useEffect(() => {
     setWeeklySummary(null);
+    setSelectedWeekDate(localDate());
+    setInvoiceMonth(localMonth());
   }, [username]);
 
   const groups = useMemo(() => {
@@ -310,16 +324,29 @@ export default function TeamHubPayrollPage() {
           <section className="mt-9 grid gap-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
             <TimeLogForm
               key={`form-${username}`}
-              onSaved={() =>
-                setTimeLogRefreshToken((current) => current + 1)
-              }
+              onSaved={(workDate) => {
+                setSelectedWeekDate(workDate);
+                setInvoiceMonth(workDate.slice(0, 7));
+                setTimeLogRefreshToken((current) => current + 1);
+              }}
             />
             <WeeklySummary
               key={`summary-${username}`}
               refreshToken={timeLogRefreshToken}
+              selectedDate={selectedWeekDate}
+              onSelectedDateChange={setSelectedWeekDate}
               onSummaryChange={handleWeeklySummaryChange}
             />
           </section>
+        )}
+
+        {isTimeLoggingContractor && (
+          <MonthlyInvoiceWorkspace
+            key={`invoice-${username}`}
+            month={invoiceMonth}
+            onMonthChange={setInvoiceMonth}
+            refreshToken={timeLogRefreshToken}
+          />
         )}
 
         <section className="mt-9 space-y-6">

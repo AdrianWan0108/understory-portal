@@ -6,6 +6,7 @@ export type ContractorTimeEntryInput = {
 };
 
 const DATE_PATTERN = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+const MONTH_PATTERN = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
 function validDate(value: string) {
   if (!DATE_PATTERN.test(value)) return false;
@@ -33,6 +34,26 @@ export function payrollWeekWindow(value: unknown) {
   end.setUTCDate(end.getUTCDate() + 6);
 
   return { start: dateString(start), end: dateString(end) };
+}
+
+export function payrollMonthWindow(value: unknown) {
+  if (typeof value !== "string" || !MONTH_PATTERN.test(value)) {
+    throw new Error("Month must use YYYY-MM format.");
+  }
+
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  if (year < 2020 || year > 2100) {
+    throw new Error("Month is outside the supported range.");
+  }
+
+  const start = `${value}-01`;
+  const next =
+    month === 12
+      ? `${year + 1}-01-01`
+      : `${year}-${String(month + 1).padStart(2, "0")}-01`;
+
+  return { month: value, start, next };
 }
 
 export function validateContractorTimeEntryInput(

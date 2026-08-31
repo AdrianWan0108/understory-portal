@@ -6,11 +6,10 @@ import {
   getTeamIdentityForUsername,
 } from "@/lib/team-auth";
 import {
-  addPayrollTimeLog,
-  getPayrollMonthSnapshot,
-  getPayrollTimeLogSnapshot,
-  payrollTimeLogRouteError,
-} from "@/lib/payroll-time-logs";
+  getStaffInvoiceWorkspace,
+  staffInvoiceRouteError,
+  submitStaffInvoice,
+} from "@/lib/staff-invoices";
 
 export const runtime = "nodejs";
 
@@ -18,55 +17,44 @@ function callerFromRequest(request: NextRequest) {
   const identity = getTeamIdentityForUsername(
     request.cookies.get(TEAM_SESSION_COOKIE)?.value,
   );
-  if (!identity) return null;
-  return TEAM_IDENTITIES[identity];
+  return identity ? TEAM_IDENTITIES[identity] : null;
 }
 
 export async function GET(request: NextRequest) {
   const caller = callerFromRequest(request);
   if (!caller) {
-    return Response.json(
-      { error: "Sign in to view your time logs." },
-      { status: 401 },
-    );
+    return Response.json({ error: "Sign in to view invoices." }, { status: 401 });
   }
-
   try {
-    const month = request.nextUrl.searchParams.get("month");
-    if (month) {
-      return Response.json(
-        await getPayrollMonthSnapshot(caller.username, month),
-      );
-    }
     return Response.json(
-      await getPayrollTimeLogSnapshot(
+      await getStaffInvoiceWorkspace(
         caller.username,
-        request.nextUrl.searchParams.get("week"),
+        request.nextUrl.searchParams.get("month"),
       ),
     );
   } catch (caught) {
-    return payrollTimeLogRouteError(caught);
+    return staffInvoiceRouteError(caught);
   }
 }
 
 export async function POST(request: NextRequest) {
   const caller = callerFromRequest(request);
-  if (!caller) {
+  if (!caller || caller.accessLevel !== "staff") {
     return Response.json(
-      { error: "Sign in to log your hours." },
-      { status: 401 },
+      { error: "A staff session is required to send an invoice." },
+      { status: caller ? 403 : 401 },
     );
   }
   if (!isTrustedMutationOrigin(request)) {
     return Response.json({ error: "Invalid request origin." }, { status: 403 });
   }
-
   try {
     const body = (await request.json()) as Record<string, unknown>;
-    return Response.json(await addPayrollTimeLog(caller.username, body), {
-      status: 201,
-    });
+    return Response.json(
+      await submitStaffInvoice(caller.username, body.month),
+      { status: 201 },
+    );
   } catch (caught) {
-    return payrollTimeLogRouteError(caught);
+    return staffInvoiceRouteError(caught);
   }
 }

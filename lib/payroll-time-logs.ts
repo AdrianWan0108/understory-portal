@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import {
   contractorWeeklyAllowance,
   contractorWeekTotals,
+  payrollMonthWindow,
   payrollWeekWindow,
   validateContractorTimeEntryInput,
 } from "@/lib/payroll-time-logs-core";
@@ -114,6 +115,32 @@ async function settingsForProfile(profileId: string) {
   return data as SettingRow;
 }
 
+async function ensureInvoiceMonthIsOpen(
+  profileId: string,
+  workDate: string,
+) {
+  const { data, error } = await adminClient()
+    .from("staff_invoices")
+    .select("id")
+    .eq("staff_profile_id", profileId)
+    .eq("invoice_month", workDate.slice(0, 7))
+    .maybeSingle();
+  if (error) {
+    throw new PayrollTimeLogError(
+      "Invoice status could not be verified.",
+      503,
+      "INVOICE_STORAGE_ERROR",
+    );
+  }
+  if (data) {
+    throw new PayrollTimeLogError(
+      "This month has already been sent to Finance, so its hours are locked.",
+      409,
+      "INVOICE_MONTH_LOCKED",
+    );
+  }
+}
+
 export async function getPayrollTimeLogSnapshot(
   teamUsername: string,
   weekValue: unknown,
@@ -182,6 +209,71 @@ export async function getPayrollTimeLogSnapshot(
   };
 }
 
+export async function getPayrollMonthSnapshot(
+  teamUsername: string,
+  monthValue: unknown,
+) {
+  let window;
+  try {
+    window = payrollMonthWindow(monthValue);
+  } catch (caught) {
+    throw new PayrollTimeLogError(
+      caught instanceof Error ? caught.message : "Invalid month.",
+      400,
+      "INVALID_INPUT",
+    );
+  }
+
+  const admin = adminClient();
+  const profile = await contractorForUsername(teamUsername);
+  const settings = await settingsForProfile(profile.id);
+  const { data, error } = await admin
+    .from("staff_time_entries")
+    .select(
+      "id, work_date, hours, work_label, notes, created_at, submitted_by_team_username",
+    )
+    .eq("staff_profile_id", profile.id)
+    .gte("work_date", window.start)
+    .lt("work_date", window.next)
+    .order("work_date", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new PayrollTimeLogError(
+      "Could not load this month's time logs.",
+      503,
+      "STORAGE_ERROR",
+    );
+  }
+
+  const entries = ((data ?? []) as EntryRow[]).map((entry) => ({
+    id: entry.id,
+    workDate: entry.work_date,
+    hours: number(entry.hours),
+    workLabel: entry.work_label,
+    notes: entry.notes,
+    createdAt: entry.created_at,
+    canDelete: entry.submitted_by_team_username === profile.team_username,
+  }));
+  const hourlyRate = number(settings.hourly_rate);
+  const loggedHours = Math.round(
+    entries.reduce((sum, entry) => sum + entry.hours, 0) * 100,
+  ) / 100;
+
+  return {
+    profile: {
+      id: profile.id,
+      name: profile.full_name,
+      teamUsername: profile.team_username,
+    },
+    month: window.month,
+    hourlyRate,
+    loggedHours,
+    estimatedPay: Math.round(loggedHours * hourlyRate * 100) / 100,
+    entries,
+  };
+}
+
 export async function addPayrollTimeLog(
   teamUsername: string,
   rawInput: Record<string, unknown>,
@@ -200,6 +292,7 @@ export async function addPayrollTimeLog(
   const admin = adminClient();
   const profile = await contractorForUsername(teamUsername);
   const settings = await settingsForProfile(profile.id);
+  await ensureInvoiceMonthIsOpen(profile.id, input.workDate);
   const weeklyCap = number(settings.weekly_cap);
   const week = payrollWeekWindow(input.workDate);
   const { data: existingEntries, error: entriesError } = await admin
@@ -278,6 +371,28 @@ export async function removePayrollTimeLog(
   const admin = adminClient();
   const profile = await contractorForUsername(teamUsername);
   await settingsForProfile(profile.id);
+  const { data: existing, error: existingError } = await admin
+    .from("staff_time_entries")
+    .select("work_date")
+    .eq("id", entryId)
+    .eq("staff_profile_id", profile.id)
+    .eq("submitted_by_team_username", profile.team_username)
+    .maybeSingle();
+  if (existingError) {
+    throw new PayrollTimeLogError(
+      "Could not verify the time entry.",
+      503,
+      "STORAGE_ERROR",
+    );
+  }
+  if (!existing) {
+    throw new PayrollTimeLogError(
+      "That time entry was not found or cannot be deleted.",
+      404,
+      "NOT_FOUND",
+    );
+  }
+  await ensureInvoiceMonthIsOpen(profile.id, existing.work_date);
   const { data, error } = await admin
     .from("staff_time_entries")
     .delete()

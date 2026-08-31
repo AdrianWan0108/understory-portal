@@ -9,6 +9,7 @@ import {
   type ProfileSaveResult,
 } from "../_components/ProfileEditForm";
 import { TeamButton } from "../_components/TeamHubUi";
+import { PrivateProfileCard } from "../_components/PrivateProfileCard";
 
 type ProfileRow = {
   team_username: string;
@@ -219,6 +220,8 @@ export default function TeamHubProfilePage() {
             ) : null}
           </div>
         </section>
+
+        <PrivateProfileCard />
 
         {isOwner && (
           <section className="mt-8 rounded-[24px] border border-[#D7CBE0] bg-white p-5 shadow-[0_8px_28px_rgba(40,21,79,0.055)] sm:p-6">

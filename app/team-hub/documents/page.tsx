@@ -260,7 +260,7 @@ export default function TeamHubDocumentsPage() {
                       >
                         <div className="flex min-w-0 flex-1 items-center gap-3">
                           <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#EEE3FA] text-xs font-bold text-[#7D4698]">
-                            PDF
+                            {document.file_url.startsWith("/") ? "INV" : "PDF"}
                           </span>
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold text-[#341F60]">
@@ -280,7 +280,9 @@ export default function TeamHubDocumentsPage() {
                           rel="noreferrer"
                           className="w-fit rounded-full border border-[#CDBAD9] px-3.5 py-2 text-xs font-semibold text-[#7D4698] hover:bg-[#EEE3FA]"
                         >
-                          View / download ↗
+                          {document.file_url.startsWith("/")
+                            ? "View invoice ↗"
+                            : "View / download ↗"}
                         </a>
                         {accessLevel === "owner" && (
                           <div className="flex gap-2">

@@ -20,10 +20,15 @@ import {
 import {
   contractorWeeklyAllowance,
   contractorWeekTotals,
+  payrollMonthWindow,
   payrollWeekWindow,
   validateContractorTimeEntryInput,
 } from "../lib/payroll-time-logs-core.ts";
 import { createHash } from "node:crypto";
+import {
+  maskPhoneNumber,
+  privateProfileAccessCode,
+} from "../lib/staff-private-profile-core.ts";
 
 const future = "2099-01-01T00:00:00.000Z";
 
@@ -230,6 +235,14 @@ test("payroll week windows run Monday through Sunday across month boundaries", (
   });
 });
 
+test("payroll month windows use an exclusive next-month boundary", () => {
+  assert.deepEqual(payrollMonthWindow("2026-12"), {
+    month: "2026-12",
+    start: "2026-12-01",
+    next: "2027-01-01",
+  });
+});
+
 test("contractor time entries are normalized and validated", () => {
   assert.deepEqual(
     validateContractorTimeEntryInput({
@@ -289,4 +302,13 @@ test("contractors cannot log more than their remaining weekly allowance", () => 
     }),
     { remainingHours: 2, canLog: false },
   );
+});
+
+test("private profile access codes use normalized name and phone last four", () => {
+  assert.equal(
+    privateProfileAccessCode("Xi Yang Cen", "+1 (416) 555-0198"),
+    "xiyangcen0198",
+  );
+  assert.equal(maskPhoneNumber("+1 (416) 555-0198"), "••• ••• 0198");
+  assert.equal(privateProfileAccessCode("Xi Yang Cen", ""), null);
 });

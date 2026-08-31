@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { StaffHoursPanel } from "./StaffHoursPanel";
+import { PaymentProfilesPanel } from "./PaymentProfilesPanel";
 
 type Connection = {
   connected: boolean;
@@ -210,6 +211,7 @@ export function FinanceDashboard({ viewerName }: { viewerName: string }) {
         </header>
 
         <StaffHoursPanel />
+        <PaymentProfilesPanel />
 
         {error && (
           <p

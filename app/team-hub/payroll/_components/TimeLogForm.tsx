@@ -7,7 +7,7 @@ import {
 } from "@/app/team-hub/_components/TeamHubUi";
 
 type TimeLogFormProps = {
-  onSaved: () => void;
+  onSaved: (workDate: string) => void;
 };
 
 function localDate() {
@@ -48,7 +48,7 @@ export default function TimeLogForm({ onSaved }: TimeLogFormProps) {
       setWorkLabel("");
       setNotes("");
       setMessage("Hours logged. Your weekly total has been updated.");
-      onSaved();
+      onSaved(workDate);
     } catch (caught) {
       setError(
         caught instanceof Error

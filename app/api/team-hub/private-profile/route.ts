@@ -6,11 +6,10 @@ import {
   getTeamIdentityForUsername,
 } from "@/lib/team-auth";
 import {
-  addPayrollTimeLog,
-  getPayrollMonthSnapshot,
-  getPayrollTimeLogSnapshot,
-  payrollTimeLogRouteError,
-} from "@/lib/payroll-time-logs";
+  getStaffPrivateProfileMeta,
+  revealStaffPrivateProfile,
+  staffPrivateProfileRouteError,
+} from "@/lib/staff-private-profile";
 
 export const runtime = "nodejs";
 
@@ -18,34 +17,24 @@ function callerFromRequest(request: NextRequest) {
   const identity = getTeamIdentityForUsername(
     request.cookies.get(TEAM_SESSION_COOKIE)?.value,
   );
-  if (!identity) return null;
-  return TEAM_IDENTITIES[identity];
+  return identity ? TEAM_IDENTITIES[identity] : null;
 }
 
 export async function GET(request: NextRequest) {
   const caller = callerFromRequest(request);
   if (!caller) {
     return Response.json(
-      { error: "Sign in to view your time logs." },
+      { error: "Sign in to view private profile details." },
       { status: 401 },
     );
   }
 
   try {
-    const month = request.nextUrl.searchParams.get("month");
-    if (month) {
-      return Response.json(
-        await getPayrollMonthSnapshot(caller.username, month),
-      );
-    }
-    return Response.json(
-      await getPayrollTimeLogSnapshot(
-        caller.username,
-        request.nextUrl.searchParams.get("week"),
-      ),
-    );
+    return Response.json(await getStaffPrivateProfileMeta(caller.username), {
+      headers: { "Cache-Control": "private, no-store" },
+    });
   } catch (caught) {
-    return payrollTimeLogRouteError(caught);
+    return staffPrivateProfileRouteError(caught);
   }
 }
 
@@ -53,7 +42,7 @@ export async function POST(request: NextRequest) {
   const caller = callerFromRequest(request);
   if (!caller) {
     return Response.json(
-      { error: "Sign in to log your hours." },
+      { error: "Sign in to view private profile details." },
       { status: 401 },
     );
   }
@@ -63,10 +52,16 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = (await request.json()) as Record<string, unknown>;
-    return Response.json(await addPayrollTimeLog(caller.username, body), {
-      status: 201,
-    });
+    return Response.json(
+      {
+        details: await revealStaffPrivateProfile(
+          caller.username,
+          body.accessCode,
+        ),
+      },
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
   } catch (caught) {
-    return payrollTimeLogRouteError(caught);
+    return staffPrivateProfileRouteError(caught);
   }
 }
