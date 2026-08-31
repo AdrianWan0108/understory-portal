@@ -17,6 +17,7 @@ import { inputClass } from "./AdminUi";
 const navigation = [
   ["Dashboard", "/admin/dashboard"],
   ["Projects", "/admin/projects"],
+  ["Analytics", "/admin/analytics"],
   ["Approvals", "/admin/approvals"],
   ["Gallery", "/admin/gallery"],
   ["Documents", "/admin/documents"],

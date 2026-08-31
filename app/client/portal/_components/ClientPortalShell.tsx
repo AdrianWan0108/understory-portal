@@ -17,6 +17,7 @@ import {
 type NavIcon =
   | "dashboard"
   | "projects"
+  | "analytics"
   | "approvals"
   | "gallery"
   | "invoices"
@@ -38,6 +39,11 @@ const navigation: Array<{
     href: "/client-portal/projects",
     label: "Projects",
     icon: "projects",
+  },
+  {
+    href: "/client-portal/analytics",
+    label: "Analytics",
+    icon: "analytics",
   },
   {
     href: "/client-portal/approvals",
@@ -88,6 +94,12 @@ function PortalIcon({
       <>
         <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H10l2 2h5.5A2.5 2.5 0 0 1 20 9.5v8A2.5 2.5 0 0 1 17.5 20h-11A2.5 2.5 0 0 1 4 17.5Z" />
         <path d="M4 10h16" />
+      </>
+    ),
+    analytics: (
+      <>
+        <path d="M4 19V10M10 19V5M16 19v-7M22 19V8" />
+        <path d="M2 19h22" />
       </>
     ),
     approvals: (

@@ -3,7 +3,7 @@ import { ClientPortalShell } from "./_components/ClientPortalShell";
 
 export const metadata: Metadata = {
   title: "Client Portal | Understory",
-  description: "Review projects, approvals, assets, and invoices.",
+  description: "Review projects, analytics, approvals, assets, and invoices.",
 };
 
 export default function ClientPortalLayout({
