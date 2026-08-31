@@ -16,7 +16,7 @@ type Entry = {
 type Invoice = {
   id: string;
   invoiceNumber: string;
-  status: "submitted" | "paid";
+  status: "sent_to_finance" | "paid";
   submittedAt: string;
   href: string;
   pdfHref: string;
@@ -65,6 +65,11 @@ function monthLabel(value: string) {
     year: "numeric",
     timeZone: "UTC",
   }).format(new Date(`${value}-01T12:00:00.000Z`));
+}
+
+function statusLabel(invoice: Invoice | null) {
+  if (!invoice) return "In progress";
+  return invoice.status === "paid" ? "Paid" : "Sent to Finance";
 }
 
 export default function MonthlyInvoiceWorkspace({
@@ -230,7 +235,7 @@ export default function MonthlyInvoiceWorkspace({
         <div className="m-5 h-44 animate-pulse rounded-[18px] bg-[#EEE3FA] sm:m-6" />
       ) : workspace ? (
         <>
-          <div className="grid gap-3 px-5 py-5 sm:grid-cols-3 sm:px-6">
+          <div className="grid gap-3 px-5 py-5 sm:grid-cols-2 sm:px-6 xl:grid-cols-4">
             <div className="rounded-[18px] bg-[#F7F1FA] p-4">
               <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#8B7895]">
                 Period
@@ -253,6 +258,22 @@ export default function MonthlyInvoiceWorkspace({
               </p>
               <p className="mt-2 text-xl font-semibold text-[#341F60]">
                 {currency(workspace.estimatedPay)}
+              </p>
+            </div>
+            <div className="rounded-[18px] bg-[#F7F1FA] p-4">
+              <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#8B7895]">
+                Status
+              </p>
+              <p
+                className={`mt-2 text-lg font-semibold ${
+                  workspace.invoice?.status === "paid"
+                    ? "text-[#356346]"
+                    : workspace.invoice
+                      ? "text-[#5F3378]"
+                      : "text-[#8B6A16]"
+                }`}
+              >
+                {statusLabel(workspace.invoice)}
               </p>
             </div>
           </div>

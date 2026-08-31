@@ -13,6 +13,7 @@ export type StaffInvoicePdfData = {
   totalHours: number;
   totalAmount: number;
   submittedAt: string;
+  status?: "in_progress" | "sent_to_finance" | "paid";
   payee: {
     legalName: string;
     address: {
@@ -132,6 +133,14 @@ function drawPageHeader(
     ["Invoice", invoice.invoiceNumber],
     ["Period", monthLabel(invoice.month)],
     ["Issued", new Date(invoice.submittedAt).toLocaleDateString("en-CA")],
+    [
+      "Status",
+      invoice.status === "paid"
+        ? "Paid"
+        : invoice.status === "sent_to_finance"
+          ? "Sent to Finance"
+          : "In progress",
+    ],
   ].forEach(([label, value], index) => {
     const y = top - index * 18;
     page.drawText(label, { x: labelX, y, font: regular, size: 9, color: MUTED });
@@ -201,12 +210,19 @@ export async function generateStaffInvoicePdf(invoice: StaffInvoicePdfData) {
     size: 11,
     color: PURPLE,
   });
-  page.drawText("Attention: Karen & Adrian", {
-    x: 330,
-    y: fromY - 35,
-    font: regular,
-    size: 9,
-    color: MUTED,
+  [
+    "1106-310 Red Maple Road",
+    "Richmond Hill, ON L4C 0T7",
+    "Canada",
+    "Attention: Karen & Adrian",
+  ].forEach((line, index) => {
+    page.drawText(line, {
+      x: 330,
+      y: fromY - 35 - index * 14,
+      font: regular,
+      size: 9,
+      color: MUTED,
+    });
   });
 
   let y = PAGE_HEIGHT - 278;

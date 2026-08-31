@@ -32,6 +32,10 @@ function monthLabel(value: string) {
   }).format(new Date(`${value}-01T12:00:00.000Z`));
 }
 
+function statusLabel(value: "sent_to_finance" | "paid") {
+  return value === "paid" ? "Paid" : "Sent to Finance";
+}
+
 export default async function StaffInvoicePage({
   params,
 }: {
@@ -96,7 +100,7 @@ export default async function StaffInvoicePage({
               </dd>
               <dt className="text-[#8B7895]">Status</dt>
               <dd className="font-semibold capitalize text-[#356346]">
-                {invoice.status}
+                {statusLabel(invoice.status)}
               </dd>
             </dl>
           </header>
@@ -126,9 +130,13 @@ export default async function StaffInvoicePage({
                 Understory
               </p>
               <p className="mt-1 text-sm leading-6 text-[#75647F]">
-                Attention: Karen &amp; Adrian
+                1106-310 Red Maple Road
                 <br />
-                Finance
+                Richmond Hill, ON L4C 0T7
+                <br />
+                Canada
+                <br />
+                Attention: Karen &amp; Adrian
               </p>
             </div>
           </section>

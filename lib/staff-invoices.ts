@@ -43,7 +43,7 @@ type InvoiceRow = {
     rate: number;
     amount: number;
   }>;
-  status: "submitted" | "paid";
+  status: "sent_to_finance" | "paid";
   submitted_at: string;
   pdf_storage_path: string | null;
 };
@@ -242,7 +242,7 @@ async function invoiceDraft(
       rate,
       amount: Math.round(entry.hours * rate * 100) / 100,
     }));
-  const invoiceNumber = `US-${teamUsername
+  const invoiceNumber = `INV-${teamUsername
     .replace(/^Understory_/i, "")
     .replace(/[^a-z\d]/gi, "")
     .toUpperCase()}-${workspace.month.replace("-", "")}`;
@@ -263,6 +263,7 @@ async function invoiceDraft(
     },
     lineItems,
     submittedAt: new Date().toISOString(),
+    status: "in_progress" as const,
   } satisfies StaffInvoicePdfData & {
     staffProfileId: string;
     staffUsername: string;
@@ -362,7 +363,7 @@ export async function submitStaffInvoice(
       total_amount: draft.totalAmount,
       payee_details: draft.payee,
       line_items: draft.lineItems,
-      status: "submitted",
+      status: "sent_to_finance",
     })
     .select("*")
     .single();

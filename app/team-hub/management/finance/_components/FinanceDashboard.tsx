@@ -37,7 +37,7 @@ export function FinanceDashboard({ viewerName }: { viewerName: string }) {
         </header>
 
         <section className="mt-8 rounded-[22px] border border-[#D7CBE0] bg-[#FFFDF8] px-5 py-4 text-sm leading-6 text-[#75647F] sm:px-6">
-          The previous Zoho Books connection has been removed. QuickBooks integration is not connected yet; staff invoice PDFs remain available in Karen and Adrian&apos;s Documents hubs.
+          QuickBooks integration is not connected yet. Staff invoice PDFs remain available in Karen and Adrian&apos;s Documents hubs.
         </section>
 
         <StaffHoursPanel />

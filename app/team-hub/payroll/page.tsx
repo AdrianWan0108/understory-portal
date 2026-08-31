@@ -80,6 +80,11 @@ function storagePath(url: string | null) {
   }
 }
 
+function payrollStatusLabel(record: PayrollRecord) {
+  if (record.status === "paid") return "Paid";
+  return record.invoice_file_url ? "Sent to Finance" : "In progress";
+}
+
 export default function TeamHubPayrollPage() {
   const { username, name, accessLevel, isReady } = useTeamIdentity();
   const [records, setRecords] = useState<PayrollRecord[]>([]);
@@ -399,7 +404,7 @@ export default function TeamHubPayrollPage() {
                               : "border-[#E5C760] bg-[#FFF4C7] text-[#725A00]"
                           }`}
                         >
-                          {record.status}
+                          {payrollStatusLabel(record)}
                         </span>
                         {record.invoice_file_url && (
                           <a

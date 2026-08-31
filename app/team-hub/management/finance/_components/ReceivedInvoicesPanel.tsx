@@ -11,7 +11,7 @@ type Invoice = {
   month: string;
   totalHours: number;
   totalAmount: number;
-  status: "submitted" | "paid";
+  status: "sent_to_finance" | "paid";
   submittedAt: string;
   pdfHref: string;
 };
@@ -123,7 +123,7 @@ export function ReceivedInvoicesPanel() {
                 {money(invoice.totalAmount)}
               </p>
               <span className="w-fit rounded-full border border-[#BFD8C7] bg-[#EDF7EF] px-3 py-1.5 text-[9px] font-bold uppercase text-[#356346]">
-                {invoice.status}
+                {invoice.status === "paid" ? "Paid" : "Sent to Finance"}
               </span>
               <a
                 href={invoice.pdfHref}

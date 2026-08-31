@@ -238,12 +238,13 @@ test("private profile access codes use normalized name and phone last four", () 
 
 test("staff invoice generation returns a real PDF file", async () => {
   const bytes = await generateStaffInvoicePdf({
-    invoiceNumber: "US-TEST-202608",
+    invoiceNumber: "INV-TEST-202608",
     month: "2026-08",
     currencyCode: "CAD",
     totalHours: 2,
     totalAmount: 40,
     submittedAt: "2026-08-31T12:00:00.000Z",
+    status: "in_progress",
     payee: {
       legalName: "Test Contractor",
       address: {
