@@ -18,6 +18,7 @@ export type WeeklyTimeSummary = {
     hours: number;
     workLabel: string;
     notes: string | null;
+    canDelete: boolean;
   }>;
 };
 
@@ -25,6 +26,7 @@ type WeeklySummaryProps = {
   refreshToken: number;
   selectedDate: string;
   onSelectedDateChange: (value: string) => void;
+  onDeleted: () => void;
 };
 
 function localDate() {
@@ -58,10 +60,14 @@ export default function WeeklySummary({
   refreshToken,
   selectedDate,
   onSelectedDateChange,
+  onDeleted,
 }: WeeklySummaryProps) {
   const [summary, setSummary] = useState<WeeklyTimeSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -98,6 +104,47 @@ export default function WeeklySummary({
   useEffect(() => {
     void load();
   }, [load, refreshToken]);
+
+  async function deleteEntry(
+    entry: WeeklyTimeSummary["entries"][number],
+  ) {
+    if (deleteId !== entry.id) {
+      setDeleteId(entry.id);
+      setActionError(null);
+      return;
+    }
+    if (deletingId) return;
+
+    setDeletingId(entry.id);
+    setActionError(null);
+    try {
+      const response = await fetch(
+        `/api/team-hub/payroll/time-logs/${encodeURIComponent(entry.id)}`,
+        { method: "DELETE" },
+      );
+      const body = (await response.json().catch(() => ({}))) as
+        | WeeklyTimeSummary
+        | { error?: string };
+      if (!response.ok) {
+        throw new Error(
+          "error" in body && body.error
+            ? body.error
+            : "Could not delete the time entry.",
+        );
+      }
+      setSummary(body as WeeklyTimeSummary);
+      setDeleteId(null);
+      onDeleted();
+    } catch (caught) {
+      setActionError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not delete the time entry.",
+      );
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
     <section className="overflow-hidden rounded-[24px] border border-[#D7CBE0] bg-white shadow-[0_8px_28px_rgba(40,21,79,0.055)]">
@@ -196,6 +243,14 @@ export default function WeeklySummary({
           </div>
 
           <div className="border-t border-[#E9E0EF]">
+            {actionError && (
+              <p
+                role="alert"
+                className="mx-5 mt-5 rounded-2xl border border-[#E4B9B9] bg-[#FFF0F0] px-4 py-3 text-sm text-[#8B3E3E] sm:mx-6"
+              >
+                {actionError}
+              </p>
+            )}
             {summary.entries.length ? (
               <div className="divide-y divide-[#E9E0EF]">
                 {summary.entries.map((entry) => (
@@ -212,10 +267,24 @@ export default function WeeklySummary({
                         {entry.notes ? ` · ${entry.notes}` : ""}
                       </p>
                     </div>
-                    <div className="shrink-0">
+                    <div className="flex shrink-0 items-center gap-2">
                       <p className="text-sm font-semibold text-[#5F3378]">
                         {hours(entry.hours)}h
                       </p>
+                      {entry.canDelete && (
+                        <button
+                          type="button"
+                          disabled={Boolean(deletingId)}
+                          onClick={() => void deleteEntry(entry)}
+                          className="rounded-full border border-[#E2BABA] bg-white px-3 py-1.5 text-[10px] font-semibold text-[#9A4040] transition hover:bg-[#FFF0F0] disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          {deletingId === entry.id
+                            ? "Deleting…"
+                            : deleteId === entry.id
+                              ? "Confirm delete?"
+                              : "Delete"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}

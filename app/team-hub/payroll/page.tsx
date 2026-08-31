@@ -63,6 +63,9 @@ export default function TeamHubPayrollPage() {
               refreshToken={timeLogRefreshToken}
               selectedDate={selectedWeekDate}
               onSelectedDateChange={setSelectedWeekDate}
+              onDeleted={() =>
+                setTimeLogRefreshToken((current) => current + 1)
+              }
             />
           </section>
         )}
