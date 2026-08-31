@@ -92,7 +92,6 @@ export default function TeamHubPayrollPage() {
   const [error, setError] = useState<string | null>(null);
   const [editor, setEditor] = useState<PayrollEditor | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
   const [timeLogRefreshToken, setTimeLogRefreshToken] = useState(0);
   const [selectedWeekDate, setSelectedWeekDate] = useState(localDate);
   const [invoiceMonth, setInvoiceMonth] = useState(localMonth);
@@ -242,26 +241,6 @@ export default function TeamHubPayrollPage() {
     } finally {
       setIsSaving(false);
     }
-  }
-
-  async function deleteRecord(record: PayrollRecord) {
-    if (accessLevel !== "owner") return;
-    if (deleteId !== record.id) {
-      setDeleteId(record.id);
-      return;
-    }
-    const { error: mutationError } = await supabase
-      .from("team_payroll")
-      .delete()
-      .eq("id", record.id);
-    if (mutationError) {
-      setError(mutationError.message);
-      return;
-    }
-    const path = storagePath(record.invoice_file_url);
-    if (path) await supabase.storage.from(BUCKET).remove([path]);
-    setDeleteId(null);
-    void loadPayroll();
   }
 
   return (
@@ -417,31 +396,21 @@ export default function TeamHubPayrollPage() {
                           </a>
                         )}
                         {accessLevel === "owner" && (
-                          <div className="flex gap-2">
-                            <TeamButton
-                              tone="secondary"
-                              onClick={() =>
-                                setEditor({
-                                  record,
-                                  staffUsername: record.staff_username,
-                                  amount: String(record.amount ?? ""),
-                                  status: record.status,
-                                  payPeriod: record.pay_period ?? "",
-                                  file: null,
-                                })
-                              }
-                            >
-                              Edit
-                            </TeamButton>
-                            <TeamButton
-                              tone="danger"
-                              onClick={() => void deleteRecord(record)}
-                            >
-                              {deleteId === record.id
-                                ? "Confirm delete?"
-                                : "Delete"}
-                            </TeamButton>
-                          </div>
+                          <TeamButton
+                            tone="secondary"
+                            onClick={() =>
+                              setEditor({
+                                record,
+                                staffUsername: record.staff_username,
+                                amount: String(record.amount ?? ""),
+                                status: record.status,
+                                payPeriod: record.pay_period ?? "",
+                                file: null,
+                              })
+                            }
+                          >
+                            Edit
+                          </TeamButton>
                         )}
                       </div>
                     ))}

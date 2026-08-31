@@ -29,11 +29,7 @@ type EntryRow = {
   work_label: string;
   notes: string | null;
   created_at: string;
-  submitted_by_team_username: string | null;
 };
-
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class PayrollTimeLogError extends Error {
   readonly status: number;
@@ -162,7 +158,7 @@ export async function getPayrollTimeLogSnapshot(
   const { data, error } = await admin
     .from("staff_time_entries")
     .select(
-      "id, work_date, hours, work_label, notes, created_at, submitted_by_team_username",
+      "id, work_date, hours, work_label, notes, created_at",
     )
     .eq("staff_profile_id", profile.id)
     .gte("work_date", window.start)
@@ -185,7 +181,6 @@ export async function getPayrollTimeLogSnapshot(
     workLabel: entry.work_label,
     notes: entry.notes,
     createdAt: entry.created_at,
-    canDelete: entry.submitted_by_team_username === profile.team_username,
   }));
   const hourlyRate = number(settings.hourly_rate);
   const weeklyCap = number(settings.weekly_cap);
@@ -230,7 +225,7 @@ export async function getPayrollMonthSnapshot(
   const { data, error } = await admin
     .from("staff_time_entries")
     .select(
-      "id, work_date, hours, work_label, notes, created_at, submitted_by_team_username",
+      "id, work_date, hours, work_label, notes, created_at",
     )
     .eq("staff_profile_id", profile.id)
     .gte("work_date", window.start)
@@ -253,7 +248,6 @@ export async function getPayrollMonthSnapshot(
     workLabel: entry.work_label,
     notes: entry.notes,
     createdAt: entry.created_at,
-    canDelete: entry.submitted_by_team_username === profile.team_username,
   }));
   const hourlyRate = number(settings.hourly_rate);
   const loggedHours = Math.round(
@@ -354,70 +348,6 @@ export async function addPayrollTimeLog(
   }
 
   return getPayrollTimeLogSnapshot(teamUsername, input.workDate);
-}
-
-export async function removePayrollTimeLog(
-  teamUsername: string,
-  entryId: string,
-) {
-  if (!UUID_PATTERN.test(entryId)) {
-    throw new PayrollTimeLogError(
-      "Invalid time entry.",
-      400,
-      "INVALID_INPUT",
-    );
-  }
-
-  const admin = adminClient();
-  const profile = await contractorForUsername(teamUsername);
-  await settingsForProfile(profile.id);
-  const { data: existing, error: existingError } = await admin
-    .from("staff_time_entries")
-    .select("work_date")
-    .eq("id", entryId)
-    .eq("staff_profile_id", profile.id)
-    .eq("submitted_by_team_username", profile.team_username)
-    .maybeSingle();
-  if (existingError) {
-    throw new PayrollTimeLogError(
-      "Could not verify the time entry.",
-      503,
-      "STORAGE_ERROR",
-    );
-  }
-  if (!existing) {
-    throw new PayrollTimeLogError(
-      "That time entry was not found or cannot be deleted.",
-      404,
-      "NOT_FOUND",
-    );
-  }
-  await ensureInvoiceMonthIsOpen(profile.id, existing.work_date);
-  const { data, error } = await admin
-    .from("staff_time_entries")
-    .delete()
-    .eq("id", entryId)
-    .eq("staff_profile_id", profile.id)
-    .eq("submitted_by_team_username", profile.team_username)
-    .select("work_date")
-    .maybeSingle();
-
-  if (error) {
-    throw new PayrollTimeLogError(
-      "Could not delete the time entry.",
-      503,
-      "STORAGE_ERROR",
-    );
-  }
-  if (!data) {
-    throw new PayrollTimeLogError(
-      "That time entry was not found or cannot be deleted.",
-      404,
-      "NOT_FOUND",
-    );
-  }
-
-  return getPayrollTimeLogSnapshot(teamUsername, data.work_date);
 }
 
 export function payrollTimeLogRouteError(caught: unknown) {

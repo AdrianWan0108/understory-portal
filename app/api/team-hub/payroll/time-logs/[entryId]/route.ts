@@ -1,14 +1,9 @@
 import type { NextRequest } from "next/server";
-import { isTrustedMutationOrigin } from "@/lib/finance-auth";
 import {
   TEAM_IDENTITIES,
   TEAM_SESSION_COOKIE,
   getTeamIdentityForUsername,
 } from "@/lib/team-auth";
-import {
-  payrollTimeLogRouteError,
-  removePayrollTimeLog,
-} from "@/lib/payroll-time-logs";
 
 export const runtime = "nodejs";
 
@@ -20,27 +15,20 @@ function callerFromRequest(request: NextRequest) {
   return TEAM_IDENTITIES[identity];
 }
 
-export async function DELETE(
-  request: NextRequest,
-  context: { params: Promise<{ entryId: string }> },
-) {
+export async function DELETE(request: NextRequest) {
   const caller = callerFromRequest(request);
   if (!caller) {
     return Response.json(
-      { error: "Sign in to delete your time entry." },
+      { error: "Sign in to access payroll." },
       { status: 401 },
     );
   }
-  if (!isTrustedMutationOrigin(request)) {
-    return Response.json({ error: "Invalid request origin." }, { status: 403 });
-  }
-
-  try {
-    const { entryId } = await context.params;
-    return Response.json(
-      await removePayrollTimeLog(caller.username, entryId),
-    );
-  } catch (caught) {
-    return payrollTimeLogRouteError(caught);
-  }
+  return Response.json(
+    {
+      error:
+        "Submitted hours are locked. Contact Finance if a correction is needed.",
+      code: "TIME_ENTRY_LOCKED",
+    },
+    { status: 403 },
+  );
 }
