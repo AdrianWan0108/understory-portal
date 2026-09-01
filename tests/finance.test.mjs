@@ -24,57 +24,42 @@ import {
 } from "../lib/staff-private-profile-core.ts";
 import { generateStaffInvoicePdf } from "../lib/staff-invoice-pdf.ts";
 
-const future = "2099-01-01T00:00:00.000Z";
-
-test("Adrian can access Finance when his verified profile permission is set", () => {
+test("Adrian can access Finance with his Team Portal owner identity", () => {
   const result = evaluateFinanceAccess({
-    sessionUserId: "adrian-auth-id",
-    sessionExpiresAt: future,
-    profile: {
-      id: "adrian-profile",
-      full_name: "Adrian",
-      can_view_finance: true,
-    },
+    username: "Understory_Adrian",
+    name: "Adrian",
+    accessLevel: "owner",
   });
   assert.equal(result.kind, "allowed");
   assert.equal(result.name, "Adrian");
 });
 
-test("Karen can access Finance when her verified profile permission is set", () => {
+test("Karen can access Finance with her Team Portal owner identity", () => {
   const result = evaluateFinanceAccess({
-    sessionUserId: "karen-auth-id",
-    sessionExpiresAt: future,
-    profile: {
-      id: "karen-profile",
-      full_name: "Karen",
-      can_view_finance: true,
-    },
+    username: "Understory_Karen",
+    name: "Karen",
+    accessLevel: "owner",
   });
   assert.equal(result.kind, "allowed");
   assert.equal(result.name, "Karen");
 });
 
-test("an ordinary authenticated user is forbidden", () => {
+test("a staff Team Portal identity is forbidden", () => {
   const result = evaluateFinanceAccess({
-    sessionUserId: "ordinary-user",
-    sessionExpiresAt: future,
-    profile: {
-      id: "ordinary-profile",
-      full_name: "Team member",
-      can_view_finance: false,
-    },
+    username: "Understory_Arion",
+    name: "Arion",
+    accessLevel: "staff",
   });
   assert.equal(result.kind, "forbidden");
 });
 
-test("a request without a secure session is unauthenticated", () => {
+test("a request without a Team Portal identity is unauthenticated", () => {
   assert.equal(evaluateFinanceAccess({}).kind, "unauthenticated");
 });
 
-test("the Finance navigation item is hidden without verified access", () => {
-  assert.equal(shouldShowFinanceNavigation("staff", false), false);
-  assert.equal(shouldShowFinanceNavigation("owner", false), false);
-  assert.equal(shouldShowFinanceNavigation("owner", true), true);
+test("the Finance navigation item is shown to owners only", () => {
+  assert.equal(shouldShowFinanceNavigation("staff"), false);
+  assert.equal(shouldShowFinanceNavigation("owner"), true);
 });
 
 test("a manually entered Finance URL resolves to a forbidden decision", () => {
@@ -253,6 +238,13 @@ test("staff invoice generation returns a real PDF file", async () => {
         province: "ON",
         postalCode: "M1M 1M1",
         country: "Canada",
+      },
+      bankDetails: {
+        bankName: "Test Bank",
+        swiftCode: "TESTCA01",
+        accountNumber: "123456789",
+        institutionNumber: "001",
+        branchAddress: "100 King Street West, Toronto, ON",
       },
     },
     lineItems: [

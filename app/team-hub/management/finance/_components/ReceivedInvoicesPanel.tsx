@@ -13,6 +13,8 @@ type Invoice = {
   totalAmount: number;
   status: "sent_to_finance" | "paid";
   submittedAt: string;
+  paidAt: string | null;
+  paidByTeamUsername: string | null;
   pdfHref: string;
 };
 
@@ -31,6 +33,10 @@ function monthLabel(value: string) {
   }).format(new Date(`${value}-01T12:00:00.000Z`));
 }
 
+function teamName(value: string | null) {
+  return value?.replace(/^Understory_/i, "") ?? "Finance";
+}
+
 export function ReceivedInvoicesPanel({
   endpoint = "/api/team-hub/finance/staff-invoices",
 }: {
@@ -38,6 +44,9 @@ export function ReceivedInvoicesPanel({
 }) {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [updatingInvoiceId, setUpdatingInvoiceId] = useState<string | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -70,6 +79,38 @@ export function ReceivedInvoicesPanel({
     void load();
   }, [load]);
 
+  async function markPaid(invoiceId: string) {
+    if (updatingInvoiceId) return;
+    setUpdatingInvoiceId(invoiceId);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/team-hub/finance/staff-invoices/${invoiceId}`,
+        { method: "PATCH" },
+      );
+      const body = (await response.json().catch(() => ({}))) as {
+        invoice?: Invoice;
+        error?: string;
+      };
+      if (!response.ok || !body.invoice) {
+        throw new Error(body.error || "Could not mark the invoice as paid.");
+      }
+      setInvoices((current) =>
+        current.map((invoice) =>
+          invoice.id === body.invoice?.id ? body.invoice : invoice,
+        ),
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not mark the invoice as paid.",
+      );
+    } finally {
+      setUpdatingInvoiceId(null);
+    }
+  }
+
   return (
     <section className="mt-8 overflow-hidden rounded-[26px] border border-[#D7CBE0] bg-white shadow-[0_10px_34px_rgba(40,21,79,0.065)]">
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[#E7DDEB] bg-[#FFFDF8] px-5 py-5 sm:px-6">
@@ -78,10 +119,11 @@ export function ReceivedInvoicesPanel({
             Karen &amp; Adrian
           </p>
           <h2 className="mt-1 text-xl font-semibold text-[#341F60]">
-            Received staff invoice PDFs
+            Open invoices
           </h2>
           <p className="mt-1 text-sm text-[#75647F]">
-            Approved invoice files sent from the Payroll workspace.
+            Open each invoice to review it, then mark it paid for tracking.
+            Paid invoices remain listed.
           </p>
         </div>
         <button
@@ -122,11 +164,20 @@ export function ReceivedInvoicesPanel({
                 <p className="mt-1 text-xs text-[#8B7895]">
                   {invoice.invoiceNumber} · {invoice.totalHours}h · Sent {new Date(invoice.submittedAt).toLocaleDateString("en-CA")}
                 </p>
+                {invoice.status === "paid" && invoice.paidAt ? (
+                  <p className="mt-1 text-xs font-medium text-[#356346]">
+                    Paid {new Date(invoice.paidAt).toLocaleDateString("en-CA")} by {teamName(invoice.paidByTeamUsername)}
+                  </p>
+                ) : null}
               </div>
               <p className="font-semibold text-[#341F60]">
                 {money(invoice.totalAmount)}
               </p>
-              <span className="w-fit rounded-full border border-[#BFD8C7] bg-[#EDF7EF] px-3 py-1.5 text-[9px] font-bold uppercase text-[#356346]">
+              <span className={`w-fit rounded-full border px-3 py-1.5 text-[9px] font-bold uppercase ${
+                invoice.status === "paid"
+                  ? "border-[#BFD8C7] bg-[#EDF7EF] text-[#356346]"
+                  : "border-[#E8D4A2] bg-[#FFF8E7] text-[#806020]"
+              }`}>
                 {invoice.status === "paid" ? "Paid" : "Sent to Finance"}
               </span>
               <a
@@ -135,14 +186,26 @@ export function ReceivedInvoicesPanel({
                 rel="noreferrer"
                 className="w-fit rounded-full bg-[#341F60] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#28154F]"
               >
-                Open PDF
+                Open invoice
               </a>
+              {invoice.status === "sent_to_finance" ? (
+                <button
+                  type="button"
+                  onClick={() => void markPaid(invoice.id)}
+                  disabled={updatingInvoiceId !== null}
+                  className="w-fit rounded-full border border-[#BFD8C7] bg-[#EDF7EF] px-4 py-2.5 text-xs font-semibold text-[#356346] hover:bg-[#DFF0E3] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {updatingInvoiceId === invoice.id
+                    ? "Marking paid…"
+                    : "Mark paid"}
+                </button>
+              ) : null}
             </article>
           ))}
         </div>
       ) : (
         <p className="px-6 py-10 text-center text-sm text-[#75647F]">
-          No staff invoice PDFs have been sent yet.
+          No invoices have been sent yet.
         </p>
       )}
     </section>

@@ -4,14 +4,16 @@ import {
   requireFinanceAccess,
 } from "@/lib/finance-auth";
 import {
-  getStaffHoursSnapshot,
-  saveStaffBudget,
-  staffHoursRouteError,
-} from "@/lib/staff-hours";
+  markStaffInvoicePaid,
+  staffInvoiceRouteError,
+} from "@/lib/staff-invoices";
 
 export const runtime = "nodejs";
 
-export async function POST(request: NextRequest) {
+export async function PATCH(
+  request: NextRequest,
+  context: { params: Promise<{ invoiceId: string }> },
+) {
   const access = await requireFinanceAccess(request);
   if (!access.ok) {
     return Response.json({ error: access.error }, { status: access.status });
@@ -21,10 +23,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = (await request.json()) as Record<string, unknown>;
-    await saveStaffBudget(body, access.principal.username);
-    return Response.json(await getStaffHoursSnapshot(body.month));
+    const { invoiceId } = await context.params;
+    return Response.json({
+      invoice: await markStaffInvoicePaid(
+        invoiceId,
+        access.principal.username,
+      ),
+    });
   } catch (caught) {
-    return staffHoursRouteError(caught);
+    return staffInvoiceRouteError(caught);
   }
 }

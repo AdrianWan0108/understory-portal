@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = (await request.json()) as Record<string, unknown>;
-    await addStaffTimeEntry(body, access.principal.userId);
+    await addStaffTimeEntry(body, access.principal.username);
     const month =
       typeof body.workDate === "string" ? body.workDate.slice(0, 7) : null;
     return Response.json(await getStaffHoursSnapshot(month));

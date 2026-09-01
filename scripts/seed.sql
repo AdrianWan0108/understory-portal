@@ -1,5 +1,5 @@
 -- Run this entire file in the Supabase SQL Editor once.
--- It is safe to run again: existing Emilia tasks with these titles are skipped.
+-- It is safe to run again: existing unassigned tasks with these titles are skipped.
 
 begin;
 
@@ -23,14 +23,14 @@ begin
   if not exists (
     select 1 from tasks
     where client_id = mvp_client_id
-      and assignee = 'Emilia'
+      and assignee = 'Unassigned'
       and title = 'Rebrand launch carousel'
   ) then
     insert into tasks (
       client_id, assignee, title, brief, status, post_caption, ref_image_url
     ) values (
       mvp_client_id,
-      'Emilia',
+      'Unassigned',
       'Rebrand launch carousel',
       $copy$Introduce the new logo and the MVP Studio / MVP Training brand split. Goal: make the rebrand feel exciting and clear, not just an announcement.$copy$,
       'not_started',
@@ -52,14 +52,14 @@ begin
   if not exists (
     select 1 from tasks
     where client_id = mvp_client_id
-      and assignee = 'Emilia'
+      and assignee = 'Unassigned'
       and title = 'Pilates myth-busting carousel'
   ) then
     insert into tasks (
       client_id, assignee, title, brief, status, post_caption, ref_image_url
     ) values (
       mvp_client_id,
-      'Emilia',
+      'Unassigned',
       'Pilates myth-busting carousel',
       $copy$Correct the 'Pilates is just stretching' misconception using the Hundred as a concrete example. Goal: educational, positions MVP as knowledgeable.$copy$,
       'not_started',
@@ -80,14 +80,14 @@ begin
   if not exists (
     select 1 from tasks
     where client_id = mvp_client_id
-      and assignee = 'Emilia'
+      and assignee = 'Unassigned'
       and title = 'What is Polestar Pilates carousel'
   ) then
     insert into tasks (
       client_id, assignee, title, brief, status, post_caption, ref_image_url
     ) values (
       mvp_client_id,
-      'Emilia',
+      'Unassigned',
       'What is Polestar Pilates carousel',
       $copy$Explain what Polestar certification means through Gary and Dorothy's training, build credibility, and end with a CTA for the upcoming Teacher Training Program.$copy$,
       'not_started',
@@ -108,14 +108,14 @@ begin
   if not exists (
     select 1 from tasks
     where client_id = mvp_client_id
-      and assignee = 'Emilia'
+      and assignee = 'Unassigned'
       and title = 'Gary founder story carousel'
   ) then
     insert into tasks (
       client_id, assignee, title, brief, status, post_caption, ref_image_url
     ) values (
       mvp_client_id,
-      'Emilia',
+      'Unassigned',
       'Gary founder story carousel',
       $copy$Gary shares why he started MVP — personal, trust-building tone from the owner's perspective.$copy$,
       'not_started',

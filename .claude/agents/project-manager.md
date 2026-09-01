@@ -25,7 +25,7 @@ management surfaces (a broken dashboard, a missing status view, a data bug).
   script that gets committed.
 - `public.clients` — id/name/slug, joined by `client_id`.
 - `lib/team-auth.ts` — `TEAM_IDENTITIES`: the actual Understory teammates
-  (Karen, Adrian, Arion, Sure, Emilia, Xiyangcen) and their usernames —
+  (Karen, Adrian, Arion, Sure, Xiyangcen, Bruno) and their usernames —
   use this to resolve `assignee_usernames` to real names.
 - `lib/slack.ts` (`sendSlackMessage`) and `lib/anthropic-tools.ts` — an
   existing Claude-in-the-portal assistant already implements this same

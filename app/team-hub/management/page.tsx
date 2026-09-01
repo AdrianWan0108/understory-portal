@@ -127,7 +127,7 @@ export default function TeamHubManagementPage() {
 
         <section className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <Link
-            href="/team-hub/management/finance/sign-in"
+            href="/team-hub/management/finance"
             className="group rounded-[24px] border border-[#D7CBE0] bg-white p-6 shadow-[0_8px_28px_rgba(40,21,79,0.055)] transition hover:-translate-y-1 hover:border-[#7D4698] hover:shadow-[0_14px_34px_rgba(40,21,79,0.11)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7D4698]"
           >
             <span className="flex size-11 items-center justify-center rounded-2xl bg-[#341F60] text-[#F4CE45]">
@@ -153,7 +153,7 @@ export default function TeamHubManagementPage() {
               payment profiles.
             </p>
             <span className="mt-5 inline-flex items-center gap-2 text-xs font-semibold text-[#7D4698]">
-              Secure Finance sign-in
+              Open Finance
               <span className="transition group-hover:translate-x-1">→</span>
             </span>
           </Link>

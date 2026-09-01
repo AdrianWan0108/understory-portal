@@ -218,7 +218,7 @@ export async function getStaffHoursSnapshot(monthValue: unknown) {
 
 export async function saveStaffBudget(
   rawInput: Record<string, unknown>,
-  userId: string,
+  teamUsername: string,
 ) {
   let input;
   try {
@@ -240,7 +240,7 @@ export async function saveStaffBudget(
       budget_amount: input.budgetAmount,
       planned_hours: input.plannedHours,
       hourly_rate: input.hourlyRate,
-      created_by: userId,
+      created_by_team_username: teamUsername,
       updated_at: now,
     },
     { onConflict: "staff_profile_id,budget_month" },
@@ -256,7 +256,7 @@ export async function saveStaffBudget(
 
 export async function addStaffTimeEntry(
   rawInput: Record<string, unknown>,
-  userId: string,
+  teamUsername: string,
 ) {
   let input;
   try {
@@ -276,7 +276,7 @@ export async function addStaffTimeEntry(
     hours: input.hours,
     work_label: input.workLabel,
     notes: input.notes,
-    created_by: userId,
+    created_by_team_username: teamUsername,
   });
   if (error) {
     throw new StaffHoursError(

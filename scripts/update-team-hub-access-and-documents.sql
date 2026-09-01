@@ -33,11 +33,11 @@ alter table public.tasks
       'Understory_Adrian'
     ]::text[];
 
--- Preserve the existing Emilia calendar assignment when migrating old rows.
+-- Preserve recognized active staff assignments when migrating old rows.
 update public.tasks
 set assigned_to = assignee
 where assigned_to is null
-  and assignee in ('Arion', 'Sure', 'Emilia');
+  and assignee in ('Arion', 'Sure');
 
 update public.website_tasks
 set assignee_usernames = array[
@@ -46,12 +46,11 @@ set assignee_usernames = array[
     when 'adrian' then 'Understory_Adrian'
     when 'arion' then 'Understory_Arion'
     when 'sure' then 'Understory_Sure'
-    when 'emilia' then 'Understory_Emilia'
   end
 ]
 where cardinality(assignee_usernames) = 0
   and lower(btrim(assigned_to)) in (
-    'karen', 'adrian', 'arion', 'sure', 'emilia'
+    'karen', 'adrian', 'arion', 'sure'
   );
 
 update public.tasks
@@ -61,12 +60,11 @@ set assignee_usernames = array[
     when 'adrian' then 'Understory_Adrian'
     when 'arion' then 'Understory_Arion'
     when 'sure' then 'Understory_Sure'
-    when 'emilia' then 'Understory_Emilia'
   end
 ]
 where cardinality(assignee_usernames) = 0
   and lower(btrim(assigned_to)) in (
-    'karen', 'adrian', 'arion', 'sure', 'emilia'
+    'karen', 'adrian', 'arion', 'sure'
   );
 
 create index if not exists website_tasks_client_assigned_to_idx
@@ -124,8 +122,7 @@ select
 from (
   values
     ('Understory_Arion', 1500::numeric, 'paid', 'June 2026'),
-    ('Understory_Sure', 800::numeric, 'pending', 'July 2026'),
-    ('Understory_Emilia', 1200::numeric, 'pending', 'July 2026')
+    ('Understory_Sure', 800::numeric, 'pending', 'July 2026')
 ) as seeded(staff_username, amount, status, pay_period)
 where not exists (
   select 1

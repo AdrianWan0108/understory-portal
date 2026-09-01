@@ -13,7 +13,6 @@ import {
   useTeamIdentity,
 } from "./TeamIdentity";
 import { TEAM_LOGIN_PATH } from "@/lib/team-auth";
-import { shouldShowFinanceNavigation } from "@/lib/finance-policy";
 
 type NavIcon =
   | "dashboard"
@@ -33,7 +32,6 @@ const navigation: Array<{
   href: string;
   icon: NavIcon;
   ownerOnly?: boolean;
-  financeOnly?: boolean;
 }> = [
   {
     label: "Dashboard",
@@ -56,7 +54,6 @@ const navigation: Array<{
     href: "/team-hub/management/finance",
     icon: "finance",
     ownerOnly: true,
-    financeOnly: true,
   },
   {
     label: "Sales",
@@ -267,22 +264,17 @@ function IdentityIndicator({
 function TeamNavigation({
   pathname,
   accessLevel,
-  canViewFinance,
   onNavigate,
 }: {
   pathname: string;
   accessLevel: TeamAccessLevel;
-  canViewFinance: boolean;
   onNavigate?: () => void;
 }) {
   return (
     <nav aria-label="Team Hub navigation" className="space-y-1.5">
       {navigation
         .filter(
-          (item) =>
-            (accessLevel === "owner" || !item.ownerOnly) &&
-            (!item.financeOnly ||
-              shouldShowFinanceNavigation(accessLevel, canViewFinance)),
+          (item) => accessLevel === "owner" || !item.ownerOnly,
         )
         .map((item) => {
           const isActive =
@@ -318,7 +310,6 @@ function TeamHubShellContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [canViewFinance, setCanViewFinance] = useState(false);
   const {
     identity,
     accessLevel,
@@ -340,22 +331,6 @@ function TeamHubShellContent({ children }: { children: React.ReactNode }) {
     }
   }, [accessLevel, identity, isPickerOpen, isReady, pathname, router]);
 
-  useEffect(() => {
-    if (!isReady || accessLevel !== "owner") return;
-
-    let active = true;
-    async function loadFinanceAccess() {
-      const response = await fetch("/api/team-hub/finance/access", {
-        cache: "no-store",
-      }).catch(() => null);
-      if (active) setCanViewFinance(Boolean(response?.ok));
-    }
-    void loadFinanceAccess();
-    return () => {
-      active = false;
-    };
-  }, [accessLevel, isReady, pathname]);
-
   if (!isReady) {
     return <div className="min-h-screen bg-[#E9E0EF]" />;
   }
@@ -374,7 +349,6 @@ function TeamHubShellContent({ children }: { children: React.ReactNode }) {
           <TeamNavigation
             pathname={pathname}
             accessLevel={accessLevel}
-            canViewFinance={canViewFinance}
           />
         </div>
         <p className="border-t border-[#D7CBE0] px-2 pt-4 text-[10px] leading-4 text-[#8B7895]">
@@ -413,7 +387,6 @@ function TeamHubShellContent({ children }: { children: React.ReactNode }) {
             <TeamNavigation
               pathname={pathname}
               accessLevel={accessLevel}
-              canViewFinance={canViewFinance}
               onNavigate={() => setIsMobileMenuOpen(false)}
             />
           </div>

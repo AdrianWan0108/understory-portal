@@ -1,5 +1,5 @@
-import { FinanceSignIn } from "../_components/FinanceSignIn";
+import { redirect } from "next/navigation";
 
 export default function FinanceSignInPage() {
-  return <FinanceSignIn />;
+  redirect("/team-hub/management/finance");
 }

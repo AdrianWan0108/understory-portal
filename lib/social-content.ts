@@ -117,7 +117,6 @@ export const PROJECT_ASSIGNEES = [
   "Adrian",
   "Arion",
   "Sure",
-  "Emilia",
   "Xiyangcen",
   "Bruno",
 ] as const;

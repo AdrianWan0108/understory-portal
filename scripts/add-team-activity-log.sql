@@ -63,13 +63,6 @@ from (
       now() - interval '2 hours'
     ),
     (
-      'Emilia',
-      'uploaded new visuals for',
-      'Rebrand launch carousel',
-      'mvp',
-      now() - interval '5 hours'
-    ),
-    (
       'Sure',
       'updated the campaign brief for',
       'Nano Vista trunk show event page',

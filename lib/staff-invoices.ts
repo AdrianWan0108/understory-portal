@@ -4,7 +4,10 @@ import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { sendSlackMessage } from "@/lib/slack";
 import { payrollMonthWindow } from "@/lib/payroll-time-logs-core";
 import { getPayrollMonthSnapshot } from "@/lib/payroll-time-logs";
-import { getStaffPrivateProfile } from "@/lib/staff-private-profile";
+import {
+  getStaffPrivateProfile,
+  type StaffPrivateDetails,
+} from "@/lib/staff-private-profile";
 import {
   generateStaffInvoicePdf,
   type StaffInvoicePdfData,
@@ -33,6 +36,13 @@ type InvoiceRow = {
       postalCode: string;
       country: string;
     };
+    bankDetails?: {
+      bankName: string;
+      swiftCode: string;
+      accountNumber: string;
+      institutionNumber: string;
+      branchAddress?: string | null;
+    };
   };
   line_items: Array<{
     id: string;
@@ -45,7 +55,10 @@ type InvoiceRow = {
   }>;
   status: "sent_to_finance" | "paid";
   submitted_at: string;
+  paid_at: string | null;
+  paid_by_team_username: string | null;
   pdf_storage_path: string | null;
+  pdf_version: number | null;
 };
 
 export class StaffInvoiceError extends Error {
@@ -77,6 +90,16 @@ function number(value: number | string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function bankDetailsFromPrivateProfile(details: StaffPrivateDetails) {
+  return {
+    bankName: details.bankName,
+    swiftCode: details.swiftCode,
+    accountNumber: details.accountNumber,
+    institutionNumber: details.institutionNumber,
+    branchAddress: details.branchAddress ?? null,
+  };
+}
+
 function publicInvoice(row: InvoiceRow | null) {
   if (!row) return null;
   return {
@@ -94,6 +117,8 @@ function publicInvoice(row: InvoiceRow | null) {
     lineItems: row.line_items,
     status: row.status,
     submittedAt: row.submitted_at,
+    paidAt: row.paid_at,
+    paidByTeamUsername: row.paid_by_team_username,
     href: `/team-hub/payroll/invoices/${row.id}`,
     pdfHref: `/api/team-hub/payroll/invoices/${row.id}/pdf`,
     hasPdf: Boolean(row.pdf_storage_path),
@@ -260,6 +285,7 @@ async function invoiceDraft(
     payee: {
       legalName: privateProfile.details.legalName,
       address: privateProfile.details.payeeAddress,
+      bankDetails: bankDetailsFromPrivateProfile(privateProfile.details),
     },
     lineItems,
     submittedAt: new Date().toISOString(),
@@ -291,9 +317,32 @@ export async function getStaffInvoicePreview(
   };
 }
 
-async function ensureInvoicePdf(row: InvoiceRow) {
-  if (row.pdf_storage_path) return row;
-  const invoice = publicInvoice(row);
+async function ensureInvoicePdf(row: InvoiceRow, force = false) {
+  if (
+    !force &&
+    row.pdf_storage_path &&
+    Number(row.pdf_version ?? 1) >= 2
+  ) {
+    return row;
+  }
+
+  let payeeDetails = row.payee_details;
+  if (!payeeDetails.bankDetails) {
+    const privateProfile = await getStaffPrivateProfile(row.staff_username);
+    if (!privateProfile) {
+      throw new StaffInvoiceError(
+        "The payment profile is required to update this invoice PDF.",
+        409,
+        "PRIVATE_PROFILE_REQUIRED",
+      );
+    }
+    payeeDetails = {
+      ...payeeDetails,
+      bankDetails: bankDetailsFromPrivateProfile(privateProfile.details),
+    };
+  }
+
+  const invoice = publicInvoice({ ...row, payee_details: payeeDetails });
   if (!invoice) {
     throw new StaffInvoiceError(
       "The invoice PDF could not be prepared.",
@@ -320,18 +369,23 @@ async function ensureInvoicePdf(row: InvoiceRow) {
   }
   const { data, error } = await admin
     .from("staff_invoices")
-    .update({ pdf_storage_path: path })
+    .update({
+      payee_details: payeeDetails,
+      pdf_storage_path: path,
+      pdf_version: 2,
+    })
     .eq("id", row.id)
     .select("*")
     .single();
-  if (error || !data) {
+  const updatedRow = Array.isArray(data) ? data[0] : data;
+  if (error || !updatedRow) {
     throw new StaffInvoiceError(
       "The PDF was stored, but the invoice record could not be updated.",
       503,
       "PDF_STORAGE_ERROR",
     );
   }
-  return data as InvoiceRow;
+  return updatedRow as InvoiceRow;
 }
 
 export async function submitStaffInvoice(
@@ -436,7 +490,44 @@ export async function getFinanceStaffInvoices() {
       "STORAGE_ERROR",
     );
   }
-  return (data as InvoiceRow[]).map((row) => publicInvoice(row)!);
+  return (data as InvoiceRow[])
+    .map((row) => publicInvoice(row)!)
+    .sort((left, right) => {
+      if (left.status !== right.status) {
+        return left.status === "sent_to_finance" ? -1 : 1;
+      }
+      return right.submittedAt.localeCompare(left.submittedAt);
+    });
+}
+
+export async function markStaffInvoicePaid(
+  invoiceId: string,
+  paidByTeamUsername: string,
+) {
+  if (!/^[0-9a-f-]{36}$/i.test(invoiceId)) {
+    throw new StaffInvoiceError(
+      "Choose a valid invoice.",
+      422,
+      "INVALID_INVOICE",
+    );
+  }
+
+  const { data, error } = await adminClient().rpc("mark_staff_invoice_paid", {
+    p_invoice_id: invoiceId,
+    p_paid_by_team_username: paidByTeamUsername,
+  });
+  const updatedRow = Array.isArray(data) ? data[0] : data;
+  if (error || !updatedRow) {
+    throw new StaffInvoiceError(
+      "Could not mark the invoice as paid.",
+      error?.code === "P0002" ? 404 : 503,
+      error?.code === "P0002" ? "NOT_FOUND" : "STORAGE_ERROR",
+    );
+  }
+
+  return publicInvoice(
+    await ensureInvoicePdf(updatedRow as InvoiceRow, true),
+  )!;
 }
 
 export async function getStaffInvoiceById(
@@ -450,10 +541,11 @@ export async function getStaffInvoiceById(
     .eq("id", invoiceId)
     .maybeSingle();
   if (error || !data) return null;
-  const row = data as InvoiceRow;
+  let row = data as InvoiceRow;
   if (caller.accessLevel !== "owner" && row.staff_username !== caller.username) {
     return null;
   }
+  row = await ensureInvoicePdf(row);
   return publicInvoice(row);
 }
 

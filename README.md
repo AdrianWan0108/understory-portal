@@ -84,9 +84,9 @@ curl --request POST \
 
 ### First-time matching
 
-The migration seeds Karen, Adrian, Arion, Sure, and Emilia without inventing
-email addresses or Supabase Auth IDs. Add each known email to enable automatic
-email matching:
+The migrations seed the current team profiles without inventing email
+addresses or Supabase Auth IDs. Add each known email to enable automatic email
+matching:
 
 ```sql
 update public.profiles
@@ -107,41 +107,13 @@ The sync tries email first and then `slack_user_id`. It updates existing
 profiles only and logs unmatched profiles and Slack users in the Edge Function
 logs.
 
-## Secure Finance workspace
+## Finance workspace
 
-Finance lives at `/team-hub/management/finance` and uses a separate, verified
-Supabase GitHub OAuth session because the legacy Team Hub username cookie is
-not a secure identity boundary. Only profiles with `can_view_finance = true`
-can open the page or use its APIs. The browser receives only an opaque,
-HttpOnly Finance session cookie. The workspace contains staff hours, budgets,
-encrypted payment profiles, and generated staff invoice PDF files. The former
-Zoho Books connection has been retired; QuickBooks is not connected yet.
-
-1. Apply all Supabase migrations, including the staff invoice PDF/private
-   profile migrations and the migration that retires the old accounting
-   connection tables.
-2. Ensure Adrian and Karen have GitHub identities under Supabase
-   **Authentication → Users** and that `profiles.user_id` points to the
-   corresponding `auth.users.id`.
-3. Copy the Finance placeholders from `.env.example` into the local and Vercel
-   environments.
-4. Export `ADRIAN_EMAIL`, `KAREN_EMAIL`, the Supabase URL, and the service-role
-   key into the command environment, then run:
-
-   ```bash
-   npm run finance:grant-access
-   ```
-
-   The database function performs the revoke-and-grant operation atomically,
-   fails if either profile is absent or unlinked, and leaves access enabled
-   only for those two profiles.
-
-5. In Supabase **Authentication → URL Configuration**, add this exact redirect
-   URL (and the localhost equivalent when needed):
-
-   ```text
-   https://portal.example.com/api/team-hub/finance/session/github/callback
-   ```
+Finance lives at `/team-hub/management/finance`. Team Portal owners can open
+it directly with their existing Team Portal identity; there is no separate
+Finance or social-provider sign-in. Its server routes repeat the owner check
+before returning staff hours, budgets, encrypted payment profiles, and staff
+invoice PDF files. Apply all Supabase migrations before using the workspace.
 
 Generate `TOKEN_ENCRYPTION_KEY` with either `openssl rand -base64 32` or
 `openssl rand -hex 32`. Never commit the generated value.

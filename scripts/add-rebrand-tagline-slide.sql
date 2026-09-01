@@ -12,7 +12,7 @@ begin
   from tasks
   join clients on clients.id = tasks.client_id
   where clients.slug = 'mvp'
-    and tasks.assignee = 'Emilia'
+    and tasks.assignee = 'Unassigned'
     and tasks.title = 'Rebrand launch carousel'
   limit 1;
 

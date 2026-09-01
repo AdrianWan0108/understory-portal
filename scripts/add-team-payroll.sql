@@ -74,8 +74,7 @@ select
 from (
   values
     ('Understory_Arion', 1500::numeric, 'paid', 'June 2026'),
-    ('Understory_Sure', 800::numeric, 'pending', 'July 2026'),
-    ('Understory_Emilia', 1200::numeric, 'pending', 'July 2026')
+    ('Understory_Sure', 800::numeric, 'pending', 'July 2026')
 ) as seeded(staff_username, amount, status, pay_period)
 where not exists (
   select 1

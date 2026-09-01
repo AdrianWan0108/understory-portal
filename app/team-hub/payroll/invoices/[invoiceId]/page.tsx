@@ -52,6 +52,7 @@ export default async function StaffInvoicePage({
   if (!invoice) notFound();
 
   const address = invoice.payee.address;
+  const bankDetails = invoice.payee.bankDetails;
   return (
     <main className="px-5 py-8 sm:px-8 sm:py-12 lg:px-12 print:bg-white print:p-0">
       <div className="mx-auto max-w-5xl">
@@ -184,9 +185,41 @@ export default async function StaffInvoicePage({
           </section>
 
           <footer className="flex flex-col gap-8 px-7 py-8 sm:flex-row sm:items-end sm:justify-between sm:px-10 print:px-0">
-            <p className="max-w-md text-xs leading-5 text-[#8B7895]">
-              Payment details are kept separately in the protected staff profile and are available only when Finance needs to issue payment.
-            </p>
+            {bankDetails ? (
+              <div className="max-w-md">
+                <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#8B7895]">
+                  Payment details
+                </p>
+                <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs leading-5">
+                  <dt className="text-[#8B7895]">Bank</dt>
+                  <dd className="font-semibold text-[#341F60]">
+                    {bankDetails.bankName}
+                  </dd>
+                  <dt className="text-[#8B7895]">Account number</dt>
+                  <dd className="text-[#5F3378]">
+                    {bankDetails.accountNumber}
+                  </dd>
+                  <dt className="text-[#8B7895]">Institution number</dt>
+                  <dd className="text-[#5F3378]">
+                    {bankDetails.institutionNumber}
+                  </dd>
+                  <dt className="text-[#8B7895]">SWIFT code</dt>
+                  <dd className="text-[#5F3378]">{bankDetails.swiftCode}</dd>
+                  {bankDetails.branchAddress ? (
+                    <>
+                      <dt className="text-[#8B7895]">Branch address</dt>
+                      <dd className="text-[#5F3378]">
+                        {bankDetails.branchAddress}
+                      </dd>
+                    </>
+                  ) : null}
+                </dl>
+              </div>
+            ) : (
+              <p className="max-w-md text-xs leading-5 text-[#8B7895]">
+                Payment details are available from Finance.
+              </p>
+            )}
             <dl className="min-w-72 space-y-3 text-sm">
               <div className="flex justify-between gap-8">
                 <dt className="text-[#75647F]">Total hours</dt>

@@ -38,6 +38,8 @@ export async function GET(request: NextRequest) {
       totalAmount: invoice.totalAmount,
       status: invoice.status,
       submittedAt: invoice.submittedAt,
+      paidAt: invoice.paidAt,
+      paidByTeamUsername: invoice.paidByTeamUsername,
       pdfHref: invoice.pdfHref,
     }));
     return Response.json(

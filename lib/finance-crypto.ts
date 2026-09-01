@@ -3,7 +3,6 @@ import "server-only";
 import {
   createCipheriv,
   createDecipheriv,
-  createHash,
   randomBytes,
 } from "node:crypto";
 
@@ -23,22 +22,6 @@ function encryptionKey() {
     );
   }
   return decoded;
-}
-
-function githubOAuthStateKey() {
-  const source =
-    process.env.TOKEN_ENCRYPTION_KEY ??
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!source) {
-    throw new Error(
-      "TOKEN_ENCRYPTION_KEY or SUPABASE_SERVICE_ROLE_KEY is required.",
-    );
-  }
-
-  return createHash("sha256")
-    .update("understory-finance-github-pkce-v1\0", "utf8")
-    .update(source, "utf8")
-    .digest();
 }
 
 function encryptWithKey(plaintext: string, key: Buffer) {
@@ -88,12 +71,4 @@ export function encryptSecret(plaintext: string) {
 
 export function decryptSecret(encrypted: string) {
   return decryptWithKey(encrypted, encryptionKey());
-}
-
-export function encryptGitHubOAuthState(plaintext: string) {
-  return encryptWithKey(plaintext, githubOAuthStateKey());
-}
-
-export function decryptGitHubOAuthState(encrypted: string) {
-  return decryptWithKey(encrypted, githubOAuthStateKey());
 }

@@ -12,7 +12,7 @@ test("a Boardwalk client comment reaches the Dashboard activity feed and Slack",
       title: "August frame styling carousel",
       reviewerName: "Sarah",
       comment: "Please use the blue frame in slide three.",
-      assigneeNames: ["Emilia"],
+      assigneeNames: ["Xiyangcen"],
     },
     {
       writeActivity: async (activity) => {

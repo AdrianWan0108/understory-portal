@@ -4,7 +4,6 @@ export type TeamIdentity =
   | "adrian"
   | "arion"
   | "sure"
-  | "emilia"
   | "xiyangcen"
   | "bruno";
 
@@ -49,13 +48,6 @@ export const TEAM_IDENTITIES: Record<
     title: "Media Buyer",
     accessLevel: "staff",
     initials: "S",
-  },
-  emilia: {
-    username: "Understory_Emilia",
-    name: "Emilia",
-    title: "Graphic Designer",
-    accessLevel: "staff",
-    initials: "E",
   },
   xiyangcen: {
     username: "Understory_Xiyangcen",

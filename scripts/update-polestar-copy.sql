@@ -10,7 +10,7 @@ set
 from clients
 where tasks.client_id = clients.id
   and clients.slug = 'mvp'
-  and tasks.assignee = 'Emilia'
+  and tasks.assignee = 'Unassigned'
   and tasks.title = 'What is Polestar Pilates carousel';
 
 update task_slides
@@ -19,7 +19,7 @@ from tasks, clients
 where task_slides.task_id = tasks.id
   and tasks.client_id = clients.id
   and clients.slug = 'mvp'
-  and tasks.assignee = 'Emilia'
+  and tasks.assignee = 'Unassigned'
   and tasks.title = 'What is Polestar Pilates carousel'
   and task_slides.slide_number = 3;
 

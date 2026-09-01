@@ -1,52 +1,32 @@
 export type FinanceAccessState =
-  | { kind: "allowed"; userId: string; profileId: string; name: string }
+  | { kind: "allowed"; username: string; name: string }
   | { kind: "unauthenticated" }
   | { kind: "forbidden" };
 
 export function evaluateFinanceAccess(input: {
-  sessionUserId?: string | null;
-  sessionExpiresAt?: string | null;
-  profile?: {
-    id: string;
-    full_name: string;
-    can_view_finance: boolean;
-  } | null;
-  now?: number;
+  username?: string | null;
+  name?: string | null;
+  accessLevel?: "owner" | "staff" | null;
 }): FinanceAccessState {
-  const now = input.now ?? Date.now();
-  const expiresAt = input.sessionExpiresAt
-    ? Date.parse(input.sessionExpiresAt)
-    : Number.NaN;
-
-  if (
-    !input.sessionUserId ||
-    !Number.isFinite(expiresAt) ||
-    expiresAt <= now
-  ) {
+  if (!input.username || !input.name || !input.accessLevel) {
     return { kind: "unauthenticated" };
   }
 
-  if (
-    !input.profile ||
-    !input.profile.can_view_finance ||
-    input.profile.id.length === 0
-  ) {
+  if (input.accessLevel !== "owner") {
     return { kind: "forbidden" };
   }
 
   return {
     kind: "allowed",
-    userId: input.sessionUserId,
-    profileId: input.profile.id,
-    name: input.profile.full_name,
+    username: input.username,
+    name: input.name,
   };
 }
 
 export function shouldShowFinanceNavigation(
   accessLevel: "owner" | "staff" | null,
-  hasVerifiedFinanceAccess: boolean,
 ) {
-  return accessLevel === "owner" && hasVerifiedFinanceAccess;
+  return accessLevel === "owner";
 }
 
 export function financePageDecision(access: FinanceAccessState) {

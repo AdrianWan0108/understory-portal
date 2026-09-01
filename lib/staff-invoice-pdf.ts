@@ -24,6 +24,13 @@ export type StaffInvoicePdfData = {
       postalCode: string;
       country: string;
     };
+    bankDetails?: {
+      bankName: string;
+      swiftCode: string;
+      accountNumber: string;
+      institutionNumber: string;
+      branchAddress?: string | null;
+    };
   };
   lineItems: Array<{
     id: string;
@@ -272,18 +279,52 @@ export async function generateStaffInvoicePdf(invoice: StaffInvoicePdfData) {
     y -= rowHeight;
   }
 
-  if (y < 150) {
+  if (y < 210) {
     page = document.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
     drawPageHeader(page, regular, bold, invoice, true);
     y = PAGE_HEIGHT - 155;
   }
-  page.drawText("Payment details are stored securely in the staff payment profile.", {
-    x: MARGIN,
-    y: y - 30,
-    font: regular,
-    size: 8,
-    color: MUTED,
-  });
+  const bankDetails = invoice.payee.bankDetails;
+  if (bankDetails) {
+    page.drawText("PAYMENT DETAILS", {
+      x: MARGIN,
+      y: y - 20,
+      font: bold,
+      size: 7.5,
+      color: MUTED,
+    });
+    const paymentLines = [
+      `Bank: ${bankDetails.bankName}`,
+      `Account number: ${bankDetails.accountNumber}`,
+      `Institution number: ${bankDetails.institutionNumber}`,
+      `SWIFT code: ${bankDetails.swiftCode}`,
+      ...(bankDetails.branchAddress
+        ? wrapText(
+            `Branch address: ${bankDetails.branchAddress}`,
+            regular,
+            8.5,
+            285,
+          )
+        : []),
+    ];
+    paymentLines.forEach((line, index) => {
+      page.drawText(line, {
+        x: MARGIN,
+        y: y - 38 - index * 13,
+        font: index === 0 ? bold : regular,
+        size: 8.5,
+        color: index === 0 ? PURPLE : MUTED,
+      });
+    });
+  } else {
+    page.drawText("Payment details are available from Finance.", {
+      x: MARGIN,
+      y: y - 30,
+      font: regular,
+      size: 8,
+      color: MUTED,
+    });
+  }
   page.drawText("TOTAL HOURS", {
     x: 382,
     y: y - 20,

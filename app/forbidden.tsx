@@ -16,10 +16,10 @@ export default function Forbidden() {
         </p>
         <div className="mt-7 flex flex-wrap justify-center gap-3">
           <Link
-            href="/team-hub/management/finance/sign-in"
+            href="/team-hub/management/finance"
             className="rounded-full bg-[#341F60] px-5 py-3 text-sm font-semibold text-white"
           >
-            Secure Finance sign-in
+            Back to Finance
           </Link>
           <Link
             href="/team-hub/dashboard"
