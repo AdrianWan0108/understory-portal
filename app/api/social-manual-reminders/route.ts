@@ -26,6 +26,7 @@ type DueTask = {
   brief: string | null;
   visual_note: string | null;
   post_caption: string | null;
+  creative_drive_link: string | null;
   reel_details: unknown;
   scheduled_at: string;
   scheduling_mode: unknown;
@@ -84,6 +85,7 @@ async function sendDueManualPostReminders(request: NextRequest) {
         brief,
         visual_note,
         post_caption,
+        creative_drive_link,
         reel_details,
         scheduled_at,
         scheduling_mode,
@@ -214,7 +216,8 @@ async function sendDueManualPostReminders(request: NextRequest) {
       purpose: task.purpose,
       brief: task.brief,
       visualNote: task.visual_note,
-      postCaption: task.post_caption,
+      postCaption: task.format === "carousel" ? null : task.post_caption,
+      creativeDriveLink: task.creative_drive_link,
       reel:
         task.format === "reel"
           ? {

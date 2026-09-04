@@ -46,6 +46,7 @@ type SocialApprovalRow = {
   title: string;
   format: string | null;
   post_caption: string;
+  creative_drive_link: string | null;
   reel_details: unknown;
   scheduled_at: string | null;
   sent_to_client_at: string;
@@ -163,11 +164,20 @@ function approvalStatusFor(
 function previewUrl(value: string | null | undefined) {
   if (!value) return undefined;
   const driveFileId = extractGoogleDriveFileId(value);
-  return driveFileId
-    ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(
-        driveFileId,
-      )}&sz=w640`
-    : value;
+  if (driveFileId) {
+    return `https://drive.google.com/thumbnail?id=${encodeURIComponent(
+      driveFileId,
+    )}&sz=w640`;
+  }
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    if (hostname === "drive.google.com" || hostname === "docs.google.com") {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+  return value;
 }
 
 function assigneeNames(
@@ -241,6 +251,7 @@ export default function ApprovalsPage() {
             title,
             format,
             post_caption,
+            creative_drive_link,
             reel_details,
             scheduled_at,
             publishing_status,
@@ -312,8 +323,10 @@ export default function ApprovalsPage() {
               : "image";
           const image =
             format === "reel"
-              ? slides[0]?.image_url || reelDetails.videoUrl
-              : slides[0]?.image_url;
+              ? slides[0]?.image_url ||
+                reelDetails.videoUrl ||
+                row.creative_drive_link
+              : slides[0]?.image_url || row.creative_drive_link;
 
           return {
             source: "social",
@@ -322,12 +335,15 @@ export default function ApprovalsPage() {
               category: "social_media",
               client: client.name,
               title: row.title,
-              caption: slides[0]?.slide_caption || row.post_caption,
+              caption:
+                format === "carousel" ? undefined : row.post_caption,
               thumbnailSrc: previewUrl(image),
               videoSrc:
-                format === "reel" && reelDetails.videoUrl
-                  ? reelDetails.videoUrl
+                format === "reel" &&
+                (reelDetails.videoUrl || row.creative_drive_link)
+                  ? reelDetails.videoUrl || row.creative_drive_link || undefined
                   : undefined,
+              creativeUrl: row.creative_drive_link ?? undefined,
               format,
               slides:
                 format === "carousel"

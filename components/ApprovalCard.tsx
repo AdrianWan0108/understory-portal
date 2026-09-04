@@ -362,6 +362,17 @@ export default function ApprovalCard({
             </p>
           </div>
 
+          {item.creativeUrl && (
+            <a
+              href={item.creativeUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 inline-flex w-fit text-[11px] font-semibold text-primary underline underline-offset-4"
+            >
+              Open creative in Google Drive ↗
+            </a>
+          )}
+
           <div className="mt-auto pt-5">
             {isRequestingChanges ? (
               <div className="rounded-2xl border border-[#DDB7AB] bg-[#F8ECE8]/70 p-3">

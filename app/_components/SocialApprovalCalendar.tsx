@@ -124,6 +124,7 @@ type ApprovalPost = {
   mentioned_usernames: string[];
   requires_filming: boolean;
   filming_details: SocialFilmingDetails;
+  creative_drive_link: string | null;
   live_post_url: string | null;
   scheduling_mode: SocialSchedulingMode;
   manual_reminder_sent_at: string | null;
@@ -182,6 +183,7 @@ type PostContentDraft = {
   reelDetails: ReelDetails;
   requiresFilming: boolean;
   filmingDetails: SocialFilmingDetails;
+  creativeDriveLink: string;
   livePostUrl: string;
   schedulingMode: SocialSchedulingMode;
   assigneeUsernames: string[];
@@ -600,18 +602,29 @@ function approvalStateLabel(state: ReturnType<typeof deriveInternalApprovalState
 function visualPreviewUrl(value: string | null | undefined) {
   if (!value) return null;
   const driveFileId = extractGoogleDriveFileId(value);
-  return driveFileId
-    ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(
-        driveFileId,
-      )}&sz=w1600`
-    : value;
+  if (driveFileId) {
+    return `https://drive.google.com/thumbnail?id=${encodeURIComponent(
+      driveFileId,
+    )}&sz=w1600`;
+  }
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    if (hostname === "drive.google.com" || hostname === "docs.google.com") {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return value;
 }
 
 function postVisualPreviewUrl(post: ApprovalPost) {
   return visualPreviewUrl(
     post.format === "reel"
-      ? post.reel_details.videoUrl || post.task_slides[0]?.image_url
-      : post.task_slides[0]?.image_url,
+      ? post.reel_details.videoUrl ||
+          post.task_slides[0]?.image_url ||
+          post.creative_drive_link
+      : post.task_slides[0]?.image_url || post.creative_drive_link,
   );
 }
 
@@ -822,6 +835,7 @@ export function SocialApprovalCalendar({
             mentioned_usernames,
             requires_filming,
             filming_details,
+            creative_drive_link,
             live_post_url,
             task_slides (
               id,
@@ -947,7 +961,11 @@ export function SocialApprovalCalendar({
   ).length;
   const selectedReelVideoUrls =
     selectedPost?.format === "reel"
-      ? resolveGoogleDriveFileUrls(selectedPost.reel_details.videoUrl)
+      ? resolveGoogleDriveFileUrls(
+          selectedPost.reel_details.videoUrl ||
+            selectedPost.creative_drive_link ||
+            "",
+        )
       : null;
 
   function openPost(post: ApprovalPost, reviewerKeys: string[]) {
@@ -992,6 +1010,7 @@ export function SocialApprovalCalendar({
       reelDetails: post.reel_details,
       requiresFilming: post.requires_filming,
       filmingDetails: post.filming_details,
+      creativeDriveLink: post.creative_drive_link ?? "",
       livePostUrl: post.live_post_url ?? "",
       schedulingMode: post.scheduling_mode,
       assigneeUsernames: post.assignee_usernames,
@@ -1179,6 +1198,22 @@ export function SocialApprovalCalendar({
     }
     setIsSaving(true);
     setError(null);
+    const creativeDriveLink = contentDraft.creativeDriveLink.trim();
+    if (creativeDriveLink) {
+      try {
+        const hostname = new URL(creativeDriveLink).hostname.toLowerCase();
+        if (
+          hostname !== "drive.google.com" &&
+          hostname !== "docs.google.com"
+        ) {
+          throw new Error("Not a Google Drive URL");
+        }
+      } catch {
+        setIsSaving(false);
+        setError("Enter a valid Google Drive link for the creative.");
+        return;
+      }
+    }
     const scheduledAt = scheduleDraft
       ? new Date(scheduleDraft).toISOString()
       : null;
@@ -1284,6 +1319,8 @@ export function SocialApprovalCalendar({
       post.scheduled_at === scheduledAt
         ? post.manual_reminder_sent_at
         : null;
+    const postCaption =
+      contentDraft.format === "carousel" ? "" : captionDraft.trim();
     const legacyStatus = legacyStatusForSocialDimensions(
       productionStatus,
       publishingStatus,
@@ -1309,6 +1346,7 @@ export function SocialApprovalCalendar({
           contentDraft.format === "reel" ? contentDraft.reelDetails : null,
         requires_filming: contentDraft.requiresFilming,
         filming_details: contentDraft.filmingDetails,
+        creative_drive_link: creativeDriveLink || null,
         live_post_url: livePostUrl || null,
         posted_at: postedAt,
         posted_by: postedBy,
@@ -1319,7 +1357,7 @@ export function SocialApprovalCalendar({
         assignee: assignedProfiles[0]?.name ?? "Unassigned",
         mentioned_usernames: nextMentionedUsernames,
         watcher_usernames: nextWatcherUsernames,
-        post_caption: captionDraft.trim(),
+        post_caption: postCaption,
         scheduled_at: scheduledAt,
       })
       .eq("id", post.id);
@@ -1346,6 +1384,7 @@ export function SocialApprovalCalendar({
       reel_details: contentDraft.reelDetails,
       requires_filming: contentDraft.requiresFilming,
       filming_details: contentDraft.filmingDetails,
+      creative_drive_link: creativeDriveLink || null,
       live_post_url: livePostUrl || null,
       posted_at: postedAt,
       posted_by: postedBy,
@@ -1355,7 +1394,7 @@ export function SocialApprovalCalendar({
       assigned_to: assignedProfiles[0]?.name ?? null,
       mentioned_usernames: nextMentionedUsernames,
       watcher_usernames: nextWatcherUsernames,
-      post_caption: captionDraft.trim(),
+      post_caption: postCaption,
       scheduled_at: scheduledAt,
       task_slides: post.task_slides.map((slide) => ({
         ...slide,
@@ -2689,18 +2728,21 @@ export function SocialApprovalCalendar({
                   className="relative flex aspect-[4/5] items-center justify-center overflow-hidden rounded-2xl bg-[var(--background)] bg-cover bg-center shadow-sm"
                   style={
                     visualPreviewUrl(
-                      selectedPost.task_slides[selectedSlide]?.image_url,
+                      selectedPost.task_slides[selectedSlide]?.image_url ||
+                        selectedPost.creative_drive_link,
                     )
                       ? {
                           backgroundImage: `url("${visualPreviewUrl(
-                            selectedPost.task_slides[selectedSlide]?.image_url,
+                            selectedPost.task_slides[selectedSlide]?.image_url ||
+                              selectedPost.creative_drive_link,
                           )!.replaceAll('"', "%22")}")`,
                         }
                       : undefined
                   }
                 >
                   {!visualPreviewUrl(
-                    selectedPost.task_slides[selectedSlide]?.image_url,
+                    selectedPost.task_slides[selectedSlide]?.image_url ||
+                      selectedPost.creative_drive_link,
                   ) && (
                     <div className="max-w-sm p-8 text-center">
                       <p className={`${fraunces.className} text-2xl font-medium`}>
@@ -2774,6 +2816,16 @@ export function SocialApprovalCalendar({
               )}
               {selectedPost.posted_at && (
                 <PostedStamp className="absolute right-8 top-8 z-10 px-4 py-2 text-xs" />
+              )}
+              {selectedPost.creative_drive_link && (
+                <a
+                  href={selectedPost.creative_drive_link}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-flex rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[10px] font-semibold underline underline-offset-2"
+                >
+                  Open creative in Google Drive ↗
+                </a>
               )}
             </div>
 
@@ -3247,25 +3299,25 @@ export function SocialApprovalCalendar({
                         </div>
                       </section>
                     )}
-                  <label
-                    className={`text-xs font-semibold ${
-                      activeModalPhase === "creative" ? "" : "hidden"
-                    }`}
-                  >
-                    {selectedPost.format === "carousel"
-                      ? "Post caption (shown below the whole carousel)"
-                      : "Final caption"}
-                    <textarea
-                      rows={8}
-                      disabled={
-                        Boolean(selectedPost.posted_at) ||
-                        selectedPost.publishing_status === "scheduled"
-                      }
-                      value={captionDraft}
-                      onChange={(event) => setCaptionDraft(event.target.value)}
-                      className="mt-2 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm leading-6"
-                    />
-                  </label>
+                  {contentDraft?.format !== "carousel" && (
+                    <label
+                      className={`text-xs font-semibold ${
+                        activeModalPhase === "creative" ? "" : "hidden"
+                      }`}
+                    >
+                      Final caption
+                      <textarea
+                        rows={8}
+                        disabled={
+                          Boolean(selectedPost.posted_at) ||
+                          selectedPost.publishing_status === "scheduled"
+                        }
+                        value={captionDraft}
+                        onChange={(event) => setCaptionDraft(event.target.value)}
+                        className="mt-2 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm leading-6"
+                      />
+                    </label>
+                  )}
                   {contentDraft && (
                     <>
                       <section
@@ -3573,6 +3625,25 @@ export function SocialApprovalCalendar({
                             ))}
                           </select>
                         </label>
+                        <label className="text-xs font-semibold">
+                          Creative Google Drive link
+                          <input
+                            type="url"
+                            value={contentDraft.creativeDriveLink}
+                            onChange={(event) =>
+                              setContentDraft({
+                                ...contentDraft,
+                                creativeDriveLink: event.target.value,
+                              })
+                            }
+                            placeholder="https://drive.google.com/..."
+                            className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-normal"
+                          />
+                          <span className="mt-2 block text-[11px] font-normal leading-5 text-[var(--foreground)]/50">
+                            Paste the final creative file or folder link and make
+                            sure “Anyone with the link can view” is enabled.
+                          </span>
+                        </label>
                         <fieldset>
                           <legend className="text-xs font-semibold">Assignees</legend>
                           <div className="mt-2 grid gap-2 sm:grid-cols-2">
@@ -3717,16 +3788,16 @@ export function SocialApprovalCalendar({
                         </p>
                       </div>
                     )}
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--foreground)]/40">
-                      {selectedPost.format === "carousel"
-                        ? "Post caption"
-                        : "Caption"}
-                    </p>
-                    <p className="mt-2 whitespace-pre-line text-sm leading-6 text-[var(--foreground)]/75">
-                      {selectedPost.post_caption}
-                    </p>
-                  </div>
+                  {selectedPost.format !== "carousel" && (
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--foreground)]/40">
+                        Caption
+                      </p>
+                      <p className="mt-2 whitespace-pre-line text-sm leading-6 text-[var(--foreground)]/75">
+                        {selectedPost.post_caption}
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 

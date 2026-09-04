@@ -19,6 +19,7 @@ export type ManualPostReminder = {
   brief?: string | null;
   visualNote?: string | null;
   postCaption?: string | null;
+  creativeDriveLink?: string | null;
   reel?: {
     hook?: string | null;
     script?: string | null;
@@ -77,6 +78,7 @@ export function buildManualPostReminderMessage(input: ManualPostReminder) {
     : input.assigneeNames?.length
       ? input.assigneeNames.join(", ")
       : "Unassigned";
+  const isCarousel = clean(input.format, 80)?.toLowerCase() === "carousel";
   const lines = [
     "🔔 *Manual social post due now*",
     `*${clean(input.clientName, 120) ?? "Client"} · ${clean(input.title, 240) ?? "Untitled content"}*`,
@@ -90,9 +92,10 @@ export function buildManualPostReminderMessage(input: ManualPostReminder) {
     clean(input.visualNote)
       ? `Visual direction: ${clean(input.visualNote)}`
       : null,
-    clean(input.postCaption, 1_500)
+    !isCarousel && clean(input.postCaption, 1_500)
       ? `Caption:\n${clean(input.postCaption, 1_500)}`
       : null,
+    slackLink(input.creativeDriveLink, "Open creative in Google Drive"),
   ];
 
   if (input.reel) {
