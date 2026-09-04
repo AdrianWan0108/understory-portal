@@ -213,14 +213,6 @@ export function specializedDivisionHref(
     return `/team-hub/projects/${encodeURIComponent(taskId)}/calendar?calendar=${encodeURIComponent(taskId)}`;
   }
 
-  if (
-    division === "social-media" &&
-    templateType === "internal_approval" &&
-    taskId
-  ) {
-    return `/team-hub/projects/${encodeURIComponent(taskId)}/internal-approval`;
-  }
-
   if (division === "website") {
     const taskQuery = taskId
       ? `&task=${encodeURIComponent(taskId)}`

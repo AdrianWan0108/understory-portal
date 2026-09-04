@@ -13,7 +13,7 @@ export interface ApprovalItem {
   caption?: string;
   thumbnailSrc?: string;
   videoSrc?: string;
-  format?: "image" | "carousel" | "reel";
+  format?: "image" | "carousel" | "reel" | "story";
   slides?: Array<{
     number: number;
     thumbnailSrc?: string;
@@ -21,6 +21,7 @@ export interface ApprovalItem {
   }>;
   status: ApprovalStatus;
   submittedAt: string;
+  plannedAt?: string;
 }
 
 export const categoryConfig: Record<

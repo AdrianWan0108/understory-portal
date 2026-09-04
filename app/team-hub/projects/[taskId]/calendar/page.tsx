@@ -1,1 +1,10 @@
-export { default } from "@/app/team/mvp/social-media/august-content-calendar/page";
+import { SocialContentCalendarWorkspace } from "./workspace";
+
+export default async function SocialContentCalendarPage({
+  params,
+}: {
+  params: Promise<{ taskId: string }>;
+}) {
+  const { taskId } = await params;
+  return <SocialContentCalendarWorkspace taskId={taskId} />;
+}

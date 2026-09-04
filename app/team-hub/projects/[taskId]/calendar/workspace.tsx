@@ -21,11 +21,11 @@ const INTERNAL_TEAM: ApprovalReviewer[] = [
   },
 ];
 
-const REQUIRED_INTERNAL_REVIEWERS: ApprovalReviewer[] = INTERNAL_TEAM.filter(
+const REQUIRED_INTERNAL_REVIEWERS = INTERNAL_TEAM.filter(
   (reviewer) => reviewer.key === "Understory_Karen",
 );
 
-export function InternalApprovalWorkspace({ taskId }: { taskId: string }) {
+export function SocialContentCalendarWorkspace({ taskId }: { taskId: string }) {
   const { username, accessLevel, isReady } = useTeamIdentity();
   const currentReviewer =
     isReady && username
@@ -40,8 +40,7 @@ export function InternalApprovalWorkspace({ taskId }: { taskId: string }) {
       requiredReviewers={REQUIRED_INTERNAL_REVIEWERS}
       canSendToClient={
         accessLevel === "owner" &&
-        (username === "Understory_Karen" ||
-          username === "Understory_Adrian")
+        (username === "Understory_Karen" || username === "Understory_Adrian")
       }
     />
   );

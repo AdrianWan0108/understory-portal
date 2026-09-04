@@ -30,9 +30,10 @@ type SocialRow = {
   id: string;
   title: string;
   status: string;
+  publishing_status: string;
   sent_to_client_at: string;
   client_approvals: unknown;
-  internal_approval_task_id: string | null;
+  division_task_id: string | null;
 };
 
 type DeliverableRow = {
@@ -88,7 +89,7 @@ export default function AdminApprovalsPage() {
       supabase
         .from("tasks")
         .select(
-          "id, title, status, sent_to_client_at, client_approvals, internal_approval_task_id",
+          "id, title, status, publishing_status, sent_to_client_at, client_approvals, division_task_id",
         )
         .eq("client_id", clientId)
         .not("sent_to_client_at", "is", null)
@@ -118,9 +119,9 @@ export default function AdminApprovalsPage() {
         category: "Social media",
         title: row.title,
         status: approvalStatus(row.client_approvals),
-        workflowStatus: row.status,
+        workflowStatus: row.publishing_status,
         sentAt: row.sent_to_client_at,
-        workspaceId: row.internal_approval_task_id,
+        workspaceId: row.division_task_id,
       }),
     );
     const deliverables = (
@@ -156,7 +157,7 @@ export default function AdminApprovalsPage() {
     if (!removeTarget || isRemoving) return;
     if (removeTarget.workflowStatus === "scheduled") {
       setError(
-        "Remove this post from Meta’s queue and move it back to client approved in Content Calendar first.",
+        "Remove this post from Meta’s queue and move it back to client approved in Social Content Calendar first.",
       );
       return;
     }
@@ -231,7 +232,11 @@ export default function AdminApprovalsPage() {
                 <div className="flex flex-wrap gap-2">
                   {approval.workspaceId && (
                     <Link
-                      href={`/team-hub/projects/${approval.workspaceId}`}
+                      href={
+                        approval.source === "social"
+                          ? `/team-hub/projects/${approval.workspaceId}/calendar?post=${encodeURIComponent(approval.id)}`
+                          : `/team-hub/projects/${approval.workspaceId}`
+                      }
                       className="rounded-full bg-[#341F60] px-4 py-2.5 text-xs font-semibold text-white"
                     >
                       Open workspace ↗

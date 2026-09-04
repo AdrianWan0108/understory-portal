@@ -79,13 +79,6 @@ type TemplateOption = {
 
 const socialMediaTemplates: TemplateOption[] = [
   {
-    id: "internal_approval",
-    label: "Content Calendar",
-    description:
-      "Review submitted posts, plan publishing dates, collect approvals, and queue approved work for publishing.",
-    defaultTitle: "Content Calendar",
-  },
-  {
     id: "content_brief",
     label: "Content brief",
     description:
@@ -94,10 +87,10 @@ const socialMediaTemplates: TemplateOption[] = [
   },
   {
     id: "content_calendar",
-    label: "Production",
+    label: "Social Content Calendar",
     description:
-      "Draft posts, write captions, build slides, and prepare social creative for review.",
-    defaultTitle: "Production",
+      "Plan, produce, approve, schedule, and archive social content in one workspace.",
+    defaultTitle: "Social Content Calendar",
   },
   {
     id: "analytics_results_hub",
@@ -109,17 +102,8 @@ const socialMediaTemplates: TemplateOption[] = [
 ];
 
 function taskDisplayTitle(task: DivisionTask) {
-  if (
-    task.template_type === "internal_approval" &&
-    task.title.toLowerCase() === "internal approval"
-  ) {
-    return "Content Calendar";
-  }
-  if (
-    task.template_type === "content_calendar" &&
-    task.title.toLowerCase() === "content calendar"
-  ) {
-    return "Production";
+  if (task.template_type === "content_calendar") {
+    return "Social Content Calendar";
   }
   return task.title;
 }
@@ -372,7 +356,11 @@ export default function TeamHubProjectsPage() {
         setTasks([]);
         setError(`Could not load division tasks: ${taskError.message}`);
       } else {
-        setTasks((data ?? []) as DivisionTask[]);
+        setTasks(
+          ((data ?? []) as DivisionTask[]).filter(
+            (task) => task.template_type !== "internal_approval",
+          ),
+        );
       }
       setIsLoading(false);
     }

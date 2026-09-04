@@ -8,14 +8,35 @@ import {
 } from "@/lib/google-drive";
 import { sendSlackNotification } from "@/lib/slack-notifications";
 import {
+  canScheduleSocialPost,
+  deriveClientApprovalState,
+  deriveInternalApprovalState,
+  legacyStatusForSocialDimensions,
   normalizeReelDetails,
+  normalizeSocialFilmingDetails,
   normalizeSocialPostStatus,
+  normalizeSocialProductionStatus,
+  normalizeSocialPublishingStatus,
+  normalizeSocialSchedulingMode,
+  productionStatusAfterTransition,
+  publishingStatusAfterTransition,
+  SOCIAL_PRODUCTION_STATUS_LABELS,
+  SOCIAL_PRODUCTION_STATUSES,
+  SOCIAL_PUBLISHING_STATUS_LABELS,
+  SOCIAL_SCHEDULING_MODE_LABELS,
+  SOCIAL_SCHEDULING_MODES,
   SOCIAL_POST_STATUS_LABELS,
   type ReelDetails,
+  type SocialFilmingDetails,
+  type SocialProductionStatus,
+  type SocialPublishingStatus,
+  type SocialSchedulingMode,
   type SocialPostStatus,
 } from "@/lib/social-content";
 import { supabase } from "@/lib/supabase";
 import { TEAM_IDENTITIES } from "@/lib/team-auth";
+import { readTeamSessionProfile } from "@/app/team-hub/_components/TeamIdentity";
+import { isWorkspaceClientSlug } from "@/lib/workspace-clients";
 
 const fraunces = Fraunces({
   subsets: ["latin"],
@@ -52,18 +73,37 @@ type Slide = {
   id: string;
   slide_number: number;
   on_screen_text: string;
+  visual_note: string;
   slide_caption: string | null;
+  warning_flag: string | null;
   image_url: string | null;
+  slide_references: Array<{
+    id: string;
+    url: string;
+    platform: string;
+  }>;
 };
 
 type ApprovalPost = {
   id: string;
   client_id: string;
+  division_task_id: string | null;
   title: string;
   status: SocialPostStatus;
+  production_status: SocialProductionStatus;
+  publishing_status: SocialPublishingStatus;
   format: string | null;
+  brief: string;
+  visual_note: string | null;
   reel_details: ReelDetails;
   post_caption: string;
+  purpose: string | null;
+  content_pillar: string | null;
+  platform: string | null;
+  target_audience: string | null;
+  cta: string | null;
+  start_date: string | null;
+  due_date: string | null;
   scheduled_at: string | null;
   internal_review_submitted_at: string | null;
   internal_approvals: Record<string, ReviewDecision>;
@@ -78,24 +118,39 @@ type ApprovalPost = {
   posted_by: string | null;
   assigned_to: string | null;
   assignee_usernames: string[];
+  watcher_usernames: string[];
+  mentioned_usernames: string[];
+  requires_filming: boolean;
+  filming_details: SocialFilmingDetails;
+  live_post_url: string | null;
+  scheduling_mode: SocialSchedulingMode;
+  manual_reminder_sent_at: string | null;
   task_slides: Slide[];
 };
 
 type TaskRow = Omit<
   ApprovalPost,
   | "status"
+  | "production_status"
+  | "publishing_status"
   | "internal_approvals"
   | "client_approvals"
   | "approval_history"
   | "reel_details"
+  | "filming_details"
+  | "scheduling_mode"
   | "assignee_usernames"
   | "task_slides"
 > & {
   status: unknown;
+  production_status: unknown;
+  publishing_status: unknown;
   internal_approvals: unknown;
   client_approvals: unknown;
   approval_history: unknown;
   reel_details: unknown;
+  filming_details: unknown;
+  scheduling_mode: unknown;
   assignee_usernames: string[] | null;
   task_slides: Slide[] | null;
 };
@@ -109,6 +164,83 @@ type Props = {
   requiredReviewers: ApprovalReviewer[];
   canSendToClient?: boolean;
 };
+
+type PostContentDraft = {
+  title: string;
+  format: string;
+  platform: string;
+  purpose: string;
+  contentPillar: string;
+  targetAudience: string;
+  cta: string;
+  dueDate: string;
+  brief: string;
+  visualNote: string;
+  productionStatus: SocialProductionStatus;
+  reelDetails: ReelDetails;
+  requiresFilming: boolean;
+  filmingDetails: SocialFilmingDetails;
+  livePostUrl: string;
+  schedulingMode: SocialSchedulingMode;
+  assigneeUsernames: string[];
+};
+
+type ModalPhase =
+  | "planning"
+  | "creative"
+  | "production"
+  | "approval"
+  | "scheduling"
+  | "publishing";
+
+const MODAL_PHASES: Array<{ value: ModalPhase; label: string }> = [
+  { value: "planning", label: "1. Planning" },
+  { value: "creative", label: "2. Creative" },
+  { value: "production", label: "3. Production & assignment" },
+  { value: "approval", label: "4. Review & approval" },
+  { value: "scheduling", label: "5. Scheduling" },
+  { value: "publishing", label: "6. Publishing" },
+];
+
+function workflowPhaseForPost(
+  post: ApprovalPost,
+  clientReviewerKeys: string[],
+): ModalPhase {
+  if (
+    post.publishing_status === "scheduled" ||
+    post.publishing_status === "posted"
+  ) {
+    return "publishing";
+  }
+
+  if (
+    deriveClientApprovalState(
+      post.client_approvals,
+      clientReviewerKeys,
+      post.sent_to_client_at,
+    ) === "approved"
+  ) {
+    return "scheduling";
+  }
+
+  if (post.production_status === "changes_required") return "production";
+
+  if (
+    post.sent_to_client_at ||
+    post.internal_review_submitted_at ||
+    post.production_status === "ready_for_review" ||
+    post.production_status === "complete"
+  ) {
+    return "approval";
+  }
+
+  if (post.requires_filming && !post.filming_details.filmed) {
+    return "production";
+  }
+
+  if (post.production_status === "in_progress") return "creative";
+  return "planning";
+}
 
 const reviewStyles: Record<
   ReviewStatus,
@@ -184,6 +316,7 @@ const CLIENT_REVIEWER_KEYS_BY_SLUG: Record<string, string[]> = {
   boardwalk: ["Boardwalk_Sarah"],
 };
 const INTERNAL_REVIEWER_KEYS = ["Understory_Karen"];
+const SOCIAL_ASSET_BUCKET = "client-assets";
 
 function isReviewStatus(value: unknown): value is ReviewStatus {
   return value === "approved" || value === "pending" || value === "changes";
@@ -252,14 +385,33 @@ function mapPost(row: TaskRow): ApprovalPost {
   return {
     ...row,
     status: normalizeSocialPostStatus(row.status),
+    production_status: normalizeSocialProductionStatus(
+      row.production_status,
+      row.status,
+    ),
+    publishing_status: normalizeSocialPublishingStatus(
+      row.publishing_status,
+      row.status,
+      row.posted_at,
+    ),
+    scheduling_mode: normalizeSocialSchedulingMode(row.scheduling_mode),
     internal_approvals: normalizeReviews(row.internal_approvals),
     client_approvals: normalizeReviews(row.client_approvals),
     approval_history: normalizeHistory(row.approval_history),
     reel_details: normalizeReelDetails(row.reel_details),
+    filming_details: normalizeSocialFilmingDetails(
+      row.filming_details,
+      row.reel_details,
+    ),
     assignee_usernames: row.assignee_usernames ?? [],
+    watcher_usernames: row.watcher_usernames ?? [],
+    mentioned_usernames: row.mentioned_usernames ?? [],
     task_slides: [...(row.task_slides ?? [])].sort(
       (a, b) => a.slide_number - b.slide_number,
-    ),
+    ).map((slide) => ({
+      ...slide,
+      slide_references: slide.slide_references ?? [],
+    })),
   };
 }
 
@@ -314,10 +466,20 @@ function approvalDisplayStyle(
   mode: Props["mode"],
   reviewers: ApprovalReviewer[],
 ) {
-  if (post.status === "scheduled") return workflowStyles.scheduled;
-  return mode === "internal"
-    ? workflowStyles[post.status]
-    : reviewStyles[overallStatus(post, mode, reviewers)];
+  if (post.publishing_status === "posted") return workflowStyles.posted;
+  if (post.publishing_status === "scheduled") return workflowStyles.scheduled;
+  if (mode !== "internal") {
+    return reviewStyles[overallStatus(post, mode, reviewers)];
+  }
+  return workflowStyles[
+    post.production_status === "ready_for_review"
+      ? "for_review"
+      : post.production_status === "changes_required"
+        ? "changes_requested"
+        : post.production_status === "complete"
+          ? "internal_approved"
+          : post.production_status
+  ];
 }
 
 function approvalStatusForReviewerKeys(
@@ -411,6 +573,17 @@ function formatLabel(format: string | null) {
     .join(" ");
 }
 
+function approvalStateLabel(state: ReturnType<typeof deriveInternalApprovalState>) {
+  const labels = {
+    not_submitted: "Not submitted",
+    not_sent: "Not sent",
+    pending: "Pending",
+    approved: "Approved",
+    changes_requested: "Changes requested",
+  } as const;
+  return labels[state];
+}
+
 function visualPreviewUrl(value: string | null | undefined) {
   if (!value) return null;
   const driveFileId = extractGoogleDriveFileId(value);
@@ -449,11 +622,21 @@ export function SocialApprovalCalendar({
   const [collectionView, setCollectionView] = useState<"active" | "archive">(
     "active",
   );
+  const [calendarFilter, setCalendarFilter] = useState<
+    | "all"
+    | "needs_work"
+    | "internal_review"
+    | "client_review"
+    | "scheduled"
+    | "posted"
+  >("all");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedSlide, setSelectedSlide] = useState(0);
+  const [activeModalPhase, setActiveModalPhase] =
+    useState<ModalPhase>("planning");
   const [visibleMonth, setVisibleMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -462,6 +645,19 @@ export function SocialApprovalCalendar({
   const [slideCaptionDrafts, setSlideCaptionDrafts] = useState<
     Record<string, string>
   >({});
+  const [slideTextDrafts, setSlideTextDrafts] = useState<
+    Record<string, string>
+  >({});
+  const [slideVisualDrafts, setSlideVisualDrafts] = useState<
+    Record<string, string>
+  >({});
+  const [slideImageDrafts, setSlideImageDrafts] = useState<
+    Record<string, string>
+  >({});
+  const [slideReferenceDraft, setSlideReferenceDraft] = useState("");
+  const [contentDraft, setContentDraft] = useState<PostContentDraft | null>(
+    null,
+  );
   const [scheduleDraft, setScheduleDraft] = useState("");
   const [commentDraft, setCommentDraft] = useState("");
   const [isRequestingChanges, setIsRequestingChanges] = useState(false);
@@ -516,7 +712,7 @@ export function SocialApprovalCalendar({
           .select("id, client_id, title, clients(name, slug)")
           .eq("id", workspaceId)
           .eq("division", "social-media")
-          .eq("template_type", "internal_approval")
+          .eq("template_type", "content_calendar")
           .maybeSingle();
 
         if (!isActive) return;
@@ -572,11 +768,25 @@ export function SocialApprovalCalendar({
           `
             id,
             client_id,
+            division_task_id,
             title,
             status,
+            production_status,
+            publishing_status,
+            scheduling_mode,
+            manual_reminder_sent_at,
             format,
+            brief,
+            visual_note,
             reel_details,
             post_caption,
+            purpose,
+            content_pillar,
+            platform,
+            target_audience,
+            cta,
+            start_date,
+            due_date,
             scheduled_at,
             internal_review_submitted_at,
             internal_approvals,
@@ -591,12 +801,24 @@ export function SocialApprovalCalendar({
             posted_by,
             assigned_to,
             assignee_usernames,
+            watcher_usernames,
+            mentioned_usernames,
+            requires_filming,
+            filming_details,
+            live_post_url,
             task_slides (
               id,
               slide_number,
               on_screen_text,
+              visual_note,
               slide_caption,
-              image_url
+              warning_flag,
+              image_url,
+              slide_references (
+                id,
+                url,
+                platform
+              )
             )
           `,
         )
@@ -606,8 +828,17 @@ export function SocialApprovalCalendar({
 
       query =
         mode === "internal"
-          ? query.eq("internal_approval_task_id", workspaceId)
+          ? query.eq("division_task_id", workspaceId)
           : query.not("sent_to_client_at", "is", null);
+
+      if (mode === "internal") {
+        const teamProfile = readTeamSessionProfile();
+        if (teamProfile?.accessLevel === "staff") {
+          query = query.or(
+            `assignee_usernames.cs.{${teamProfile.username}},mentioned_usernames.cs.{${teamProfile.username}}`,
+          );
+        }
+      }
 
       const { data, error: postsError } = await query;
       if (!isActive) return;
@@ -618,6 +849,11 @@ export function SocialApprovalCalendar({
       } else {
         const loaded = ((data ?? []) as unknown as TaskRow[]).map(mapPost);
         setPosts(loaded);
+        const requestedPostId = new URLSearchParams(window.location.search).get(
+          "post",
+        );
+        const requestedPost = loaded.find((post) => post.id === requestedPostId);
+        if (requestedPost) openPost(requestedPost);
         const firstScheduled = loaded.find((post) => post.scheduled_at);
         if (firstScheduled?.scheduled_at) {
           const date = new Date(firstScheduled.scheduled_at);
@@ -646,10 +882,50 @@ export function SocialApprovalCalendar({
         : [],
     [resolvedClientSlug],
   );
-  const visiblePosts = posts.filter((post) =>
-    collectionView === "archive" ? Boolean(post.posted_at) : !post.posted_at,
+  const currentWorkflowPhase = selectedPost
+    ? workflowPhaseForPost(selectedPost, clientReviewerKeys)
+    : "planning";
+  const currentWorkflowPhaseOption = MODAL_PHASES.find(
+    (phase) => phase.value === currentWorkflowPhase,
   );
-  const archiveCount = posts.filter((post) => post.posted_at).length;
+  const collectionPosts = posts.filter((post) =>
+    collectionView === "archive"
+      ? post.publishing_status === "posted"
+      : post.publishing_status !== "posted",
+  );
+  const visiblePosts = collectionPosts.filter((post) => {
+    if (calendarFilter === "all") return true;
+    if (calendarFilter === "posted") {
+      return post.publishing_status === "posted";
+    }
+    if (calendarFilter === "scheduled") {
+      return post.publishing_status === "scheduled";
+    }
+    if (calendarFilter === "needs_work") {
+      return ["not_started", "in_progress", "changes_required"].includes(
+        post.production_status,
+      );
+    }
+    if (calendarFilter === "internal_review") {
+      return (
+        deriveInternalApprovalState(
+          post.internal_approvals,
+          INTERNAL_REVIEWER_KEYS,
+          post.internal_review_submitted_at,
+        ) === "pending"
+      );
+    }
+    return (
+      deriveClientApprovalState(
+        post.client_approvals,
+        clientReviewerKeys,
+        post.sent_to_client_at,
+      ) === "pending"
+    );
+  });
+  const archiveCount = posts.filter(
+    (post) => post.publishing_status === "posted",
+  ).length;
   const selectedReelVideoUrls =
     selectedPost?.format === "reel"
       ? resolveGoogleDriveFileUrls(selectedPost.reel_details.videoUrl)
@@ -657,6 +933,7 @@ export function SocialApprovalCalendar({
 
   function openPost(post: ApprovalPost) {
     setSelectedId(post.id);
+    setActiveModalPhase(workflowPhaseForPost(post, []));
     setCaptionDraft(post.post_caption);
     setSlideCaptionDrafts(
       Object.fromEntries(
@@ -666,7 +943,42 @@ export function SocialApprovalCalendar({
         ]),
       ),
     );
+    setSlideTextDrafts(
+      Object.fromEntries(
+        post.task_slides.map((slide) => [slide.id, slide.on_screen_text]),
+      ),
+    );
+    setSlideVisualDrafts(
+      Object.fromEntries(
+        post.task_slides.map((slide) => [slide.id, slide.visual_note]),
+      ),
+    );
+    setSlideImageDrafts(
+      Object.fromEntries(
+        post.task_slides.map((slide) => [slide.id, slide.image_url ?? ""]),
+      ),
+    );
+    setContentDraft({
+      title: post.title,
+      format: post.format ?? "image",
+      platform: post.platform ?? "Instagram",
+      purpose: post.purpose ?? "",
+      contentPillar: post.content_pillar ?? "",
+      targetAudience: post.target_audience ?? "",
+      cta: post.cta ?? "",
+      dueDate: post.due_date ?? "",
+      brief: post.brief,
+      visualNote: post.visual_note ?? "",
+      productionStatus: post.production_status,
+      reelDetails: post.reel_details,
+      requiresFilming: post.requires_filming,
+      filmingDetails: post.filming_details,
+      livePostUrl: post.live_post_url ?? "",
+      schedulingMode: post.scheduling_mode,
+      assigneeUsernames: post.assignee_usernames,
+    });
     setScheduleDraft(toDateTimeInput(post.scheduled_at));
+    setSlideReferenceDraft("");
     setCommentDraft("");
     setIsRequestingChanges(false);
     setSelectedSlide(0);
@@ -675,6 +987,7 @@ export function SocialApprovalCalendar({
 
   function showCollection(nextView: "active" | "archive") {
     setCollectionView(nextView);
+    setCalendarFilter(nextView === "archive" ? "posted" : "all");
     setSelectedId(null);
     const firstDatedPost = posts.find(
       (post) =>
@@ -702,68 +1015,6 @@ export function SocialApprovalCalendar({
       ) === "approved"
     );
   }
-
-  const internalCounts = useMemo(
-    () => ({
-      pending: posts.filter(
-        (post) =>
-          !post.posted_at &&
-          approvalStatusForReviewerKeys(
-            post.internal_approvals,
-            INTERNAL_REVIEWER_KEYS,
-          ) === "pending",
-      ).length,
-      changes: posts.filter(
-        (post) =>
-          !post.posted_at &&
-          approvalStatusForReviewerKeys(
-            post.internal_approvals,
-            INTERNAL_REVIEWER_KEYS,
-          ) === "changes",
-      ).length,
-      approved: posts.filter(
-        (post) =>
-          !post.posted_at &&
-          approvalStatusForReviewerKeys(
-            post.internal_approvals,
-            INTERNAL_REVIEWER_KEYS,
-          ) === "approved",
-      ).length,
-    }),
-    [posts],
-  );
-  const externalCounts = useMemo(() => {
-    const sentPosts = posts.filter(
-      (post) => post.sent_to_client_at && !post.posted_at,
-    );
-
-    return {
-      pending: sentPosts.filter(
-        (post) =>
-          approvalStatusForReviewerKeys(
-            post.client_approvals,
-            clientReviewerKeys,
-          ) ===
-          "pending",
-      ).length,
-      changes: sentPosts.filter(
-        (post) =>
-          approvalStatusForReviewerKeys(
-            post.client_approvals,
-            clientReviewerKeys,
-          ) ===
-          "changes",
-      ).length,
-      approved: sentPosts.filter(
-        (post) =>
-          approvalStatusForReviewerKeys(
-            post.client_approvals,
-            clientReviewerKeys,
-          ) ===
-          "approved",
-      ).length,
-    };
-  }, [clientReviewerKeys, posts]);
 
   const year = visibleMonth.getFullYear();
   const month = visibleMonth.getMonth();
@@ -812,11 +1063,39 @@ export function SocialApprovalCalendar({
     );
   }
 
+  function notifyTransition(
+    post: ApprovalPost,
+    action:
+      | "internal_changes_requested"
+      | "sent_to_client"
+      | "publishing_date_changed"
+      | "scheduled"
+      | "manual_reminder_scheduled"
+      | "posted",
+    transitionValue: string,
+    comment?: string,
+  ) {
+    const calendarId = post.division_task_id ?? workspaceId;
+    if (!calendarId || !isWorkspaceClientSlug(resolvedClientSlug)) return;
+    void sendSlackNotification({
+      type: "social_transition",
+      clientSlug: resolvedClientSlug,
+      action,
+      taskId: post.id,
+      calendarId,
+      transitionKey: `${post.id}:${action}:${transitionValue}`,
+      title: post.title,
+      assigneeNames: assigneeDisplayNames(post),
+      scheduledAt: post.scheduled_at,
+      comment,
+    });
+  }
+
   async function reschedulePost(post: ApprovalPost, dateKey: string) {
     if (
       mode !== "internal" ||
       post.posted_at ||
-      post.status === "scheduled" ||
+      post.publishing_status === "scheduled" ||
       isSaving
     ) {
       return;
@@ -834,7 +1113,12 @@ export function SocialApprovalCalendar({
     setError(null);
     const { error: saveError } = await supabase
       .from("tasks")
-      .update({ scheduled_at: iso })
+      .update({
+        scheduled_at: iso,
+        ...(post.scheduling_mode === "manual"
+          ? { manual_reminder_sent_at: null }
+          : {}),
+      })
       .eq("id", post.id);
     setIsSaving(false);
 
@@ -842,15 +1126,35 @@ export function SocialApprovalCalendar({
       setError(`Could not move this post: ${saveError.message}`);
       return;
     }
-    updatePost(post.id, { scheduled_at: iso });
+    updatePost(post.id, {
+      scheduled_at: iso,
+      ...(post.scheduling_mode === "manual"
+        ? { manual_reminder_sent_at: null }
+        : {}),
+    });
+    if (
+      deriveClientApprovalState(
+        post.client_approvals,
+        clientReviewerKeys,
+        post.sent_to_client_at,
+      ) === "approved" &&
+      post.scheduled_at !== iso
+    ) {
+      notifyTransition(
+        { ...post, scheduled_at: iso },
+        "publishing_date_changed",
+        iso,
+      );
+    }
     setFeedback(`${post.title} moved to ${formatDate(iso, true)}.`);
   }
 
   async function savePlanning(post: ApprovalPost) {
     if (
       mode !== "internal" ||
+      !contentDraft ||
       post.posted_at ||
-      post.status === "scheduled" ||
+      post.publishing_status === "scheduled" ||
       isSaving
     ) {
       return;
@@ -861,14 +1165,33 @@ export function SocialApprovalCalendar({
       ? new Date(scheduleDraft).toISOString()
       : null;
 
-    if (post.format === "carousel") {
+    if (
+      contentDraft.format === "carousel" ||
+      contentDraft.format === "image" ||
+      contentDraft.format === "story"
+    ) {
       for (const slide of post.task_slides) {
         const nextCaption = (slideCaptionDrafts[slide.id] ?? "").trim();
-        if (nextCaption === (slide.slide_caption ?? "")) continue;
+        const nextText = (slideTextDrafts[slide.id] ?? "").trim();
+        const nextVisual = (slideVisualDrafts[slide.id] ?? "").trim();
+        const nextImage = (slideImageDrafts[slide.id] ?? "").trim();
+        if (
+          nextCaption === (slide.slide_caption ?? "") &&
+          nextText === slide.on_screen_text &&
+          nextVisual === slide.visual_note &&
+          nextImage === (slide.image_url ?? "")
+        ) {
+          continue;
+        }
 
         const { error: slideSaveError } = await supabase
           .from("task_slides")
-          .update({ slide_caption: nextCaption || null })
+          .update({
+            slide_caption: nextCaption || null,
+            on_screen_text: nextText,
+            visual_note: nextVisual,
+            image_url: nextImage || null,
+          })
           .eq("id", slide.id);
         if (slideSaveError) {
           setIsSaving(false);
@@ -880,9 +1203,80 @@ export function SocialApprovalCalendar({
       }
     }
 
+    const assignedProfiles = Object.values(TEAM_IDENTITIES).filter((profile) =>
+      contentDraft.assigneeUsernames.includes(profile.username),
+    );
+    const mentionSource = [
+      contentDraft.title,
+      contentDraft.purpose,
+      contentDraft.brief,
+      contentDraft.visualNote,
+      captionDraft,
+      contentDraft.reelDetails.hook,
+      contentDraft.reelDetails.script,
+      contentDraft.filmingDetails.script,
+      contentDraft.filmingDetails.shotList,
+      ...Object.values(slideTextDrafts),
+      ...Object.values(slideVisualDrafts),
+    ]
+      .join("\n")
+      .toLocaleLowerCase();
+    const mentionedUsernames = Object.values(TEAM_IDENTITIES)
+      .filter(
+        (profile) =>
+          mentionSource.includes(`@${profile.name.toLocaleLowerCase()}`) ||
+          mentionSource.includes(`@${profile.username.toLocaleLowerCase()}`),
+      )
+      .map((profile) => profile.username);
+    const nextMentionedUsernames = Array.from(
+      new Set([...post.mentioned_usernames, ...mentionedUsernames]),
+    );
+    const nextWatcherUsernames = Array.from(
+      new Set([...post.watcher_usernames, ...mentionedUsernames]),
+    );
+    const clientState = deriveClientApprovalState(
+      post.client_approvals,
+      clientReviewerKeys,
+      post.sent_to_client_at,
+    );
+    const manualReminderSentAt =
+      contentDraft.schedulingMode === "manual" &&
+      post.scheduling_mode === "manual" &&
+      post.scheduled_at === scheduledAt
+        ? post.manual_reminder_sent_at
+        : null;
+    const legacyStatus = legacyStatusForSocialDimensions(
+      contentDraft.productionStatus,
+      post.publishing_status,
+      clientState,
+    );
     const { error: saveError } = await supabase
       .from("tasks")
       .update({
+        title: contentDraft.title.trim() || "Untitled content",
+        format: contentDraft.format,
+        platform: contentDraft.platform.trim() || null,
+        purpose: contentDraft.purpose.trim() || null,
+        content_pillar: contentDraft.contentPillar.trim() || null,
+        target_audience: contentDraft.targetAudience.trim() || null,
+        cta: contentDraft.cta.trim() || null,
+        due_date: contentDraft.dueDate || null,
+        brief: contentDraft.brief.trim(),
+        visual_note: contentDraft.visualNote.trim() || null,
+        production_status: contentDraft.productionStatus,
+        status: legacyStatus,
+        reel_details:
+          contentDraft.format === "reel" ? contentDraft.reelDetails : null,
+        requires_filming: contentDraft.requiresFilming,
+        filming_details: contentDraft.filmingDetails,
+        live_post_url: contentDraft.livePostUrl.trim() || null,
+        scheduling_mode: contentDraft.schedulingMode,
+        manual_reminder_sent_at: manualReminderSentAt,
+        assignee_usernames: contentDraft.assigneeUsernames,
+        assigned_to: assignedProfiles[0]?.name ?? null,
+        assignee: assignedProfiles[0]?.name ?? "Unassigned",
+        mentioned_usernames: nextMentionedUsernames,
+        watcher_usernames: nextWatcherUsernames,
         post_caption: captionDraft.trim(),
         scheduled_at: scheduledAt,
       })
@@ -894,12 +1288,39 @@ export function SocialApprovalCalendar({
       return;
     }
     updatePost(post.id, {
+      title: contentDraft.title.trim() || "Untitled content",
+      format: contentDraft.format,
+      platform: contentDraft.platform.trim() || null,
+      purpose: contentDraft.purpose.trim() || null,
+      content_pillar: contentDraft.contentPillar.trim() || null,
+      target_audience: contentDraft.targetAudience.trim() || null,
+      cta: contentDraft.cta.trim() || null,
+      due_date: contentDraft.dueDate || null,
+      brief: contentDraft.brief.trim(),
+      visual_note: contentDraft.visualNote.trim() || null,
+      production_status: contentDraft.productionStatus,
+      status: legacyStatus,
+      reel_details: contentDraft.reelDetails,
+      requires_filming: contentDraft.requiresFilming,
+      filming_details: contentDraft.filmingDetails,
+      live_post_url: contentDraft.livePostUrl.trim() || null,
+      scheduling_mode: contentDraft.schedulingMode,
+      manual_reminder_sent_at: manualReminderSentAt,
+      assignee_usernames: contentDraft.assigneeUsernames,
+      assigned_to: assignedProfiles[0]?.name ?? null,
+      mentioned_usernames: nextMentionedUsernames,
+      watcher_usernames: nextWatcherUsernames,
       post_caption: captionDraft.trim(),
       scheduled_at: scheduledAt,
       task_slides: post.task_slides.map((slide) => ({
         ...slide,
+        on_screen_text: (slideTextDrafts[slide.id] ?? "").trim(),
+        visual_note: (slideVisualDrafts[slide.id] ?? "").trim(),
+        image_url: (slideImageDrafts[slide.id] ?? "").trim() || null,
         slide_caption:
-          post.format === "carousel"
+          contentDraft.format === "carousel" ||
+          contentDraft.format === "image" ||
+          contentDraft.format === "story"
             ? (slideCaptionDrafts[slide.id] ?? "").trim() || null
             : slide.slide_caption,
       })),
@@ -908,10 +1329,24 @@ export function SocialApprovalCalendar({
       const date = new Date(scheduledAt);
       setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
     }
+    if (
+      post.scheduled_at !== scheduledAt &&
+      deriveClientApprovalState(
+        post.client_approvals,
+        clientReviewerKeys,
+        post.sent_to_client_at,
+      ) === "approved"
+    ) {
+      notifyTransition(
+        { ...post, scheduled_at: scheduledAt },
+        "publishing_date_changed",
+        scheduledAt ?? "unscheduled",
+      );
+    }
     setFeedback(
       post.format === "carousel"
-        ? "Date, post caption, and individual slide captions saved."
-        : "Date, time, and final caption saved.",
+        ? "Planning, creative direction, publishing details, and slides saved."
+        : "Planning, production, filming, and publishing details saved.",
     );
   }
 
@@ -919,7 +1354,7 @@ export function SocialApprovalCalendar({
     if (
       mode !== "internal" ||
       post.posted_at ||
-      post.status === "scheduled" ||
+      post.publishing_status === "scheduled" ||
       !currentReviewer ||
       isSaving
     ) {
@@ -953,6 +1388,213 @@ export function SocialApprovalCalendar({
     );
   }
 
+  async function addSlideReference(post: ApprovalPost, slide: Slide) {
+    const url = slideReferenceDraft.trim();
+    if (!url || isSaving) return;
+    try {
+      new URL(url);
+    } catch {
+      setError("Enter a valid reference URL.");
+      return;
+    }
+    const hostname = new URL(url).hostname.toLowerCase();
+    const platform = hostname.includes("pinterest") || hostname.includes("pin.it")
+      ? "pinterest"
+      : hostname.includes("instagram.com")
+        ? "instagram"
+        : "other";
+    setIsSaving(true);
+    const { data, error: referenceError } = await supabase
+      .from("slide_references")
+      .insert({
+        task_slide_id: slide.id,
+        url,
+        platform,
+        created_by: readTeamSessionProfile()?.username ?? null,
+      })
+      .select("id, url, platform")
+      .single();
+    setIsSaving(false);
+    if (referenceError || !data) {
+      setError(
+        `Could not add the reference: ${referenceError?.message ?? "No reference returned."}`,
+      );
+      return;
+    }
+    updatePost(post.id, {
+      task_slides: post.task_slides.map((item) =>
+        item.id === slide.id
+          ? {
+              ...item,
+              slide_references: [...item.slide_references, data],
+            }
+          : item,
+      ),
+    });
+    setSlideReferenceDraft("");
+    setFeedback("Reference added.");
+  }
+
+  async function addSlide(post: ApprovalPost) {
+    if (isSaving || post.format === "reel") return;
+    const slideNumber =
+      Math.max(0, ...post.task_slides.map((slide) => slide.slide_number)) + 1;
+    setIsSaving(true);
+    const { data, error: slideError } = await supabase
+      .from("task_slides")
+      .insert({
+        task_id: post.id,
+        slide_number: slideNumber,
+        on_screen_text: "",
+        visual_note: "",
+      })
+      .select(
+        "id, slide_number, on_screen_text, visual_note, slide_caption, warning_flag, image_url",
+      )
+      .single();
+    setIsSaving(false);
+    if (slideError || !data) {
+      setError(`Could not add a slide: ${slideError?.message ?? "No slide returned."}`);
+      return;
+    }
+    const slide: Slide = { ...data, slide_references: [] };
+    updatePost(post.id, { task_slides: [...post.task_slides, slide] });
+    setSlideTextDrafts((current) => ({ ...current, [slide.id]: "" }));
+    setSlideVisualDrafts((current) => ({ ...current, [slide.id]: "" }));
+    setSlideCaptionDrafts((current) => ({ ...current, [slide.id]: "" }));
+    setSlideImageDrafts((current) => ({ ...current, [slide.id]: "" }));
+    setSelectedSlide(post.task_slides.length);
+  }
+
+  async function uploadSlideImage(post: ApprovalPost, slide: Slide, file: File) {
+    if (!resolvedClientId || isSaving || !file.type.startsWith("image/")) {
+      return;
+    }
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
+    const path = `${resolvedClientId}/social-content/${post.id}/${slide.id}/${crypto.randomUUID()}-${safeName}`;
+    setIsSaving(true);
+    const { error: uploadError } = await supabase.storage
+      .from(SOCIAL_ASSET_BUCKET)
+      .upload(path, file, { contentType: file.type, upsert: false });
+    setIsSaving(false);
+    if (uploadError) {
+      setError(`Could not upload the final asset: ${uploadError.message}`);
+      return;
+    }
+    const { data } = supabase.storage.from(SOCIAL_ASSET_BUCKET).getPublicUrl(path);
+    setSlideImageDrafts((current) => ({
+      ...current,
+      [slide.id]: data.publicUrl,
+    }));
+    setFeedback("Final asset uploaded. Save the post to confirm the change.");
+  }
+
+  async function moveSlide(post: ApprovalPost, direction: -1 | 1) {
+    const targetIndex = selectedSlide + direction;
+    if (
+      isSaving ||
+      targetIndex < 0 ||
+      targetIndex >= post.task_slides.length
+    ) {
+      return;
+    }
+    const ordered = [...post.task_slides];
+    [ordered[selectedSlide], ordered[targetIndex]] = [
+      ordered[targetIndex],
+      ordered[selectedSlide],
+    ];
+    setIsSaving(true);
+    for (const [index, slide] of ordered.entries()) {
+      const { error: temporaryError } = await supabase
+        .from("task_slides")
+        .update({ slide_number: 1000 + index })
+        .eq("id", slide.id);
+      if (temporaryError) {
+        setIsSaving(false);
+        setError(`Could not reorder slides: ${temporaryError.message}`);
+        return;
+      }
+    }
+    for (const [index, slide] of ordered.entries()) {
+      const { error: orderError } = await supabase
+        .from("task_slides")
+        .update({ slide_number: index + 1 })
+        .eq("id", slide.id);
+      if (orderError) {
+        setIsSaving(false);
+        setError(`Could not finish reordering slides: ${orderError.message}`);
+        return;
+      }
+    }
+    setIsSaving(false);
+    updatePost(post.id, {
+      task_slides: ordered.map((slide, index) => ({
+        ...slide,
+        slide_number: index + 1,
+      })),
+    });
+    setSelectedSlide(targetIndex);
+  }
+
+  async function submitForInternalReview(post: ApprovalPost) {
+    if (
+      mode !== "internal" ||
+      post.publishing_status === "posted" ||
+      post.publishing_status === "scheduled" ||
+      isSaving
+    ) {
+      return;
+    }
+    const timestamp = new Date().toISOString();
+    const productionStatus = productionStatusAfterTransition(
+      post.production_status,
+      post.production_status === "changes_required"
+        ? "resubmit_after_changes"
+        : "submit_internal_review",
+    );
+    setIsSaving(true);
+    setError(null);
+    const { error: submitError } = await supabase
+      .from("tasks")
+      .update({
+        production_status: productionStatus,
+        status: "for_review",
+        internal_review_submitted_at: timestamp,
+        internal_approvals: {},
+        final_confirmed: false,
+        final_confirmed_by: null,
+        final_confirmed_at: null,
+      })
+      .eq("id", post.id);
+    setIsSaving(false);
+    if (submitError) {
+      setError(`Could not submit for internal review: ${submitError.message}`);
+      return;
+    }
+    updatePost(post.id, {
+      production_status: productionStatus,
+      status: "for_review",
+      internal_review_submitted_at: timestamp,
+      internal_approvals: {},
+      final_confirmed: false,
+      final_confirmed_by: null,
+      final_confirmed_at: null,
+    });
+    if (isWorkspaceClientSlug(resolvedClientSlug)) {
+      void sendSlackNotification({
+        type: "task_review",
+        clientSlug: resolvedClientSlug,
+        title: post.title,
+        taskId: post.id,
+        calendarId: post.division_task_id ?? workspaceId,
+        assigneeNames: assigneeDisplayNames(post),
+        scheduledAt: post.scheduled_at,
+        transitionKey: `${post.id}:internal_review_submitted:${timestamp}`,
+      });
+    }
+    setFeedback(`${post.title} was submitted for internal review.`);
+  }
+
   async function recordDecision(
     post: ApprovalPost,
     status: Exclude<ReviewStatus, "pending">,
@@ -960,7 +1602,7 @@ export function SocialApprovalCalendar({
     if (
       !currentReviewer ||
       post.posted_at ||
-      post.status === "scheduled" ||
+      post.publishing_status === "scheduled" ||
       isSaving
     ) {
       return;
@@ -991,22 +1633,30 @@ export function SocialApprovalCalendar({
       ...(note ? { note } : {}),
     };
     const nextHistory = [...post.approval_history, historyEntry];
-    const nextWorkflowStatus: SocialPostStatus =
-      status === "changes"
-        ? "changes_requested"
-        : mode === "client"
-          ? approvalStatusForReviewerKeys(
-              nextReviews,
-              requiredReviewers.map((reviewer) => reviewer.key),
-            ) === "approved"
-            ? "external_approved"
-            : "for_review"
-          : approvalStatusForReviewerKeys(
-                nextReviews,
-                requiredReviewers.map((reviewer) => reviewer.key),
-              ) === "approved"
-            ? "internal_approved"
-            : "for_review";
+    const nextApprovalStatus = approvalStatusForReviewerKeys(
+      nextReviews,
+      requiredReviewers.map((reviewer) => reviewer.key),
+    );
+    const approvalComplete = nextApprovalStatus === "approved";
+    const nextProductionStatus =
+      nextApprovalStatus === "changes"
+        ? productionStatusAfterTransition(
+            post.production_status,
+            mode === "client"
+              ? "request_client_changes"
+              : "request_internal_changes",
+          )
+        : approvalComplete
+          ? productionStatusAfterTransition(
+              post.production_status,
+              "complete_internal_review",
+            )
+          : "ready_for_review";
+    const nextWorkflowStatus = legacyStatusForSocialDimensions(
+      nextProductionStatus,
+      post.publishing_status,
+      mode === "client" && approvalComplete ? "approved" : undefined,
+    );
 
     setIsSaving(true);
     const { error: saveError } = await supabase
@@ -1015,6 +1665,7 @@ export function SocialApprovalCalendar({
         [reviewColumn]: nextReviews,
         approval_history: nextHistory,
         status: nextWorkflowStatus,
+        production_status: nextProductionStatus,
       })
       .eq("id", post.id);
     setIsSaving(false);
@@ -1028,6 +1679,7 @@ export function SocialApprovalCalendar({
       [reviewColumn]: nextReviews,
       approval_history: nextHistory,
       status: nextWorkflowStatus,
+      production_status: nextProductionStatus,
     });
     if (mode === "client" && clientSlug) {
       void sendSlackNotification({
@@ -1038,7 +1690,18 @@ export function SocialApprovalCalendar({
         reviewerName: currentReviewer.name,
         comment: note || undefined,
         assigneeNames: assigneeDisplayNames(post),
+        taskId: post.id,
+        calendarId: post.division_task_id,
+        scheduledAt: post.scheduled_at,
+        transitionKey: `${post.id}:client_${status}:${timestamp}:${currentReviewer.key}`,
       });
+    } else if (mode === "internal" && status === "changes") {
+      notifyTransition(
+        post,
+        "internal_changes_requested",
+        `${timestamp}:${currentReviewer.key}`,
+        note,
+      );
     }
     setCommentDraft("");
     setIsRequestingChanges(false);
@@ -1076,6 +1739,7 @@ export function SocialApprovalCalendar({
         sent_to_client_at: timestamp,
         sent_to_client_by: currentReviewer.name,
         status: "for_review",
+        production_status: "complete",
         client_approvals: {},
       })
       .in(
@@ -1113,9 +1777,13 @@ export function SocialApprovalCalendar({
               sent_to_client_by: currentReviewer.name,
               client_approvals: {},
               status: "for_review",
+              production_status: "complete",
             }
           : post,
       ),
+    );
+    eligible.forEach((post) =>
+      notifyTransition(post, "sent_to_client", timestamp),
     );
     setFeedback(
       `${eligible.length} ${
@@ -1133,6 +1801,12 @@ export function SocialApprovalCalendar({
       !post.sent_to_client_at ||
       post.posted_at ||
       !hasClientChangesRequested(post) ||
+      post.production_status !== "complete" ||
+      deriveInternalApprovalState(
+        post.internal_approvals,
+        INTERNAL_REVIEWER_KEYS,
+        post.internal_review_submitted_at,
+      ) !== "approved" ||
       isSending
     ) {
       return;
@@ -1147,6 +1821,7 @@ export function SocialApprovalCalendar({
         sent_to_client_at: timestamp,
         sent_to_client_by: currentReviewer.name,
         status: "for_review",
+        production_status: "complete",
         client_approvals: {},
       })
       .eq("id", post.id)
@@ -1176,11 +1851,21 @@ export function SocialApprovalCalendar({
       sent_to_client_by: currentReviewer.name,
       client_approvals: {},
       status: "for_review",
+      production_status: "complete",
     });
+    notifyTransition(post, "sent_to_client", timestamp);
     setFeedback(`${post.title} was resent to the client for a new review.`);
   }
 
   async function setScheduledState(post: ApprovalPost, isScheduled: boolean) {
+    const schedulingMode = isScheduled
+      ? (contentDraft?.schedulingMode ?? post.scheduling_mode)
+      : post.scheduling_mode;
+    const scheduledAt = isScheduled
+      ? scheduleDraft
+        ? new Date(scheduleDraft).toISOString()
+        : post.scheduled_at
+      : post.scheduled_at;
     if (
       mode !== "internal" ||
       !canSendToClient ||
@@ -1188,23 +1873,38 @@ export function SocialApprovalCalendar({
       post.posted_at ||
       isSaving ||
       (isScheduled &&
-        (post.status !== "external_approved" ||
-          !post.sent_to_client_at ||
-          !post.scheduled_at ||
-          !hasCompletedClientApproval(post))) ||
-      (!isScheduled && post.status !== "scheduled")
+        !canScheduleSocialPost({
+          scheduledAt,
+          sentToClientAt: post.sent_to_client_at,
+          clientApprovalState: deriveClientApprovalState(
+            post.client_approvals,
+            clientReviewerKeys,
+            post.sent_to_client_at,
+          ),
+        })) ||
+      (!isScheduled && post.publishing_status !== "scheduled")
     ) {
       return;
     }
 
-    const status: SocialPostStatus = isScheduled
-      ? "scheduled"
-      : "external_approved";
+    const publishingStatus = isScheduled ? "scheduled" : "unscheduled";
+    const status: SocialPostStatus = legacyStatusForSocialDimensions(
+      post.production_status,
+      publishingStatus,
+      "approved",
+    );
+    const transitionTimestamp = new Date().toISOString();
     setIsSaving(true);
     setError(null);
     const { error: saveError } = await supabase
       .from("tasks")
-      .update({ status })
+      .update({
+        status,
+        publishing_status: publishingStatus,
+        scheduling_mode: schedulingMode,
+        scheduled_at: scheduledAt,
+        manual_reminder_sent_at: null,
+      })
       .eq("id", post.id);
     setIsSaving(false);
 
@@ -1215,11 +1915,26 @@ export function SocialApprovalCalendar({
       return;
     }
 
-    updatePost(post.id, { status });
+    updatePost(post.id, {
+      status,
+      publishing_status: publishingStatus,
+      scheduling_mode: schedulingMode,
+      scheduled_at: scheduledAt,
+      manual_reminder_sent_at: null,
+    });
+    if (isScheduled) {
+      notifyTransition(
+        { ...post, scheduling_mode: schedulingMode, scheduled_at: scheduledAt },
+        schedulingMode === "manual" ? "manual_reminder_scheduled" : "scheduled",
+        transitionTimestamp,
+      );
+    }
     setFeedback(
       isScheduled
-        ? `${post.title} is queued in Meta and ready to auto-publish.`
-        : `${post.title} moved back to client approved. Remove it from Meta’s queue before changing its publishing details.`,
+        ? schedulingMode === "manual"
+          ? `${post.title} will be sent to Slack with its creative when it is time to post.`
+          : `${post.title} is queued in Meta and ready to auto-publish.`
+        : `${post.title} moved back to client approved. Its scheduling details can now be changed.`,
     );
   }
 
@@ -1228,7 +1943,7 @@ export function SocialApprovalCalendar({
       mode !== "internal" ||
       !canSendToClient ||
       !currentReviewer ||
-      (isPosted && post.status !== "scheduled") ||
+      (isPosted && post.publishing_status !== "scheduled") ||
       (!isPosted && !post.posted_at) ||
       isSaving
     ) {
@@ -1237,6 +1952,10 @@ export function SocialApprovalCalendar({
 
     const postedAt = isPosted ? new Date().toISOString() : null;
     const postedBy = isPosted ? currentReviewer.name : null;
+    const publishingStatus = publishingStatusAfterTransition(
+      post.publishing_status,
+      isPosted ? "mark_posted" : "restore_posted",
+    );
     setIsSaving(true);
     setError(null);
     const { error: saveError } = await supabase
@@ -1245,6 +1964,7 @@ export function SocialApprovalCalendar({
         posted_at: postedAt,
         posted_by: postedBy,
         status: isPosted ? "posted" : "scheduled",
+        publishing_status: publishingStatus,
       })
       .eq("id", post.id);
     setIsSaving(false);
@@ -1260,12 +1980,62 @@ export function SocialApprovalCalendar({
       posted_at: postedAt,
       posted_by: postedBy,
       status: isPosted ? "posted" : "scheduled",
+      publishing_status: publishingStatus,
     });
+    if (isPosted && postedAt) {
+      notifyTransition(post, "posted", postedAt);
+    }
     setFeedback(
       isPosted
         ? `${post.title} marked as posted and archived.`
         : `${post.title} restored to the active approval workflow.`,
     );
+  }
+
+  async function addPost() {
+    if (
+      mode !== "internal" ||
+      !resolvedClientId ||
+      !workspaceId ||
+      isSaving
+    ) {
+      return;
+    }
+    const teamProfile = readTeamSessionProfile();
+    setIsSaving(true);
+    setError(null);
+    const { data, error: createError } = await supabase
+      .from("tasks")
+      .insert({
+        client_id: resolvedClientId,
+        division_task_id: workspaceId,
+        title: "Untitled content",
+        brief: "",
+        format: "image",
+        post_caption: "",
+        status: "not_started",
+        production_status: "not_started",
+        publishing_status: "unscheduled",
+        scheduling_mode: "automatic",
+        manual_reminder_sent_at: null,
+        assignee_usernames: teamProfile?.username
+          ? [teamProfile.username]
+          : [],
+        assigned_to: teamProfile?.name ?? null,
+        assignee: teamProfile?.name ?? "Unassigned",
+      })
+      .select("id")
+      .single();
+    setIsSaving(false);
+    if (createError || !data) {
+      setError(
+        `Could not add content: ${createError?.message ?? "No post returned."}`,
+      );
+      return;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set("post", data.id);
+    window.location.assign(url.toString());
   }
 
   const monthLabel = new Intl.DateTimeFormat("en-CA", {
@@ -1286,7 +2056,9 @@ export function SocialApprovalCalendar({
             <h1
               className={`${fraunces.className} text-4xl font-medium leading-tight tracking-tight sm:text-5xl`}
             >
-              {mode === "internal" ? "Content Calendar" : "Social media calendar"}
+              {mode === "internal"
+                ? "Social Content Calendar"
+                : "Social media calendar"}
             </h1>
             <p
               className={`${fraunces.className} mt-2 italic text-lg text-[var(--foreground)]/55`}
@@ -1294,6 +2066,16 @@ export function SocialApprovalCalendar({
               {resolvedClientName}
             </p>
           </div>
+          {mode === "internal" && (
+            <button
+              type="button"
+              disabled={isSaving || isLoading}
+              onClick={() => void addPost()}
+              className="w-fit rounded-full bg-[var(--foreground)] px-5 py-3 text-sm font-semibold text-[var(--background)] shadow-sm disabled:opacity-50"
+            >
+              + Add content
+            </button>
+          )}
         </header>
 
         <nav
@@ -1337,117 +2119,42 @@ export function SocialApprovalCalendar({
           </p>
         )}
 
-        {collectionView === "active" && (
-          <>
-        <section aria-labelledby="internal-approval-summary" className="mt-8">
-          <div className="mb-3 flex items-center gap-3">
-            <h2
-              id="internal-approval-summary"
-              className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--foreground)]/55"
-            >
-              Internal approval
-            </h2>
-            <span className="h-px flex-1 bg-[var(--border)]" />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+        {mode === "internal" && (
+          <nav
+            aria-label="Calendar filters"
+            className="mt-5 flex flex-wrap gap-2"
+          >
             {[
-              {
-                count: internalCounts.pending,
-                label: "Awaiting review",
-                detail: "Waiting for the internal decision",
-                color: "text-[#9A773F]",
-                dot: "bg-[#9A773F]",
-              },
-              {
-                count: internalCounts.changes,
-                label: "Changes requested",
-                detail: "Internal revisions are required",
-                color: "text-[#A15E4C]",
-                dot: "bg-[#A15E4C]",
-              },
-              {
-                count: internalCounts.approved,
-                label: "Approved",
-                detail: "Approved by the internal team",
-                color: "text-[var(--primary)]",
-                dot: "bg-[var(--primary)]",
-              },
-            ].map((item) => (
-              <article
-                key={item.label}
-                className="rounded-2xl border border-[var(--border)] bg-white p-5 shadow-[0_4px_18px_rgba(49,75,62,0.025)] sm:p-6"
+              ["all", "All"],
+              ["needs_work", "Needs work"],
+              ["internal_review", "Internal review"],
+              ["client_review", "Client review"],
+              ["scheduled", "Scheduled"],
+              ["posted", "Posted"],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={calendarFilter === key}
+                onClick={() => {
+                  const nextFilter = key as typeof calendarFilter;
+                  if (nextFilter === "posted") {
+                    showCollection("archive");
+                  } else {
+                    if (collectionView === "archive") showCollection("active");
+                    setCalendarFilter(nextFilter);
+                  }
+                }}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                  calendarFilter === key
+                    ? "border-[var(--primary)] bg-[var(--muted)] text-[var(--primary)]"
+                    : "border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]/60"
+                }`}
               >
-                <div className="flex items-end justify-between gap-4">
-                  <p
-                    className={`${fraunces.className} text-4xl font-medium ${item.color}`}
-                  >
-                    {isLoading ? "—" : item.count}
-                  </p>
-                  <span className={`mb-2 size-2 rounded-full ${item.dot}`} />
-                </div>
-                <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em]">
-                  {item.label}
-                </p>
-                <p className="mt-1 text-xs leading-5 text-[var(--foreground)]/45">
-                  {item.detail}
-                </p>
-              </article>
+                {label}
+              </button>
             ))}
-          </div>
-        </section>
-
-        <section aria-labelledby="external-approval-summary" className="mt-6">
-          <div className="mb-3 flex items-center gap-3">
-            <h2
-              id="external-approval-summary"
-              className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#5A3584]"
-            >
-              External approval
-            </h2>
-            <span className="h-px flex-1 bg-[#D9C8E8]" />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {[
-              {
-                count: externalCounts.pending,
-                label: "Awaiting review",
-                detail: "Client reviewing content",
-                dot: "bg-[#F4C96A]",
-              },
-              {
-                count: externalCounts.changes,
-                label: "Changes requested",
-                detail: "Client revisions are required",
-                dot: "bg-[#F3A58E]",
-              },
-              {
-                count: externalCounts.approved,
-                label: "Approved",
-                detail: "Client approval complete",
-                dot: "bg-[#9ED0AE]",
-              },
-            ].map((item) => (
-              <article
-                key={item.label}
-                className="rounded-2xl border border-[#5D3A86] bg-[#3F236F] p-5 text-white shadow-[0_8px_24px_rgba(63,35,111,0.16)] sm:p-6"
-              >
-                <div className="flex items-end justify-between gap-4">
-                  <p className={`${fraunces.className} text-4xl font-medium`}>
-                    {isLoading ? "—" : item.count}
-                  </p>
-                  <span className={`mb-2 size-2 rounded-full ${item.dot}`} />
-                </div>
-                <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em]">
-                  {item.label}
-                </p>
-                <p className="mt-1 text-xs leading-5 text-white/65">
-                  {item.detail}
-                </p>
-              </article>
-            ))}
-          </div>
-        </section>
-          </>
+          </nav>
         )}
 
         <div className="mt-10 grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] xl:items-start">
@@ -1659,11 +2366,28 @@ export function SocialApprovalCalendar({
                       )}
                       <div className="mt-2 space-y-2">
                         {dayPosts.map((post) => {
-                          const statusStyle = approvalDisplayStyle(
-                            post,
-                            mode,
-                            requiredReviewers,
+                          const internalState = deriveInternalApprovalState(
+                            post.internal_approvals,
+                            INTERNAL_REVIEWER_KEYS,
+                            post.internal_review_submitted_at,
                           );
+                          const clientState = deriveClientApprovalState(
+                            post.client_approvals,
+                            clientReviewerKeys,
+                            post.sent_to_client_at,
+                          );
+                          const approvalLabel =
+                            clientState === "changes_requested"
+                              ? "Client changes"
+                              : clientState === "pending"
+                                ? "Client pending"
+                                : clientState === "approved"
+                                  ? "Client approved"
+                                  : internalState === "pending"
+                                    ? "Internal review"
+                                    : internalState === "changes_requested"
+                                      ? "Internal changes"
+                                      : null;
                           const previewUrl = postVisualPreviewUrl(post);
                           return (
                             <button
@@ -1672,7 +2396,7 @@ export function SocialApprovalCalendar({
                               draggable={
                                 mode === "internal" &&
                                 !post.posted_at &&
-                                post.status !== "scheduled"
+                                post.publishing_status !== "scheduled"
                               }
                               onClick={() => openPost(post)}
                               onDragStart={(event) => {
@@ -1690,7 +2414,7 @@ export function SocialApprovalCalendar({
                               className={`relative w-full overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)] text-left shadow-sm transition hover:border-[var(--primary)] ${
                                 mode === "internal" &&
                                 !post.posted_at &&
-                                post.status !== "scheduled"
+                                post.publishing_status !== "scheduled"
                                   ? "cursor-grab active:cursor-grabbing"
                                   : ""
                               } ${draggingPostId === post.id ? "opacity-40" : ""}`}
@@ -1719,32 +2443,29 @@ export function SocialApprovalCalendar({
                                   {post.title}
                                 </span>
                                 <span className="mt-1 block text-[9px] text-[var(--foreground)]/45">
+                                  {formatLabel(post.format)} · {assigneeDisplayNames(post)[0] ?? "Unassigned"}
+                                </span>
+                                <span className="mt-1 block text-[9px] text-[var(--foreground)]/45">
                                   {new Intl.DateTimeFormat("en-CA", {
                                     hour: "numeric",
                                     minute: "2-digit",
                                   }).format(new Date(collectionDate(post)!))}
                                 </span>
-                                {post.posted_at && mode === "client" ? (
-                                  <span className="mt-2 flex items-center gap-1.5 text-[9px] font-semibold text-[#267149]">
-                                    <span className="size-1.5 rounded-full bg-[#3A9B63]" />
-                                    Archived
-                                  </span>
-                                ) : (
-                                  <span className="mt-2 flex items-center gap-1.5 text-[9px]">
-                                    <span
-                                      className={`size-1.5 rounded-full ${statusStyle.dot}`}
-                                    />
-                                    {statusStyle.label}
+                                <span className="mt-2 block text-[9px] font-semibold text-[var(--primary)]">
+                                  {SOCIAL_PRODUCTION_STATUS_LABELS[post.production_status]} ·{" "}
+                                  {post.publishing_status === "scheduled"
+                                    ? post.scheduling_mode === "manual"
+                                      ? "Manual reminder"
+                                      : "Automatic"
+                                    : SOCIAL_PUBLISHING_STATUS_LABELS[
+                                        post.publishing_status
+                                      ]}
+                                </span>
+                                {approvalLabel && (
+                                  <span className="mt-1 inline-flex rounded-full bg-[var(--muted)] px-2 py-0.5 text-[8px] font-semibold text-[var(--foreground)]/65">
+                                    {approvalLabel}
                                   </span>
                                 )}
-                                {!post.posted_at &&
-                                  mode === "internal" &&
-                                  hasClientChangesRequested(post) && (
-                                    <span className="mt-1 flex items-center gap-1.5 text-[9px] font-semibold text-[#A15E4C]">
-                                      <span className="size-1.5 rounded-full bg-[#A15E4C]" />
-                                      Client requested changes
-                                    </span>
-                                  )}
                               </div>
                             </button>
                           );
@@ -1805,14 +2526,14 @@ export function SocialApprovalCalendar({
               {collectionView === "archive"
                 ? "No published posts are in the Archive yet."
                 : mode === "internal"
-                  ? "No posts have been submitted internally yet."
+                  ? "No posts match this calendar view."
                   : "No social media approvals yet."}
             </p>
             <p className="mt-1 text-xs text-[var(--foreground)]/45">
               {collectionView === "archive"
                 ? "Posts move here automatically when posted_at is recorded."
                 : mode === "internal"
-                  ? "Posts appear here when the team chooses “Submit for review” in Production."
+                  ? "Add content or choose another filter to continue."
                   : `Posts sent for ${resolvedClientName}’s review will appear here.`}
             </p>
           </section>
@@ -1914,12 +2635,77 @@ export function SocialApprovalCalendar({
                   ))}
                 </div>
               )}
+              {mode === "internal" && selectedPost.format !== "reel" && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={selectedSlide === 0 || isSaving}
+                    onClick={() => void moveSlide(selectedPost, -1)}
+                    className="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-[10px] font-semibold disabled:opacity-40"
+                  >
+                    Move left
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      selectedSlide >= selectedPost.task_slides.length - 1 ||
+                      isSaving
+                    }
+                    onClick={() => void moveSlide(selectedPost, 1)}
+                    className="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-[10px] font-semibold disabled:opacity-40"
+                  >
+                    Move right
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSaving}
+                    onClick={() => void addSlide(selectedPost)}
+                    className="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-[10px] font-semibold disabled:opacity-40"
+                  >
+                    + Add slide
+                  </button>
+                </div>
+              )}
               {selectedPost.posted_at && (
                 <PostedStamp className="absolute right-8 top-8 z-10 px-4 py-2 text-xs" />
               )}
             </div>
 
             <div className="p-5 sm:p-7 md:p-8">
+              {mode === "internal" && (
+                <div className="sticky top-0 z-10 mb-5 mr-12 grid gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)]/95 p-3 shadow-sm backdrop-blur sm:grid-cols-2">
+                  <div
+                    aria-live="polite"
+                    className="rounded-xl bg-[var(--muted)] px-3 py-2.5"
+                  >
+                    <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]/50">
+                      Current phase
+                    </span>
+                    <span className="mt-1.5 flex items-center gap-2 text-sm font-semibold">
+                      <span className="size-2 rounded-full bg-[var(--primary)]" />
+                      {currentWorkflowPhaseOption?.label ?? "1. Planning"}
+                    </span>
+                  </div>
+                  <label>
+                    <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]/50">
+                      View section
+                    </span>
+                    <select
+                      value={activeModalPhase}
+                      onChange={(event) =>
+                        setActiveModalPhase(event.target.value as ModalPhase)
+                      }
+                      className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-semibold"
+                    >
+                      {MODAL_PHASES.map((phase) => (
+                        <option key={phase.value} value={phase.value}>
+                          {phase.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--foreground)]/45">
                   {formatLabel(selectedPost.format)} ·{" "}
@@ -1967,52 +2753,398 @@ export function SocialApprovalCalendar({
 
               {mode === "internal" ? (
                 <div className="mt-6 grid gap-4">
-                  <label className="text-xs font-semibold">
-                    Planned publishing date and time
-                    <input
-                      type="datetime-local"
-                      disabled={
-                        Boolean(selectedPost.posted_at) ||
-                        selectedPost.status === "scheduled"
-                      }
-                      value={scheduleDraft}
-                      onChange={(event) => setScheduleDraft(event.target.value)}
-                      className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
-                    />
-                  </label>
-                  {selectedPost.format === "carousel" &&
+                  {contentDraft && (
+                    <>
+                      <section
+                        className={`grid gap-3 rounded-2xl border border-[var(--border)] p-4 ${
+                          activeModalPhase === "planning" ? "" : "hidden"
+                        }`}
+                      >
+                        <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--primary)]">
+                          Planning
+                        </h3>
+                        <label className="text-xs font-semibold">
+                          Content title
+                          <input
+                            value={contentDraft.title}
+                            onChange={(event) =>
+                              setContentDraft({
+                                ...contentDraft,
+                                title: event.target.value,
+                              })
+                            }
+                            className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                          />
+                        </label>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="text-xs font-semibold">
+                            Format
+                            <select
+                              value={contentDraft.format}
+                              onChange={(event) =>
+                                setContentDraft({
+                                  ...contentDraft,
+                                  format: event.target.value,
+                                })
+                              }
+                              className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                            >
+                              <option value="reel">Reel</option>
+                              <option value="carousel">Carousel</option>
+                              <option value="image">Image</option>
+                              <option value="story">Story</option>
+                            </select>
+                          </label>
+                          <label className="text-xs font-semibold">
+                            Platform
+                            <input
+                              value={contentDraft.platform}
+                              onChange={(event) =>
+                                setContentDraft({
+                                  ...contentDraft,
+                                  platform: event.target.value,
+                                })
+                              }
+                              placeholder="Instagram"
+                              className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                            />
+                          </label>
+                        </div>
+                        <label className="text-xs font-semibold">
+                          Purpose / content goal
+                          <textarea
+                            rows={3}
+                            value={contentDraft.purpose}
+                            onChange={(event) =>
+                              setContentDraft({
+                                ...contentDraft,
+                                purpose: event.target.value,
+                              })
+                            }
+                            className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm"
+                          />
+                        </label>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="text-xs font-semibold">
+                            Content pillar / campaign
+                            <input
+                              value={contentDraft.contentPillar}
+                              onChange={(event) =>
+                                setContentDraft({
+                                  ...contentDraft,
+                                  contentPillar: event.target.value,
+                                })
+                              }
+                              className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                            />
+                          </label>
+                          <label className="text-xs font-semibold">
+                            Target audience
+                            <input
+                              value={contentDraft.targetAudience}
+                              onChange={(event) =>
+                                setContentDraft({
+                                  ...contentDraft,
+                                  targetAudience: event.target.value,
+                                })
+                              }
+                              className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                            />
+                          </label>
+                          <label className="text-xs font-semibold">
+                            CTA
+                            <input
+                              value={contentDraft.cta}
+                              onChange={(event) =>
+                                setContentDraft({
+                                  ...contentDraft,
+                                  cta: event.target.value,
+                                })
+                              }
+                              className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                            />
+                          </label>
+                          <label className="text-xs font-semibold">
+                            Internal production deadline
+                            <input
+                              type="date"
+                              value={contentDraft.dueDate}
+                              onChange={(event) =>
+                                setContentDraft({
+                                  ...contentDraft,
+                                  dueDate: event.target.value,
+                                })
+                              }
+                              className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                            />
+                          </label>
+                        </div>
+                      </section>
+
+                      <section
+                        className={`grid gap-3 rounded-2xl border border-[var(--border)] p-4 ${
+                          activeModalPhase === "creative" ? "" : "hidden"
+                        }`}
+                      >
+                        <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--primary)]">
+                          Creative direction
+                        </h3>
+                        <label className="text-xs font-semibold">
+                          Brief
+                          <textarea
+                            rows={4}
+                            value={contentDraft.brief}
+                            onChange={(event) =>
+                              setContentDraft({
+                                ...contentDraft,
+                                brief: event.target.value,
+                              })
+                            }
+                            className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm"
+                          />
+                        </label>
+                        <label className="text-xs font-semibold">
+                          Visual direction
+                          <textarea
+                            rows={3}
+                            value={contentDraft.visualNote}
+                            onChange={(event) =>
+                              setContentDraft({
+                                ...contentDraft,
+                                visualNote: event.target.value,
+                              })
+                            }
+                            className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm"
+                          />
+                        </label>
+                        {contentDraft.format === "reel" && (
+                          <div className="grid gap-3 rounded-xl bg-[var(--muted)] p-3">
+                            <label className="text-xs font-semibold">
+                              Reel hook
+                              <input
+                                value={contentDraft.reelDetails.hook}
+                                onChange={(event) =>
+                                  setContentDraft({
+                                    ...contentDraft,
+                                    reelDetails: {
+                                      ...contentDraft.reelDetails,
+                                      hook: event.target.value,
+                                    },
+                                  })
+                                }
+                                className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                              />
+                            </label>
+                            <label className="text-xs font-semibold">
+                              Reel script
+                              <textarea
+                                rows={5}
+                                value={contentDraft.reelDetails.script}
+                                onChange={(event) =>
+                                  setContentDraft({
+                                    ...contentDraft,
+                                    reelDetails: {
+                                      ...contentDraft.reelDetails,
+                                      script: event.target.value,
+                                    },
+                                  })
+                                }
+                                className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm"
+                              />
+                            </label>
+                            <label className="text-xs font-semibold">
+                              Reel CTA
+                              <input
+                                value={contentDraft.reelDetails.cta}
+                                onChange={(event) =>
+                                  setContentDraft({
+                                    ...contentDraft,
+                                    reelDetails: {
+                                      ...contentDraft.reelDetails,
+                                      cta: event.target.value,
+                                    },
+                                  })
+                                }
+                                className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                              />
+                            </label>
+                            <label className="text-xs font-semibold">
+                              Draft / final Reel deliverable link
+                              <input
+                                type="url"
+                                value={contentDraft.reelDetails.videoUrl}
+                                onChange={(event) =>
+                                  setContentDraft({
+                                    ...contentDraft,
+                                    reelDetails: {
+                                      ...contentDraft.reelDetails,
+                                      videoUrl: event.target.value,
+                                    },
+                                  })
+                                }
+                                className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                              />
+                            </label>
+                          </div>
+                        )}
+                      </section>
+                    </>
+                  )}
+                  {activeModalPhase === "creative" &&
+                    (selectedPost.format === "carousel" ||
+                      selectedPost.format === "image" ||
+                      selectedPost.format === "story") &&
                     selectedPost.task_slides[selectedSlide] && (
-                      <label className="rounded-2xl border border-[var(--primary)]/25 bg-[var(--muted)]/55 p-4 text-xs font-semibold">
-                        Slide {selectedSlide + 1} caption
-                        <textarea
-                          rows={5}
-                          disabled={
-                            Boolean(selectedPost.posted_at) ||
-                            selectedPost.status === "scheduled"
-                          }
-                          value={
-                            slideCaptionDrafts[
-                              selectedPost.task_slides[selectedSlide].id
-                            ] ?? ""
-                          }
-                          onChange={(event) => {
-                            const slideId =
-                              selectedPost.task_slides[selectedSlide].id;
-                            setSlideCaptionDrafts((current) => ({
-                              ...current,
-                              [slideId]: event.target.value,
-                            }));
-                          }}
-                          className="mt-2 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-normal leading-6"
-                          placeholder={`Write the caption for slide ${selectedSlide + 1}.`}
-                        />
-                        <span className="mt-2 block text-[11px] font-normal leading-5 text-[var(--foreground)]/45">
-                          Select another slide on the left to give it a different
-                          caption.
-                        </span>
-                      </label>
+                      <section className="grid gap-3 rounded-2xl border border-[var(--primary)]/25 bg-[var(--muted)]/55 p-4">
+                        <h3 className="text-xs font-semibold">
+                          {selectedPost.format === "carousel"
+                            ? `Slide ${selectedSlide + 1}`
+                            : "Image creative"}
+                        </h3>
+                        <label className="text-xs font-semibold">
+                          Final image / slide asset
+                          <input
+                            type="url"
+                            value={
+                              slideImageDrafts[
+                                selectedPost.task_slides[selectedSlide].id
+                              ] ?? ""
+                            }
+                            onChange={(event) => {
+                              const slideId =
+                                selectedPost.task_slides[selectedSlide].id;
+                              setSlideImageDrafts((current) => ({
+                                ...current,
+                                [slideId]: event.target.value,
+                              }));
+                            }}
+                            placeholder="Paste an asset link"
+                            className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-normal"
+                          />
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              if (file) {
+                                void uploadSlideImage(
+                                  selectedPost,
+                                  selectedPost.task_slides[selectedSlide],
+                                  file,
+                                );
+                              }
+                            }}
+                            className="mt-2 block w-full text-[11px] font-normal"
+                          />
+                        </label>
+                        <label className="text-xs font-semibold">
+                          On-screen text
+                          <textarea
+                            rows={3}
+                            value={
+                              slideTextDrafts[
+                                selectedPost.task_slides[selectedSlide].id
+                              ] ?? ""
+                            }
+                            onChange={(event) => {
+                              const slideId =
+                                selectedPost.task_slides[selectedSlide].id;
+                              setSlideTextDrafts((current) => ({
+                                ...current,
+                                [slideId]: event.target.value,
+                              }));
+                            }}
+                            className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-normal"
+                          />
+                        </label>
+                        <label className="text-xs font-semibold">
+                          Per-slide visual direction
+                          <textarea
+                            rows={3}
+                            value={
+                              slideVisualDrafts[
+                                selectedPost.task_slides[selectedSlide].id
+                              ] ?? ""
+                            }
+                            onChange={(event) => {
+                              const slideId =
+                                selectedPost.task_slides[selectedSlide].id;
+                              setSlideVisualDrafts((current) => ({
+                                ...current,
+                                [slideId]: event.target.value,
+                              }));
+                            }}
+                            className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-normal"
+                          />
+                        </label>
+                        <label className="text-xs font-semibold">
+                          Per-slide caption
+                          <textarea
+                            rows={4}
+                            value={
+                              slideCaptionDrafts[
+                                selectedPost.task_slides[selectedSlide].id
+                              ] ?? ""
+                            }
+                            onChange={(event) => {
+                              const slideId =
+                                selectedPost.task_slides[selectedSlide].id;
+                              setSlideCaptionDrafts((current) => ({
+                                ...current,
+                                [slideId]: event.target.value,
+                              }));
+                            }}
+                            className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-normal"
+                          />
+                        </label>
+                        <div>
+                          <p className="text-xs font-semibold">References</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {selectedPost.task_slides[
+                              selectedSlide
+                            ].slide_references.map((reference) => (
+                              <a
+                                key={reference.id}
+                                href={reference.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded-full bg-[var(--background)] px-3 py-1.5 text-[10px] font-semibold underline"
+                              >
+                                {reference.platform}
+                              </a>
+                            ))}
+                          </div>
+                          <div className="mt-2 flex gap-2">
+                            <input
+                              type="url"
+                              value={slideReferenceDraft}
+                              onChange={(event) =>
+                                setSlideReferenceDraft(event.target.value)
+                              }
+                              placeholder="Paste a reference link"
+                              className="h-10 min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-xs"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void addSlideReference(
+                                  selectedPost,
+                                  selectedPost.task_slides[selectedSlide],
+                                )
+                              }
+                              className="rounded-xl border border-[var(--border)] px-3 text-xs font-semibold"
+                            >
+                              Add
+                            </button>
+                          </div>
+                        </div>
+                      </section>
                     )}
-                  <label className="text-xs font-semibold">
+                  <label
+                    className={`text-xs font-semibold ${
+                      activeModalPhase === "creative" ? "" : "hidden"
+                    }`}
+                  >
                     {selectedPost.format === "carousel"
                       ? "Post caption (shown below the whole carousel)"
                       : "Final caption"}
@@ -2020,57 +3152,438 @@ export function SocialApprovalCalendar({
                       rows={8}
                       disabled={
                         Boolean(selectedPost.posted_at) ||
-                        selectedPost.status === "scheduled"
+                        selectedPost.publishing_status === "scheduled"
                       }
                       value={captionDraft}
                       onChange={(event) => setCaptionDraft(event.target.value)}
                       className="mt-2 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm leading-6"
                     />
                   </label>
-                  <button
-                    type="button"
-                    disabled={
-                      Boolean(selectedPost.posted_at) ||
-                      selectedPost.status === "scheduled" ||
-                      isSaving
-                    }
-                    onClick={() => void savePlanning(selectedPost)}
-                    className="w-fit rounded-full border border-[var(--border)] px-4 py-2 text-xs font-semibold hover:bg-[var(--muted)] disabled:opacity-50"
-                  >
-                    {isSaving ? "Saving…" : "Save final details"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={
-                      Boolean(selectedPost.posted_at) ||
-                      selectedPost.status === "scheduled" ||
-                      !currentReviewer ||
-                      isSaving
-                    }
-                    aria-pressed={selectedPost.final_confirmed}
-                    onClick={() => void toggleFinalConfirmation(selectedPost)}
-                    className={`flex items-start gap-3 rounded-2xl border p-4 text-left transition ${
-                      selectedPost.final_confirmed
-                        ? "border-[#8DB39A] bg-[#EAF5ED]"
-                        : "border-[var(--border)] bg-[var(--background)]"
-                    }`}
-                  >
-                    <span className="flex size-5 shrink-0 items-center justify-center rounded border border-current text-xs">
-                      {selectedPost.final_confirmed ? "✓" : ""}
-                    </span>
-                    <span>
-                      <span className="block text-sm font-semibold">
-                        Final content confirmed
+                  {contentDraft && (
+                    <>
+                      <section
+                        className={`grid gap-3 rounded-2xl border border-[var(--border)] p-4 ${
+                          activeModalPhase === "production" ? "" : "hidden"
+                        }`}
+                      >
+                        <label className="flex items-center justify-between gap-3 text-xs font-semibold">
+                          <span>
+                            Filming
+                            <span className="mt-1 block font-normal text-[var(--foreground)]/45">
+                              Keep raw footage separate from the final deliverable.
+                            </span>
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={contentDraft.requiresFilming}
+                            onChange={(event) =>
+                              setContentDraft({
+                                ...contentDraft,
+                                requiresFilming: event.target.checked,
+                              })
+                            }
+                            className="size-5"
+                          />
+                        </label>
+                        {contentDraft.requiresFilming && (
+                          <div className="grid gap-3">
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <label className="text-xs font-semibold">
+                                Filming date
+                                <input
+                                  type="date"
+                                  value={contentDraft.filmingDetails.filmingDate}
+                                  onChange={(event) =>
+                                    setContentDraft({
+                                      ...contentDraft,
+                                      filmingDetails: {
+                                        ...contentDraft.filmingDetails,
+                                        filmingDate: event.target.value,
+                                      },
+                                    })
+                                  }
+                                  className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                                />
+                              </label>
+                              <label className="text-xs font-semibold">
+                                Participants
+                                <input
+                                  value={contentDraft.filmingDetails.participants.join(", ")}
+                                  onChange={(event) =>
+                                    setContentDraft({
+                                      ...contentDraft,
+                                      filmingDetails: {
+                                        ...contentDraft.filmingDetails,
+                                        participants: event.target.value
+                                          .split(",")
+                                          .map((value) => value.trim())
+                                          .filter(Boolean),
+                                      },
+                                    })
+                                  }
+                                  placeholder="Names separated by commas"
+                                  className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                                />
+                              </label>
+                            </div>
+                            <label className="flex items-center gap-2 text-xs font-semibold">
+                              <input
+                                type="checkbox"
+                                checked={contentDraft.filmingDetails.needsModels}
+                                onChange={(event) =>
+                                  setContentDraft({
+                                    ...contentDraft,
+                                    filmingDetails: {
+                                      ...contentDraft.filmingDetails,
+                                      needsModels: event.target.checked,
+                                    },
+                                  })
+                                }
+                              />
+                              Models required
+                            </label>
+                            {[
+                              ["preparation", "Preparation and props"],
+                              ["script", "Filming script"],
+                              ["shotList", "Shot list / filming instructions"],
+                            ].map(([field, label]) => (
+                              <label key={field} className="text-xs font-semibold">
+                                {label}
+                                <textarea
+                                  rows={3}
+                                  value={
+                                    contentDraft.filmingDetails[
+                                      field as "preparation" | "script" | "shotList"
+                                    ]
+                                  }
+                                  onChange={(event) =>
+                                    setContentDraft({
+                                      ...contentDraft,
+                                      filmingDetails: {
+                                        ...contentDraft.filmingDetails,
+                                        [field]: event.target.value,
+                                      },
+                                    })
+                                  }
+                                  className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm"
+                                />
+                              </label>
+                            ))}
+                            <label className="text-xs font-semibold">
+                              Raw footage links
+                              <textarea
+                                rows={3}
+                                value={contentDraft.filmingDetails.rawFootageLinks.join("\n")}
+                                onChange={(event) =>
+                                  setContentDraft({
+                                    ...contentDraft,
+                                    filmingDetails: {
+                                      ...contentDraft.filmingDetails,
+                                      rawFootageLinks: event.target.value
+                                        .split("\n")
+                                        .map((value) => value.trim())
+                                        .filter(Boolean),
+                                    },
+                                  })
+                                }
+                                placeholder="One link per line"
+                                className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm"
+                              />
+                            </label>
+                            <label className="flex items-center gap-2 text-xs font-semibold">
+                              <input
+                                type="checkbox"
+                                checked={contentDraft.filmingDetails.filmed}
+                                onChange={(event) =>
+                                  setContentDraft({
+                                    ...contentDraft,
+                                    filmingDetails: {
+                                      ...contentDraft.filmingDetails,
+                                      filmed: event.target.checked,
+                                    },
+                                  })
+                                }
+                              />
+                              Filmed
+                            </label>
+                          </div>
+                        )}
+                      </section>
+
+                      <section
+                        className={`grid gap-4 rounded-2xl border border-[var(--border)] p-4 ${
+                          activeModalPhase === "scheduling" ? "" : "hidden"
+                        }`}
+                      >
+                        <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--primary)]">
+                          Scheduling
+                        </h3>
+                        <label className="text-xs font-semibold">
+                          Planned publishing date and time
+                          <input
+                            type="datetime-local"
+                            disabled={
+                              Boolean(selectedPost.posted_at) ||
+                              selectedPost.publishing_status === "scheduled"
+                            }
+                            value={scheduleDraft}
+                            onChange={(event) =>
+                              setScheduleDraft(event.target.value)
+                            }
+                            className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                          />
+                        </label>
+                        <fieldset>
+                          <legend className="text-xs font-semibold">
+                            Publishing method
+                          </legend>
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            {SOCIAL_SCHEDULING_MODES.map((schedulingMode) => (
+                              <label
+                                key={schedulingMode}
+                                className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-xs ${
+                                  contentDraft.schedulingMode === schedulingMode
+                                    ? "border-[var(--primary)] bg-[var(--muted)]"
+                                    : "border-[var(--border)]"
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  name={`scheduling-mode-${selectedPost.id}`}
+                                  value={schedulingMode}
+                                  disabled={
+                                    Boolean(selectedPost.posted_at) ||
+                                    selectedPost.publishing_status === "scheduled"
+                                  }
+                                  checked={
+                                    contentDraft.schedulingMode === schedulingMode
+                                  }
+                                  onChange={() =>
+                                    setContentDraft({
+                                      ...contentDraft,
+                                      schedulingMode,
+                                    })
+                                  }
+                                  className="mt-0.5"
+                                />
+                                <span>
+                                  <span className="block font-semibold">
+                                    {SOCIAL_SCHEDULING_MODE_LABELS[schedulingMode]}
+                                  </span>
+                                  <span className="mt-1 block font-normal leading-5 text-[var(--foreground)]/50">
+                                    {schedulingMode === "automatic"
+                                      ? "Queue it in Meta or the publishing platform to auto-publish."
+                                      : "For Stories or other posts that need a person. Slack will send the creative when it is time to post."}
+                                  </span>
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        </fieldset>
+                        {contentDraft.schedulingMode === "automatic" && (
+                          <div className="rounded-xl border border-[#A9CDD5] bg-[#E8F4F7] p-3">
+                            <label className="flex cursor-pointer items-center justify-between gap-4">
+                              <span>
+                                <span className="block text-sm font-semibold text-[#2F6470]">
+                                  Scheduled in Meta
+                                </span>
+                                <span className="mt-1 block text-[11px] leading-5 text-[#2F6470]/70">
+                                  {selectedPost.publishing_status ===
+                                    "scheduled" &&
+                                  selectedPost.scheduling_mode === "automatic"
+                                    ? "Confirmed — this post is queued for automatic publishing."
+                                    : !hasCompletedClientApproval(selectedPost)
+                                      ? "Complete client approval before confirming the Meta schedule."
+                                      : !scheduleDraft
+                                        ? "Choose the publishing date and time first."
+                                        : "Check this after you have queued the post in Meta."}
+                                </span>
+                              </span>
+                              <input
+                                type="checkbox"
+                                aria-label="Scheduled in Meta"
+                                checked={
+                                  selectedPost.publishing_status ===
+                                    "scheduled" &&
+                                  selectedPost.scheduling_mode === "automatic"
+                                }
+                                disabled={
+                                  !currentReviewer ||
+                                  isSaving ||
+                                  Boolean(selectedPost.posted_at) ||
+                                  (selectedPost.publishing_status !==
+                                    "scheduled" &&
+                                    (!hasCompletedClientApproval(selectedPost) ||
+                                      !scheduleDraft))
+                                }
+                                onChange={(event) =>
+                                  void setScheduledState(
+                                    selectedPost,
+                                    event.target.checked,
+                                  )
+                                }
+                                className="size-5 shrink-0 accent-[#2F6470]"
+                              />
+                            </label>
+                          </div>
+                        )}
+                        {selectedPost.scheduling_mode === "manual" &&
+                          selectedPost.manual_reminder_sent_at && (
+                            <p className="rounded-xl bg-[#EAF5ED] px-3 py-2.5 text-xs font-semibold text-[#267149]">
+                              Slack reminder sent on {formatDate(
+                                selectedPost.manual_reminder_sent_at,
+                                true,
+                              )}.
+                            </p>
+                          )}
+                      </section>
+
+                      <section
+                        className={`grid gap-3 rounded-2xl border border-[var(--border)] p-4 ${
+                          activeModalPhase === "production" ? "" : "hidden"
+                        }`}
+                      >
+                        <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--primary)]">
+                          Production and assignment
+                        </h3>
+                        <label className="text-xs font-semibold">
+                          Production status
+                          <select
+                            value={contentDraft.productionStatus}
+                            onChange={(event) =>
+                              setContentDraft({
+                                ...contentDraft,
+                                productionStatus: event.target
+                                  .value as SocialProductionStatus,
+                              })
+                            }
+                            className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                          >
+                            {SOCIAL_PRODUCTION_STATUSES.map((status) => (
+                              <option key={status} value={status}>
+                                {SOCIAL_PRODUCTION_STATUS_LABELS[status]}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <fieldset>
+                          <legend className="text-xs font-semibold">Assignees</legend>
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            {Object.values(TEAM_IDENTITIES).map((profile) => (
+                              <label
+                                key={profile.username}
+                                className="flex items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-xs"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={contentDraft.assigneeUsernames.includes(
+                                    profile.username,
+                                  )}
+                                  onChange={() =>
+                                    setContentDraft({
+                                      ...contentDraft,
+                                      assigneeUsernames:
+                                        contentDraft.assigneeUsernames.includes(
+                                          profile.username,
+                                        )
+                                          ? contentDraft.assigneeUsernames.filter(
+                                              (username) =>
+                                                username !== profile.username,
+                                            )
+                                          : [
+                                              ...contentDraft.assigneeUsernames,
+                                              profile.username,
+                                            ],
+                                    })
+                                  }
+                                />
+                                {profile.name}
+                              </label>
+                            ))}
+                          </div>
+                        </fieldset>
+                        <p className="text-[11px] leading-5 text-[var(--foreground)]/50">
+                          Watchers: {selectedPost.watcher_usernames.join(", ") || "None"}
+                          <br />Mentions: {selectedPost.mentioned_usernames.join(", ") || "None"}
+                        </p>
+                      </section>
+
+                      <section
+                        className={`grid gap-3 rounded-2xl border border-[var(--border)] p-4 ${
+                          activeModalPhase === "publishing" ? "" : "hidden"
+                        }`}
+                      >
+                        <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--primary)]">
+                          Publishing
+                        </h3>
+                        <p className="text-xs">
+                          Status: <strong>{SOCIAL_PUBLISHING_STATUS_LABELS[selectedPost.publishing_status]}</strong>
+                        </p>
+                        <label className="text-xs font-semibold">
+                          Live post URL
+                          <input
+                            type="url"
+                            value={contentDraft.livePostUrl}
+                            onChange={(event) =>
+                              setContentDraft({
+                                ...contentDraft,
+                                livePostUrl: event.target.value,
+                              })
+                            }
+                            className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                          />
+                        </label>
+                      </section>
+                    </>
+                  )}
+                  {activeModalPhase !== "approval" && (
+                    <button
+                      type="button"
+                      disabled={
+                        Boolean(selectedPost.posted_at) ||
+                        selectedPost.publishing_status === "scheduled" ||
+                        isSaving
+                      }
+                      onClick={() => void savePlanning(selectedPost)}
+                      className="w-fit rounded-full border border-[var(--border)] px-4 py-2 text-xs font-semibold hover:bg-[var(--muted)] disabled:opacity-50"
+                    >
+                      {isSaving ? "Saving…" : "Save changes"}
+                    </button>
+                  )}
+                  {activeModalPhase === "approval" && (
+                    <button
+                      type="button"
+                      disabled={
+                        Boolean(selectedPost.posted_at) ||
+                        selectedPost.publishing_status === "scheduled" ||
+                        !currentReviewer ||
+                        isSaving
+                      }
+                      aria-pressed={selectedPost.final_confirmed}
+                      onClick={() => void toggleFinalConfirmation(selectedPost)}
+                      className={`flex items-start gap-3 rounded-2xl border p-4 text-left transition ${
+                        selectedPost.final_confirmed
+                          ? "border-[#8DB39A] bg-[#EAF5ED]"
+                          : "border-[var(--border)] bg-[var(--background)]"
+                      }`}
+                    >
+                      <span className="flex size-5 shrink-0 items-center justify-center rounded border border-current text-xs">
+                        {selectedPost.final_confirmed ? "✓" : ""}
                       </span>
-                      <span className="mt-1 block text-xs text-[var(--foreground)]/50">
-                        {selectedPost.final_confirmed
-                          ? `Confirmed by ${
-                              selectedPost.final_confirmed_by ?? "the team"
-                            }`
-                          : "Confirm the creative, schedule, and caption are client-ready."}
+                      <span>
+                        <span className="block text-sm font-semibold">
+                          Final content confirmed
+                        </span>
+                        <span className="mt-1 block text-xs text-[var(--foreground)]/50">
+                          {selectedPost.final_confirmed
+                            ? `Confirmed by ${
+                                selectedPost.final_confirmed_by ?? "the team"
+                              }`
+                            : "Confirm the creative, schedule, and caption are client-ready."}
+                        </span>
                       </span>
-                    </span>
-                  </button>
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="mt-5 space-y-5">
@@ -2099,17 +3612,60 @@ export function SocialApprovalCalendar({
                 </div>
               )}
 
-              <div className="mt-7">
-                <div className="flex items-center justify-between gap-3">
+              {mode === "internal" &&
+                activeModalPhase === "approval" &&
+                (deriveInternalApprovalState(
+                  selectedPost.internal_approvals,
+                  INTERNAL_REVIEWER_KEYS,
+                  selectedPost.internal_review_submitted_at,
+                ) === "not_submitted" ||
+                  selectedPost.production_status === "changes_required") && (
+                  <button
+                    type="button"
+                    disabled={isSaving || Boolean(selectedPost.posted_at)}
+                    onClick={() =>
+                      void submitForInternalReview(selectedPost)
+                    }
+                    className="mt-7 w-full rounded-full bg-[var(--primary)] px-5 py-3 text-sm font-semibold text-[var(--primary-foreground)] disabled:opacity-40"
+                  >
+                    Submit for internal review
+                  </button>
+                )}
+
+              {(mode === "client" || activeModalPhase === "approval") && (
+                <div className="mt-7">
+                  <div className="flex items-center justify-between gap-3">
                   <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]/55">
-                    Required approvals
+                    Review and approval
                   </h3>
                   <span className="text-[10px] text-[var(--foreground)]/40">
                     {requiredReviewers.length}{" "}
                     {requiredReviewers.length === 1 ? "person" : "people"} required
                   </span>
-                </div>
-                <div className="mt-3 grid gap-3">
+                  </div>
+                  {mode === "internal" && (
+                  <div className="mt-3 grid gap-2 rounded-xl bg-[var(--muted)] p-3 text-xs sm:grid-cols-2">
+                    <p>
+                      Internal: <strong>{approvalStateLabel(
+                        deriveInternalApprovalState(
+                          selectedPost.internal_approvals,
+                          INTERNAL_REVIEWER_KEYS,
+                          selectedPost.internal_review_submitted_at,
+                        ),
+                      )}</strong>
+                    </p>
+                    <p>
+                      Client: <strong>{approvalStateLabel(
+                        deriveClientApprovalState(
+                          selectedPost.client_approvals,
+                          clientReviewerKeys,
+                          selectedPost.sent_to_client_at,
+                        ),
+                      )}</strong>
+                    </p>
+                  </div>
+                  )}
+                  <div className="mt-3 grid gap-3">
                   {requiredReviewers.map((reviewer) => {
                     const review = reviewFor(selectedPost, mode, reviewer.key);
                     return (
@@ -2160,10 +3716,12 @@ export function SocialApprovalCalendar({
                       </article>
                     );
                   })}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {mode === "internal" &&
+                activeModalPhase === "approval" &&
                 Object.keys(selectedPost.client_approvals).length > 0 && (
                   <div className="mt-7 border-t border-[var(--border)] pt-6">
                     <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]/55">
@@ -2204,7 +3762,8 @@ export function SocialApprovalCalendar({
                   </div>
                 )}
 
-              {selectedApprovalHistory.length > 0 && (
+              {selectedApprovalHistory.length > 0 &&
+                (mode === "client" || activeModalPhase === "approval") && (
                 <div className="mt-7 border-t border-[var(--border)] pt-6">
                   <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]/55">
                     Approval history
@@ -2240,8 +3799,14 @@ export function SocialApprovalCalendar({
               )}
 
               {currentReviewer &&
+                (mode === "client" || activeModalPhase === "approval") &&
                 !selectedPost.posted_at &&
-                selectedPost.status !== "scheduled" && (
+                selectedPost.publishing_status !== "scheduled" &&
+                (mode !== "internal" ||
+                  selectedPost.production_status !== "changes_required") &&
+                (mode === "internal"
+                  ? Boolean(selectedPost.internal_review_submitted_at)
+                  : Boolean(selectedPost.sent_to_client_at)) && (
                 <div className="mt-5 border-t border-[var(--border)] pt-5">
                   <div className="flex flex-wrap gap-2.5">
                     <button
@@ -2297,116 +3862,158 @@ export function SocialApprovalCalendar({
                 </div>
               )}
 
-              {mode === "internal" && canSendToClient && (
-                <div className="mt-6 border-t border-[var(--border)] pt-5">
-                  {selectedPost.posted_at ? (
-                    <div className="rounded-2xl border border-[#A8CFB5] bg-[#EAF5ED] p-4 text-center">
-                      <p className="text-xs font-semibold text-[#267149]">
-                        Archived as posted by {selectedPost.posted_by ?? "the team"}{" "}
-                        on {formatDate(selectedPost.posted_at, true)}
+              {mode === "internal" &&
+                canSendToClient &&
+                activeModalPhase === "approval" && (
+                  <div className="mt-6 border-t border-[var(--border)] pt-5">
+                    {selectedPost.sent_to_client_at ? (
+                      <p className="rounded-full bg-[var(--muted)] px-4 py-3 text-center text-xs font-semibold text-[var(--foreground)]/70">
+                        Sent by {selectedPost.sent_to_client_by ?? "the team"}{" "}
+                        on {formatDate(selectedPost.sent_to_client_at, true)}
                       </p>
-                      <button
-                        type="button"
-                        disabled={!currentReviewer || isSaving}
-                        onClick={() =>
-                          void setPostedState(selectedPost, false)
-                        }
-                        className="mt-3 rounded-full border border-[#76A98A] bg-white px-4 py-2 text-xs font-semibold text-[#267149] transition hover:bg-[#F6FBF8] disabled:opacity-40"
-                      >
-                        {isSaving ? "Restoring…" : "Restore to active"}
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      {selectedPost.sent_to_client_at ? (
-                        <p className="rounded-full bg-[var(--muted)] px-4 py-3 text-center text-xs font-semibold text-[var(--foreground)]/70">
-                          Sent by {selectedPost.sent_to_client_by ?? "the team"}{" "}
-                          on {formatDate(selectedPost.sent_to_client_at, true)}
+                    ) : (
+                      <p className="text-center text-[11px] leading-5 text-[var(--foreground)]/45">
+                        {isReadyForClient(selectedPost, requiredReviewers)
+                          ? "Ready — this post will go out with the rest of its month when you use “Send [month] to client” on the calendar."
+                          : "Add the planned date, confirm the final content, and get Karen’s approval so this post is included in the client send."}
+                      </p>
+                    )}
+                    {selectedPost.sent_to_client_at &&
+                    hasClientChangesRequested(selectedPost) ? (
+                      <div className="mt-4 rounded-2xl border border-[#DDB7AB] bg-[#F8ECE8] p-4 text-center">
+                        <p className="text-xs font-semibold text-[#875344]">
+                          The client requested changes. Update the post, complete
+                          the review step, then resend it for a fresh decision.
                         </p>
-                      ) : (
-                        <p className="text-center text-[11px] leading-5 text-[var(--foreground)]/45">
-                          {isReadyForClient(selectedPost, requiredReviewers)
-                            ? "Ready — this post will go out with the rest of its month when you use “Send [month] to client” on the calendar."
-                            : "Add the date and time, confirm the final content, and get Karen’s approval so this post is included in that month’s client send."}
-                        </p>
-                      )}
-                      {selectedPost.sent_to_client_at &&
-                      hasClientChangesRequested(selectedPost) ? (
-                        <div className="mt-4 rounded-2xl border border-[#DDB7AB] bg-[#F8ECE8] p-4 text-center">
-                          <p className="text-xs font-semibold text-[#875344]">
-                            The client requested changes. Update the post in its
-                            calendar task, reload this page, then resend it for
-                            a fresh decision.
-                          </p>
-                          <button
-                            type="button"
-                            disabled={!currentReviewer || isSending}
-                            onClick={() =>
-                              void resendPostToClient(selectedPost)
-                            }
-                            className="mt-3 rounded-full bg-[#A76350] px-5 py-2.5 text-xs font-semibold text-white transition hover:bg-[#925542] disabled:cursor-wait disabled:opacity-50"
-                          >
-                            {isSending ? "Resending…" : "Resend to client"}
-                          </button>
-                        </div>
-                      ) : selectedPost.status === "scheduled" ? (
-                        <div className="mt-4 rounded-2xl border border-[#A9CDD5] bg-[#E8F4F7] p-4 text-center">
-                          <p className="text-sm font-semibold text-[#2F6470]">
-                            Queued in Meta
-                          </p>
-                          <p className="mt-1 text-xs leading-5 text-[#2F6470]/75">
-                            This post is waiting to auto-publish. Remove it from
-                            Meta’s queue before changing its publishing details.
-                          </p>
-                          <div className="mt-4 flex flex-wrap justify-center gap-2">
-                            <button
-                              type="button"
-                              disabled={!currentReviewer || isSaving}
-                              onClick={() =>
-                                void setScheduledState(selectedPost, false)
-                              }
-                              className="rounded-full border border-[#6FA1AC] bg-white px-4 py-2 text-xs font-semibold text-[#2F6470] disabled:opacity-40"
-                            >
-                              Move back to client approved
-                            </button>
-                            <button
-                              type="button"
-                              disabled={!currentReviewer || isSaving}
-                              onClick={() =>
-                                void setPostedState(selectedPost, true)
-                              }
-                              className="rounded-full bg-[#2F8A57] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
-                            >
-                              {isSaving ? "Archiving…" : "Mark as posted"}
-                            </button>
-                          </div>
-                        </div>
-                      ) : selectedPost.status === "external_approved" &&
-                        hasCompletedClientApproval(selectedPost) ? (
                         <button
                           type="button"
                           disabled={
                             !currentReviewer ||
-                            !selectedPost.scheduled_at ||
-                            isSaving
+                            isSending ||
+                            selectedPost.production_status !== "complete" ||
+                            deriveInternalApprovalState(
+                              selectedPost.internal_approvals,
+                              INTERNAL_REVIEWER_KEYS,
+                              selectedPost.internal_review_submitted_at,
+                            ) !== "approved"
                           }
-                          onClick={() =>
-                            void setScheduledState(selectedPost, true)
-                          }
-                          className="mt-4 w-full rounded-full bg-[#2F6470] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#285660] disabled:opacity-40"
+                          onClick={() => void resendPostToClient(selectedPost)}
+                          className="mt-3 rounded-full bg-[#A76350] px-5 py-2.5 text-xs font-semibold text-white transition hover:bg-[#925542] disabled:cursor-wait disabled:opacity-50"
                         >
-                          {isSaving ? "Saving…" : "Confirm queued in Meta"}
+                          {isSending ? "Resending…" : "Resend to client"}
                         </button>
-                      ) : selectedPost.sent_to_client_at ? (
-                        <p className="mt-4 text-center text-xs leading-5 text-[var(--foreground)]/50">
-                          Waiting for all required client approvals before this
-                          post can be queued in Meta.
+                      </div>
+                    ) : hasCompletedClientApproval(selectedPost) ? (
+                      <p className="mt-4 rounded-xl bg-[#EAF5ED] px-4 py-3 text-center text-xs font-semibold text-[#267149]">
+                        Client approved. Continue to Scheduling.
+                      </p>
+                    ) : selectedPost.sent_to_client_at ? (
+                      <p className="mt-4 text-center text-xs leading-5 text-[var(--foreground)]/50">
+                        Waiting for all required client approvals.
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+
+              {mode === "internal" &&
+                canSendToClient &&
+                  activeModalPhase === "scheduling" && (
+                  <div className="mt-6 border-t border-[var(--border)] pt-5">
+                    {contentDraft?.schedulingMode === "automatic" ? null : selectedPost.publishing_status ===
+                      "scheduled" ? (
+                      <div className="rounded-2xl border border-[#A9CDD5] bg-[#E8F4F7] p-4 text-center">
+                        <p className="text-sm font-semibold text-[#2F6470]">
+                          {selectedPost.scheduling_mode === "manual"
+                            ? "Manual Slack reminder scheduled"
+                            : "Queued for automatic publishing"}
                         </p>
-                      ) : null}
-                    </>
-                  )}
-                </div>
-              )}
+                        <p className="mt-1 text-xs leading-5 text-[#2F6470]/75">
+                          {selectedPost.scheduling_mode === "manual"
+                            ? `Slack will send the post owner all creative at ${formatDate(selectedPost.scheduled_at, true)}.`
+                            : "This post is waiting to auto-publish from Meta or the selected publishing platform."}
+                        </p>
+                        <button
+                          type="button"
+                          disabled={!currentReviewer || isSaving}
+                          onClick={() =>
+                            void setScheduledState(selectedPost, false)
+                          }
+                          className="mt-4 rounded-full border border-[#6FA1AC] bg-white px-4 py-2 text-xs font-semibold text-[#2F6470] disabled:opacity-40"
+                        >
+                          Change scheduling details
+                        </button>
+                      </div>
+                    ) : hasCompletedClientApproval(selectedPost) ? (
+                      <button
+                        type="button"
+                        disabled={
+                          !currentReviewer || !scheduleDraft || isSaving
+                        }
+                        onClick={() =>
+                          void setScheduledState(selectedPost, true)
+                        }
+                        className="w-full rounded-full bg-[#2F6470] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#285660] disabled:opacity-40"
+                      >
+                        {isSaving
+                          ? "Saving…"
+                          : "Schedule Slack reminder"}
+                      </button>
+                    ) : (
+                      <p className="text-center text-xs leading-5 text-[var(--foreground)]/50">
+                        Complete client approval before scheduling this post.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+              {mode === "internal" &&
+                canSendToClient &&
+                activeModalPhase === "publishing" && (
+                  <div className="mt-6 border-t border-[var(--border)] pt-5">
+                    {selectedPost.posted_at ? (
+                      <div className="rounded-2xl border border-[#A8CFB5] bg-[#EAF5ED] p-4 text-center">
+                        <p className="text-xs font-semibold text-[#267149]">
+                          Archived as posted by {selectedPost.posted_by ?? "the team"}{" "}
+                          on {formatDate(selectedPost.posted_at, true)}
+                        </p>
+                        <button
+                          type="button"
+                          disabled={!currentReviewer || isSaving}
+                          onClick={() =>
+                            void setPostedState(selectedPost, false)
+                          }
+                          className="mt-3 rounded-full border border-[#76A98A] bg-white px-4 py-2 text-xs font-semibold text-[#267149] transition hover:bg-[#F6FBF8] disabled:opacity-40"
+                        >
+                          {isSaving ? "Restoring…" : "Restore to scheduled"}
+                        </button>
+                      </div>
+                    ) : selectedPost.publishing_status === "scheduled" ? (
+                      <div className="rounded-2xl border border-[var(--border)] bg-[var(--muted)] p-4 text-center">
+                        <p className="text-sm font-semibold">
+                          {selectedPost.scheduling_mode === "manual"
+                            ? "Waiting for manual posting"
+                            : "Waiting for automatic publishing"}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-[var(--foreground)]/55">
+                          Add the live URL above after it goes live, then mark it
+                          as posted.
+                        </p>
+                        <button
+                          type="button"
+                          disabled={!currentReviewer || isSaving}
+                          onClick={() => void setPostedState(selectedPost, true)}
+                          className="mt-4 rounded-full bg-[#2F8A57] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+                        >
+                          {isSaving ? "Archiving…" : "Mark as posted"}
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-center text-xs leading-5 text-[var(--foreground)]/50">
+                        Complete the Scheduling stage first.
+                      </p>
+                    )}
+                  </div>
+                )}
             </div>
           </section>
         </div>

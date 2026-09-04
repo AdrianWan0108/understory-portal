@@ -121,16 +121,6 @@ function subtractCalendarDays(value: string, days: number) {
   return `${year}-${month}-${day}`;
 }
 
-function dateKeyFromTimestamp(value: string | null) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function dateKeyFromDate(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -166,19 +156,19 @@ function hasChangesRequested(value: unknown) {
 
 function socialItemStatus(post: {
   status: string;
+  production_status: string;
+  publishing_status: string;
   internal_approvals: unknown;
   client_approvals: unknown;
   sent_to_client_at: string | null;
   posted_at: string | null;
 }, clientSlug: WorkspaceClientSlug): TimelineStatus {
-  if (post.posted_at || post.status === "posted") return "posted";
-  if (post.status === "not_started") return "planning";
-  if (post.status === "in_progress") return "production";
-  if (post.status === "for_review") return "review";
-  if (post.status === "internal_approved") return "internal-approved";
-  if (post.status === "external_approved") return "external-approved";
-  if (post.status === "scheduled") return "scheduled";
-  if (post.status === "changes_requested") return "changes-requested";
+  if (post.publishing_status === "posted" || post.posted_at) return "posted";
+  if (post.publishing_status === "scheduled") return "scheduled";
+  if (post.production_status === "not_started") return "planning";
+  if (post.production_status === "in_progress") return "production";
+  if (post.production_status === "ready_for_review") return "review";
+  if (post.production_status === "changes_required") return "changes-requested";
   if (
     post.status === "needs_revision" ||
     hasChangesRequested(post.internal_approvals) ||
@@ -210,6 +200,20 @@ function socialItemStatus(post: {
     return "review";
   }
   return "planning";
+}
+
+function socialProductionDatabaseStatus(status: TimelineStatus) {
+  if (status === "production") return "in_progress";
+  if (status === "review") return "ready_for_review";
+  if (status === "changes-requested") return "changes_required";
+  if (
+    status === "approved" ||
+    status === "internal-approved" ||
+    status === "external-approved"
+  ) {
+    return "complete";
+  }
+  return "not_started";
 }
 
 function socialDatabaseStatus(status: TimelineStatus) {
@@ -870,13 +874,14 @@ export function ProjectGanttBoard({
         status === "posted")
     ) {
       throw new Error(
-        "Use Content Calendar to confirm Meta scheduling and publication.",
+        "Use Social Content Calendar to confirm Meta scheduling and publication.",
       );
     }
     const payload =
       task.sourceTable === "tasks"
         ? {
             status: socialDatabaseStatus(status),
+            production_status: socialProductionDatabaseStatus(status),
             posted_at: status === "posted" ? new Date().toISOString() : null,
           }
         : {
@@ -963,7 +968,7 @@ export function ProjectGanttBoard({
           supabase
             .from("tasks")
             .select(
-              "id, division_task_id, title, status, start_date, due_date, scheduled_at, internal_approvals, client_approvals, sent_to_client_at, posted_at, assigned_to, assignee_usernames, created_at",
+              "id, division_task_id, title, status, production_status, publishing_status, start_date, due_date, scheduled_at, internal_approvals, client_approvals, sent_to_client_at, posted_at, assigned_to, assignee_usernames, created_at",
             )
             .eq("client_id", clientId)
             .is("posted_at", null)
@@ -991,7 +996,7 @@ export function ProjectGanttBoard({
         const latestCalendar = calendars.at(-1);
         const combinedGroup: TaskGroup = {
           taskId: `content-calendar-${clientId}`,
-          taskTitle: "Production",
+          taskTitle: "Social Content Calendar",
           href: latestCalendar
             ? socialCalendarHref(latestCalendar.id)
             : "/team-hub/projects",
@@ -1008,8 +1013,7 @@ export function ProjectGanttBoard({
             status: socialItemStatus(post, clientSlug),
             href,
             startDate: post.start_date,
-            dueDate:
-              post.due_date ?? dateKeyFromTimestamp(post.scheduled_at),
+            dueDate: post.due_date,
             assignees: assigneesFor(
               post.assignee_usernames,
               post.assigned_to,

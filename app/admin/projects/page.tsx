@@ -66,7 +66,11 @@ export default function AdminProjectsPage() {
       setError(loadError.message);
       setProjects([]);
     } else {
-      setProjects((data ?? []) as unknown as Project[]);
+      setProjects(
+        ((data ?? []) as unknown as Project[]).filter(
+          (project) => project.template_type !== "internal_approval",
+        ),
+      );
       setError(null);
     }
   }, [clientId]);

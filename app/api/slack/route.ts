@@ -21,12 +21,40 @@ type ClientReviewNotification = {
   reviewerName: string;
   comment?: string;
   assigneeNames?: string[];
+  taskId?: string;
+  calendarId?: string | null;
+  scheduledAt?: string | null;
+  transitionKey?: string;
 };
 
 type TaskReviewNotification = {
   type: "task_review";
   clientSlug: WorkspaceClientSlug;
   title: string;
+  taskId?: string;
+  calendarId?: string | null;
+  assigneeNames?: string[];
+  scheduledAt?: string | null;
+  transitionKey?: string;
+};
+
+type SocialTransitionNotification = {
+  type: "social_transition";
+  clientSlug: WorkspaceClientSlug;
+  action:
+    | "internal_changes_requested"
+    | "sent_to_client"
+    | "publishing_date_changed"
+    | "scheduled"
+    | "manual_reminder_scheduled"
+    | "posted";
+  taskId: string;
+  calendarId: string;
+  transitionKey: string;
+  title: string;
+  assigneeNames?: string[];
+  scheduledAt?: string | null;
+  comment?: string;
 };
 
 type ClientInvoiceNotification = {
@@ -45,6 +73,7 @@ type PayrollInvoiceNotification = {
 type SlackNotification =
   | ClientReviewNotification
   | TaskReviewNotification
+  | SocialTransitionNotification
   | ClientInvoiceNotification
   | PayrollInvoiceNotification;
 
@@ -109,6 +138,10 @@ function parseNotification(value: unknown): SlackNotification | null {
           .filter((name): name is string => Boolean(name))
           .slice(0, 5)
       : undefined;
+    const taskId = cleanText(payload.taskId, 80) ?? undefined;
+    const calendarId = cleanText(payload.calendarId, 80);
+    const scheduledAt = cleanText(payload.scheduledAt, 80);
+    const transitionKey = cleanText(payload.transitionKey, 240) ?? undefined;
 
     if (
       (clientSlug !== "mvp" && clientSlug !== "boardwalk") ||
@@ -128,6 +161,10 @@ function parseNotification(value: unknown): SlackNotification | null {
       reviewerName,
       comment,
       assigneeNames,
+      taskId,
+      calendarId,
+      scheduledAt,
+      transitionKey,
     };
   }
 
@@ -137,7 +174,66 @@ function parseNotification(value: unknown): SlackNotification | null {
       typeof payload.clientSlug === "string" ? payload.clientSlug : null;
 
     if (!title || !isWorkspaceClientSlug(clientSlug)) return null;
-    return { type: "task_review", clientSlug, title };
+    return {
+      type: "task_review",
+      clientSlug,
+      title,
+      taskId: cleanText(payload.taskId, 80) ?? undefined,
+      calendarId: cleanText(payload.calendarId, 80),
+      scheduledAt: cleanText(payload.scheduledAt, 80),
+      transitionKey: cleanText(payload.transitionKey, 240) ?? undefined,
+      assigneeNames: Array.isArray(payload.assigneeNames)
+        ? payload.assigneeNames
+            .map((name) => cleanText(name, 60))
+            .filter((name): name is string => Boolean(name))
+            .slice(0, 5)
+        : undefined,
+    };
+  }
+
+  if (payload.type === "social_transition") {
+    const title = cleanText(payload.title);
+    const taskId = cleanText(payload.taskId, 80);
+    const calendarId = cleanText(payload.calendarId, 80);
+    const transitionKey = cleanText(payload.transitionKey, 240);
+    const clientSlug =
+      typeof payload.clientSlug === "string" ? payload.clientSlug : null;
+    const actions = new Set([
+      "internal_changes_requested",
+      "sent_to_client",
+      "publishing_date_changed",
+      "scheduled",
+      "manual_reminder_scheduled",
+      "posted",
+    ]);
+    if (
+      !title ||
+      !taskId ||
+      !calendarId ||
+      !transitionKey ||
+      !isWorkspaceClientSlug(clientSlug) ||
+      typeof payload.action !== "string" ||
+      !actions.has(payload.action)
+    ) {
+      return null;
+    }
+    return {
+      type: "social_transition",
+      clientSlug,
+      action: payload.action as SocialTransitionNotification["action"],
+      taskId,
+      calendarId,
+      transitionKey,
+      title,
+      scheduledAt: cleanText(payload.scheduledAt, 80),
+      comment: cleanText(payload.comment, 500) ?? undefined,
+      assigneeNames: Array.isArray(payload.assigneeNames)
+        ? payload.assigneeNames
+            .map((name) => cleanText(name, 60))
+            .filter((name): name is string => Boolean(name))
+            .slice(0, 5)
+        : undefined,
+    };
   }
 
   if (payload.type === "client_invoice") {
@@ -162,6 +258,49 @@ function parseNotification(value: unknown): SlackNotification | null {
   }
 
   return null;
+}
+
+async function claimTransition(
+  notification: {
+    taskId?: string;
+    transitionKey?: string;
+    type: string;
+  },
+) {
+  if (!notification.taskId || !notification.transitionKey) return true;
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) throw new Error("Supabase server configuration is unavailable.");
+  const { error } = await supabaseAdmin.from("social_notification_events").insert({
+    transition_key: notification.transitionKey,
+    task_id: notification.taskId,
+    event_type: notification.type,
+  });
+  if (error?.code === "23505") return false;
+  if (error) throw error;
+  return true;
+}
+
+function socialContext(input: {
+  assigneeNames?: string[];
+  scheduledAt?: string | null;
+  calendarId?: string | null;
+  taskId?: string;
+}, request: NextRequest) {
+  const details = [
+    input.assigneeNames?.length
+      ? `Assignee: ${input.assigneeNames.join(", ")}`
+      : null,
+    input.scheduledAt
+      ? `Planned: ${new Intl.DateTimeFormat("en-CA", {
+          dateStyle: "medium",
+          timeStyle: "short",
+        }).format(new Date(input.scheduledAt))}`
+      : null,
+    input.calendarId && input.taskId
+      ? `Open: ${request.nextUrl.origin}/team-hub/projects/${encodeURIComponent(input.calendarId)}/calendar?post=${encodeURIComponent(input.taskId)}`
+      : null,
+  ].filter(Boolean);
+  return details.length ? `\n${details.join("\n")}` : "";
 }
 
 export async function POST(request: NextRequest) {
@@ -189,6 +328,9 @@ export async function POST(request: NextRequest) {
 
   try {
     if (notification.type === "client_review") {
+      if (!(await claimTransition(notification))) {
+        return NextResponse.json({ sent: false, duplicate: true });
+      }
       const clientName = WORKSPACE_CLIENTS[notification.clientSlug].name;
       const supabaseAdmin = getSupabaseAdmin();
       if (!supabaseAdmin) {
@@ -199,7 +341,14 @@ export async function POST(request: NextRequest) {
       }
 
       await syncClientReview(
-        { ...notification, clientName },
+        {
+          ...notification,
+          clientName,
+          directLink:
+            notification.calendarId && notification.taskId
+              ? `${request.nextUrl.origin}/team-hub/projects/${encodeURIComponent(notification.calendarId)}/calendar?post=${encodeURIComponent(notification.taskId)}`
+              : undefined,
+        },
         {
           writeActivity: async (activity) => {
             const { error } = await supabaseAdmin
@@ -224,9 +373,36 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ sent: false, reason: "No client webhook." });
       }
 
+      if (!(await claimTransition(notification))) {
+        return NextResponse.json({ sent: false, duplicate: true });
+      }
       await sendSlackMessage(
         target,
-        `${teamProfile.name} submitted '${notification.title}' for review.`,
+        `${WORKSPACE_CLIENTS[notification.clientSlug].name} · ${notification.title}\nSubmitted for internal review by ${teamProfile.name}.${socialContext(notification, request)}`,
+      );
+    } else if (notification.type === "social_transition") {
+      const teamProfile = teamProfileFromRequest(request);
+      if (!teamProfile) {
+        return NextResponse.json({ error: "Team session required." }, { status: 401 });
+      }
+      if (!(await claimTransition(notification))) {
+        return NextResponse.json({ sent: false, duplicate: true });
+      }
+      const labels: Record<SocialTransitionNotification["action"], string> = {
+        internal_changes_requested: "Internal changes requested",
+        sent_to_client: "Sent to client",
+        publishing_date_changed: "Publishing date changed after client approval",
+        scheduled: "Confirmed queued in Meta",
+        manual_reminder_scheduled: "Manual post reminder scheduled",
+        posted: "Marked as posted",
+      };
+      const target = clientWebhookTarget(notification.clientSlug) ?? "admin";
+      const comment = notification.comment
+        ? `\nComment: ${notification.comment}`
+        : "";
+      await sendSlackMessage(
+        target,
+        `${WORKSPACE_CLIENTS[notification.clientSlug].name} · ${notification.title}\n${labels[notification.action]} by ${teamProfile.name}.${socialContext(notification, request)}${comment}`,
       );
     } else if (notification.type === "client_invoice") {
       const clientName = WORKSPACE_CLIENTS[notification.clientSlug].name;

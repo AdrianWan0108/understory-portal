@@ -133,6 +133,25 @@ export default function DivisionTaskDetailPage() {
         return;
       }
 
+      if (
+        loadedTask.division === "social-media" &&
+        loadedTask.template_type === "internal_approval"
+      ) {
+        const { data: calendar } = await supabase
+          .from("division_tasks")
+          .select("id")
+          .eq("client_id", loadedTask.client_id)
+          .eq("division", "social-media")
+          .eq("template_type", "content_calendar")
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (calendar) {
+          router.replace(`/team-hub/projects/${calendar.id}/calendar`);
+          return;
+        }
+      }
+
       const specializedHref = specializedDivisionHref(
         loadedTask.division,
         clientRecord.slug,

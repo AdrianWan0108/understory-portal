@@ -94,6 +94,7 @@ type SocialTaskRow = {
   client_id: string;
   title: string;
   status: string;
+  division_task_id: string | null;
   assigned_to: string | null;
   assignee_usernames: string[];
   created_at: string;
@@ -141,17 +142,8 @@ function formatStatus(status: string) {
 }
 
 function divisionTaskDisplayTitle(task: DivisionTaskRow) {
-  if (
-    task.template_type === "internal_approval" &&
-    task.title.toLowerCase() === "internal approval"
-  ) {
-    return "Content Calendar";
-  }
-  if (
-    task.template_type === "content_calendar" &&
-    task.title.toLowerCase() === "content calendar"
-  ) {
-    return "Production";
+  if (task.template_type === "content_calendar") {
+    return "Social Content Calendar";
   }
   return task.title;
 }
@@ -185,11 +177,20 @@ function relativeDate(value: string) {
   );
 }
 
-function taskHref(source: "website" | "social", clientSlug: string) {
+function taskHref(
+  source: "website" | "social",
+  clientSlug: string,
+  workspaceId?: string | null,
+  postId?: string,
+) {
   if (!isWorkspaceClientSlug(clientSlug)) return "/team-hub/projects";
-  return source === "website"
-    ? `/team/website?client=${clientSlug}`
-    : `/team/${clientSlug}/social-media/august-content-calendar`;
+  if (source === "website") return `/team/website?client=${clientSlug}`;
+  if (workspaceId) {
+    return `/team-hub/projects/${encodeURIComponent(workspaceId)}/calendar${
+      postId ? `?post=${encodeURIComponent(postId)}` : ""
+    }`;
+  }
+  return `/team/${clientSlug}/social-media/august-content-calendar`;
 }
 
 function divisionTaskHref(task: DivisionTaskRow, clientSlug: string) {
@@ -481,7 +482,7 @@ export default function TeamHubDashboardPage() {
         supabase
           .from("tasks")
           .select(
-            "id, client_id, title, status, assigned_to, assignee_usernames, created_at",
+            "id, client_id, division_task_id, title, status, assigned_to, assignee_usernames, created_at",
           )
           .contains(
             isOwner ? "watcher_usernames" : "assignee_usernames",
@@ -523,7 +524,7 @@ export default function TeamHubDashboardPage() {
         supabase
           .from("tasks")
           .select(
-            "id, client_id, title, status, assigned_to, assignee_usernames, created_at",
+            "id, client_id, division_task_id, title, status, assigned_to, assignee_usernames, created_at",
           )
           .contains("mentioned_usernames", [activeUsername])
           .is("posted_at", null)
@@ -552,8 +553,8 @@ export default function TeamHubDashboardPage() {
         isOwner
           ? supabase
               .from("tasks")
-              .select("id, client_id, title, status, assigned_to, created_at")
-              .in("status", ["for_review", "in_review"])
+              .select("id, client_id, division_task_id, title, status, assigned_to, assignee_usernames, created_at")
+              .eq("production_status", "ready_for_review")
               .order("created_at", { ascending: false })
               .limit(20)
           : Promise.resolve({ data: [], error: null }),
@@ -595,8 +596,9 @@ export default function TeamHubDashboardPage() {
           slug: "",
         };
 
-      const projectAssigned = (projectAssignedResult.data ??
-        []) as DivisionTaskRow[];
+      const projectAssigned = (
+        (projectAssignedResult.data ?? []) as DivisionTaskRow[]
+      ).filter((task) => task.template_type !== "internal_approval");
       const socialAssigned = (socialAssignedResult.data ??
         []) as SocialTaskRow[];
       const itemAssigned = (itemAssignedResult.data ??
@@ -627,7 +629,12 @@ export default function TeamHubDashboardPage() {
             clientName: client.name,
             clientSlug: client.slug,
             status: task.status,
-            href: taskHref("social", client.slug),
+            href: taskHref(
+              "social",
+              client.slug,
+              task.division_task_id,
+              task.id,
+            ),
             createdAt: task.created_at,
             assigneeNames: task.assignee_usernames
               .map(teamNameForUsername)
@@ -667,8 +674,9 @@ export default function TeamHubDashboardPage() {
           new Date(first.createdAt).getTime(),
       );
 
-      const projectMentions = (projectMentionsResult.data ??
-        []) as DivisionTaskRow[];
+      const projectMentions = (
+        (projectMentionsResult.data ?? []) as DivisionTaskRow[]
+      ).filter((task) => task.template_type !== "internal_approval");
       const itemMentions = (itemMentionsResult.data ??
         []) as unknown as DivisionTaskItemRow[];
       const websiteMentions = (websiteMentionsResult.data ??
@@ -744,7 +752,12 @@ export default function TeamHubDashboardPage() {
             clientName: client.name,
             clientSlug: client.slug,
             status: task.status,
-            href: `${taskHref("social", client.slug)}?post=${encodeURIComponent(task.id)}`,
+            href: taskHref(
+              "social",
+              client.slug,
+              task.division_task_id,
+              task.id,
+            ),
             createdAt: task.created_at,
             assigneeNames: task.assignee_usernames
               .map(teamNameForUsername)
@@ -811,7 +824,12 @@ export default function TeamHubDashboardPage() {
             kind: "task",
             description: `Review social task “${task.title}”`,
             clientName: client.name,
-            href: taskHref("social", client.slug),
+            href: taskHref(
+              "social",
+              client.slug,
+              task.division_task_id,
+              task.id,
+            ),
             createdAt: task.created_at,
             priority: 0,
           });

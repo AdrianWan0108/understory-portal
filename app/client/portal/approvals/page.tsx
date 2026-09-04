@@ -42,10 +42,12 @@ type ApprovalHistoryEntry = {
 type SocialApprovalRow = {
   id: string;
   client_id: string;
+  division_task_id: string | null;
   title: string;
   format: string | null;
   post_caption: string;
   reel_details: unknown;
+  scheduled_at: string | null;
   sent_to_client_at: string;
   client_approvals: unknown;
   approval_history: unknown;
@@ -235,10 +237,13 @@ export default function ApprovalsPage() {
           `
             id,
             client_id,
+            division_task_id,
             title,
             format,
             post_caption,
             reel_details,
+            scheduled_at,
+            publishing_status,
             sent_to_client_at,
             client_approvals,
             approval_history,
@@ -254,7 +259,7 @@ export default function ApprovalsPage() {
           .eq("client_id", client.id)
           .not("sent_to_client_at", "is", null)
           .is("posted_at", null)
-          .neq("status", "scheduled")
+          .neq("publishing_status", "scheduled")
           .order("sent_to_client_at", { ascending: false }),
         supabase
           .from("division_task_items")
@@ -334,8 +339,10 @@ export default function ApprovalsPage() {
                   : undefined,
               status: approvalStatusFor(reviews, reviewer.username),
               submittedAt: row.sent_to_client_at,
+              plannedAt: row.scheduled_at ?? undefined,
             },
             clientId: client.id,
+            divisionTaskId: row.division_task_id ?? undefined,
             reviews,
             history: normalizeHistory(row.approval_history),
             assigneeNames: assigneeNames(
@@ -456,6 +463,9 @@ export default function ApprovalsPage() {
     const hasAllClientApprovals = requiredClientReviewers.every(
       (username) => nextReviews[username]?.status === "approved",
     );
+    const hasClientChanges = Object.values(nextReviews).some(
+      (decision) => decision.status === "changes",
+    );
 
     setUpdatingId(id);
     setErrorMessage(null);
@@ -468,11 +478,14 @@ export default function ApprovalsPage() {
         ...(approval.source === "social"
           ? {
               status:
-                status === "approved" && hasAllClientApprovals
+                hasClientChanges
+                  ? "changes_requested"
+                  : status === "approved" && hasAllClientApprovals
                   ? "external_approved"
-                  : status === "changes"
-                    ? "changes_requested"
-                    : "for_review",
+                  : "for_review",
+              production_status: hasClientChanges
+                ? "changes_required"
+                : "complete",
             }
           : {
               status: status === "approved" ? "approved" : "production",
@@ -521,6 +534,10 @@ export default function ApprovalsPage() {
       reviewerName: reviewer.name,
       comment: note || undefined,
       assigneeNames: approval.assigneeNames,
+      taskId: approval.item.id,
+      calendarId: approval.divisionTaskId ?? null,
+      scheduledAt: approval.item.plannedAt ?? null,
+      transitionKey: `${approval.item.id}:client_${status}:${timestamp}:${reviewer.username}`,
     });
   }
 

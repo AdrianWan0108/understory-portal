@@ -1,5 +1,14 @@
 import type { WorkspaceClientSlug } from "@/lib/workspace-clients";
 
+export function claimSocialTransitionKey(
+  seenKeys: Set<string>,
+  transitionKey: string,
+) {
+  if (seenKeys.has(transitionKey)) return false;
+  seenKeys.add(transitionKey);
+  return true;
+}
+
 export type SlackNotification =
   | {
       type: "client_review";
@@ -9,11 +18,38 @@ export type SlackNotification =
       reviewerName: string;
       comment?: string;
       assigneeNames?: string[];
+      taskId?: string;
+      calendarId?: string | null;
+      scheduledAt?: string | null;
+      transitionKey?: string;
     }
   | {
       type: "task_review";
       clientSlug: WorkspaceClientSlug;
       title: string;
+      taskId?: string;
+      calendarId?: string | null;
+      assigneeNames?: string[];
+      scheduledAt?: string | null;
+      transitionKey?: string;
+    }
+  | {
+      type: "social_transition";
+      clientSlug: WorkspaceClientSlug;
+      action:
+        | "internal_changes_requested"
+        | "sent_to_client"
+        | "publishing_date_changed"
+        | "scheduled"
+        | "manual_reminder_scheduled"
+        | "posted";
+      taskId: string;
+      calendarId: string;
+      transitionKey: string;
+      title: string;
+      assigneeNames?: string[];
+      scheduledAt?: string | null;
+      comment?: string;
     }
   | {
       type: "client_invoice";

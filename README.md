@@ -82,6 +82,11 @@ curl --request POST \
   --header "x-sync-secret: $SLACK_PROFILE_SYNC_SECRET"
 ```
 
+The same `CRON_SECRET` protects `/api/social-manual-reminders`. Vercel invokes
+that route every five minutes to deliver due manual social-post reminders with
+the post creative and calendar link. This interval requires Vercel Pro or
+Enterprise; Vercel Hobby only permits once-daily cron jobs.
+
 ### First-time matching
 
 The migrations seed the current team profiles without inventing email

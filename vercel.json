@@ -3,6 +3,10 @@
     {
       "path": "/api/sync-slack-profiles",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/social-manual-reminders",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

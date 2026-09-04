@@ -6,6 +6,8 @@ export type ClientReviewSyncInput = {
   reviewerName: string;
   comment?: string;
   assigneeNames?: string[];
+  scheduledAt?: string | null;
+  directLink?: string;
 };
 
 export type ClientReviewActivity = {
@@ -45,10 +47,20 @@ export function clientReviewSlackMessages(
 ): ClientReviewSlackMessage[] {
   const action =
     input.action === "approved" ? "approved" : "requested changes on";
+  const context = [
+    input.scheduledAt
+      ? `Planned: ${new Intl.DateTimeFormat("en-CA", {
+          dateStyle: "medium",
+          timeStyle: "short",
+        }).format(new Date(input.scheduledAt))}`
+      : null,
+    input.directLink ? `Open: ${input.directLink}` : null,
+  ].filter(Boolean);
+  const contextSuffix = context.length ? `\n${context.join("\n")}` : "";
   const messages: ClientReviewSlackMessage[] = [
     {
       target: input.clientSlug,
-      text: `${input.clientName} ${action} '${input.title}' — reviewer: ${input.reviewerName}`,
+      text: `${input.clientName} ${action} '${input.title}' — reviewer: ${input.reviewerName}${contextSuffix}`,
     },
   ];
 
@@ -59,7 +71,7 @@ export function clientReviewSlackMessages(
     const commentSuffix = input.comment ? `: "${input.comment}"` : "";
     messages.push({
       target: "admin",
-      text: `⚠️ ${input.clientName} requested changes on '${input.title}' — assigned to ${assignedTo}${commentSuffix}`,
+      text: `⚠️ ${input.clientName} requested changes on '${input.title}' — assigned to ${assignedTo}${commentSuffix}${contextSuffix}`,
     });
   }
 

@@ -336,6 +336,15 @@ export default function ApprovalCard({
           <h3 className="text-lg font-semibold leading-6 tracking-[-0.02em] text-foreground">
             {item.title}
           </h3>
+          {item.plannedAt && (
+            <p className="mt-1 text-[11px] font-medium text-muted-foreground">
+              Planned for{" "}
+              {new Intl.DateTimeFormat("en-CA", {
+                dateStyle: "medium",
+                timeStyle: "short",
+              }).format(new Date(item.plannedAt))}
+            </p>
+          )}
 
           <div className="mt-4 border-t border-border pt-4">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">

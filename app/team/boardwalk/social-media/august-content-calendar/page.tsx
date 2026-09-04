@@ -1,1 +1,5 @@
-export { default } from "@/app/team/mvp/social-media/august-content-calendar/page";
+import { LegacySocialCalendarRedirect } from "@/app/team/_components/LegacySocialCalendarRedirect";
+
+export default function BoardwalkLegacySocialCalendarPage() {
+  return <LegacySocialCalendarRedirect clientSlug="boardwalk" />;
+}
