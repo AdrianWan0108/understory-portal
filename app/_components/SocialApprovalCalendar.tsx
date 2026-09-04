@@ -1187,14 +1187,14 @@ export function SocialApprovalCalendar({
     setFeedback(`${post.title} moved to ${formatDate(iso, true)}.`);
   }
 
-  async function savePlanning(post: ApprovalPost) {
+  async function savePlanning(post: ApprovalPost): Promise<boolean> {
     if (
       mode !== "internal" ||
       !contentDraft ||
       post.posted_at ||
       isSaving
     ) {
-      return;
+      return false;
     }
     setIsSaving(true);
     setError(null);
@@ -1211,7 +1211,7 @@ export function SocialApprovalCalendar({
       } catch {
         setIsSaving(false);
         setError("Enter a valid Google Drive link for the creative.");
-        return;
+        return false;
       }
     }
     const scheduledAt = scheduleDraft
@@ -1251,7 +1251,7 @@ export function SocialApprovalCalendar({
           setError(
             `Could not save the caption for slide ${slide.slide_number}: ${slideSaveError.message}`,
           );
-          return;
+          return false;
         }
       }
     }
@@ -1365,7 +1365,7 @@ export function SocialApprovalCalendar({
 
     if (saveError) {
       setError(`Could not save the final details: ${saveError.message}`);
-      return;
+      return false;
     }
     updatePost(post.id, {
       title: contentDraft.title.trim() || "Untitled content",
@@ -1442,6 +1442,26 @@ export function SocialApprovalCalendar({
           ? "Planning, creative direction, publishing details, and slides saved."
           : "Planning, production, filming, and publishing details saved.",
     );
+    return true;
+  }
+
+  async function saveAndSubmitForInternalReview(post: ApprovalPost) {
+    if (!contentDraft?.creativeDriveLink.trim()) {
+      setError(
+        "Add the creative Google Drive link before submitting for review.",
+      );
+      return;
+    }
+
+    const saved = await savePlanning(post);
+    if (!saved) return;
+
+    await submitForInternalReview({
+      ...post,
+      title: contentDraft.title.trim() || "Untitled content",
+      creative_drive_link: contentDraft.creativeDriveLink.trim(),
+      assignee_usernames: contentDraft.assigneeUsernames,
+    });
   }
 
   async function toggleFinalConfirmation(post: ApprovalPost) {
@@ -1686,6 +1706,7 @@ export function SocialApprovalCalendar({
         transitionKey: `${post.id}:internal_review_submitted:${timestamp}`,
       });
     }
+    setActiveModalPhase("approval");
     setFeedback(`${post.title} was submitted for internal review.`);
   }
 
@@ -3684,6 +3705,30 @@ export function SocialApprovalCalendar({
                           Watchers: {selectedPost.watcher_usernames.join(", ") || "None"}
                           <br />Mentions: {selectedPost.mentioned_usernames.join(", ") || "None"}
                         </p>
+                        {(deriveInternalApprovalState(
+                          selectedPost.internal_approvals,
+                          INTERNAL_REVIEWER_KEYS,
+                          selectedPost.internal_review_submitted_at,
+                        ) === "not_submitted" ||
+                          selectedPost.production_status ===
+                            "changes_required") && (
+                          <button
+                            type="button"
+                            disabled={
+                              isSaving ||
+                              Boolean(selectedPost.posted_at) ||
+                              selectedPost.publishing_status === "scheduled"
+                            }
+                            onClick={() =>
+                              void saveAndSubmitForInternalReview(selectedPost)
+                            }
+                            className="mt-1 w-full rounded-full bg-[var(--primary)] px-5 py-3 text-sm font-semibold text-[var(--primary-foreground)] disabled:opacity-40"
+                          >
+                            {isSaving
+                              ? "Saving & submitting…"
+                              : "Submit for review"}
+                          </button>
+                        )}
                       </section>
 
                       <section
@@ -3813,11 +3858,11 @@ export function SocialApprovalCalendar({
                     type="button"
                     disabled={isSaving || Boolean(selectedPost.posted_at)}
                     onClick={() =>
-                      void submitForInternalReview(selectedPost)
+                      void saveAndSubmitForInternalReview(selectedPost)
                     }
                     className="mt-7 w-full rounded-full bg-[var(--primary)] px-5 py-3 text-sm font-semibold text-[var(--primary-foreground)] disabled:opacity-40"
                   >
-                    Submit for internal review
+                    Submit for review
                   </button>
                 )}
 
