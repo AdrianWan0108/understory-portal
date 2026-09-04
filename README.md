@@ -82,10 +82,18 @@ curl --request POST \
   --header "x-sync-secret: $SLACK_PROFILE_SYNC_SECRET"
 ```
 
-The same `CRON_SECRET` protects `/api/social-manual-reminders`. Vercel invokes
-that route every five minutes to deliver due manual social-post reminders with
-the post creative and calendar link. This interval requires Vercel Pro or
-Enterprise; Vercel Hobby only permits once-daily cron jobs.
+The same `CRON_SECRET` protects `/api/social-manual-reminders`. On Vercel Hobby,
+the GitHub Actions workflow in `.github/workflows/social-manual-reminders.yml`
+invokes that route every five minutes to deliver due manual social-post
+reminders with the post creative and calendar link. Configure these repository
+settings in GitHub before enabling reminders:
+
+- Actions secret `CRON_SECRET`: the same value configured in Vercel
+- Actions variable `PORTAL_BASE_URL`: the deployed origin, such as
+  `https://understory-portal.vercel.app`
+
+The remaining Vercel cron only runs the Slack profile sync once per day, which
+is supported on the Hobby plan.
 
 ### First-time matching
 
