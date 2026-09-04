@@ -32,7 +32,7 @@ export const SOCIAL_POST_STATUS_LABELS: Record<SocialPostStatus, string> = {
   in_progress: "In progress",
   for_review: "Awaiting approvals",
   internal_approved: "Internal approved",
-  external_approved: "External approved",
+  external_approved: "Client approved",
   scheduled: "Scheduled",
   changes_requested: "Changes requested",
   posted: "Posted",
@@ -281,6 +281,18 @@ export function deriveClientApprovalState(
     "not_sent",
     Boolean(sentAt),
   );
+}
+
+export function reconcileSocialProductionStatus(
+  current: SocialProductionStatus,
+  sentToClientAt: unknown,
+  clientReviews: unknown,
+): SocialProductionStatus {
+  const reviews = normalizeSocialReviews(clientReviews);
+  if (Object.values(reviews).some((review) => review.status === "changes")) {
+    return "changes_required";
+  }
+  return sentToClientAt ? "complete" : current;
 }
 
 export function productionStatusAfterTransition(

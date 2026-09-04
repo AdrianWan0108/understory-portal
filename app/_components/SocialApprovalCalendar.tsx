@@ -20,6 +20,7 @@ import {
   normalizeSocialSchedulingMode,
   productionStatusAfterTransition,
   publishingStatusAfterTransition,
+  reconcileSocialProductionStatus,
   requiredSocialClientReviewerKeys,
   SOCIAL_PRODUCTION_STATUS_LABELS,
   SOCIAL_PRODUCTION_STATUSES,
@@ -208,6 +209,7 @@ function workflowPhaseForPost(
   clientReviewerKeys: string[],
 ): ModalPhase {
   if (
+    Boolean(post.live_post_url?.trim()) ||
     post.publishing_status === "scheduled" ||
     post.publishing_status === "posted"
   ) {
@@ -379,13 +381,16 @@ function normalizeHistory(value: unknown): ApprovalHistoryEntry[] {
 }
 
 function mapPost(row: TaskRow): ApprovalPost {
+  const clientApprovals = normalizeReviews(row.client_approvals);
+  const productionStatus = reconcileSocialProductionStatus(
+    normalizeSocialProductionStatus(row.production_status, row.status),
+    row.sent_to_client_at,
+    clientApprovals,
+  );
   return {
     ...row,
     status: normalizeSocialPostStatus(row.status),
-    production_status: normalizeSocialProductionStatus(
-      row.production_status,
-      row.status,
-    ),
+    production_status: productionStatus,
     publishing_status: normalizeSocialPublishingStatus(
       row.publishing_status,
       row.status,
@@ -393,7 +398,7 @@ function mapPost(row: TaskRow): ApprovalPost {
     ),
     scheduling_mode: normalizeSocialSchedulingMode(row.scheduling_mode),
     internal_approvals: normalizeReviews(row.internal_approvals),
-    client_approvals: normalizeReviews(row.client_approvals),
+    client_approvals: clientApprovals,
     approval_history: normalizeHistory(row.approval_history),
     reel_details: normalizeReelDetails(row.reel_details),
     filming_details: normalizeSocialFilmingDetails(
@@ -462,12 +467,23 @@ function approvalDisplayStyle(
   post: ApprovalPost,
   mode: Props["mode"],
   reviewers: ApprovalReviewer[],
+  clientReviewerKeys: string[] = [],
 ) {
   if (post.publishing_status === "posted") return workflowStyles.posted;
   if (post.publishing_status === "scheduled") return workflowStyles.scheduled;
   if (mode !== "internal") {
     return reviewStyles[overallStatus(post, mode, reviewers)];
   }
+  const clientState = deriveClientApprovalState(
+    post.client_approvals,
+    clientReviewerKeys,
+    post.sent_to_client_at,
+  );
+  if (clientState === "approved") return workflowStyles.external_approved;
+  if (clientState === "changes_requested") {
+    return workflowStyles.changes_requested;
+  }
+  if (clientState === "pending") return workflowStyles.for_review;
   return workflowStyles[
     post.production_status === "ready_for_review"
       ? "for_review"
@@ -1155,7 +1171,6 @@ export function SocialApprovalCalendar({
       mode !== "internal" ||
       !contentDraft ||
       post.posted_at ||
-      post.publishing_status === "scheduled" ||
       isSaving
     ) {
       return;
@@ -1240,6 +1255,27 @@ export function SocialApprovalCalendar({
       clientReviewerKeys,
       post.sent_to_client_at,
     );
+    const livePostUrl = contentDraft.livePostUrl.trim();
+    const shouldMarkPosted = Boolean(livePostUrl);
+    const postedAt = shouldMarkPosted
+      ? (post.posted_at ?? new Date().toISOString())
+      : post.posted_at;
+    const postedBy = shouldMarkPosted
+      ? (post.posted_by ??
+        currentReviewer?.name ??
+        readTeamSessionProfile()?.name ??
+        "the team")
+      : post.posted_by;
+    const publishingStatus: SocialPublishingStatus = shouldMarkPosted
+      ? "posted"
+      : post.publishing_status;
+    const productionStatus = shouldMarkPosted
+      ? "complete"
+      : reconcileSocialProductionStatus(
+          contentDraft.productionStatus,
+          post.sent_to_client_at,
+          post.client_approvals,
+        );
     const manualReminderSentAt =
       contentDraft.schedulingMode === "manual" &&
       post.scheduling_mode === "manual" &&
@@ -1247,8 +1283,8 @@ export function SocialApprovalCalendar({
         ? post.manual_reminder_sent_at
         : null;
     const legacyStatus = legacyStatusForSocialDimensions(
-      contentDraft.productionStatus,
-      post.publishing_status,
+      productionStatus,
+      publishingStatus,
       clientState,
     );
     const { error: saveError } = await supabase
@@ -1264,13 +1300,16 @@ export function SocialApprovalCalendar({
         due_date: contentDraft.dueDate || null,
         brief: contentDraft.brief.trim(),
         visual_note: contentDraft.visualNote.trim() || null,
-        production_status: contentDraft.productionStatus,
+        production_status: productionStatus,
+        publishing_status: publishingStatus,
         status: legacyStatus,
         reel_details:
           contentDraft.format === "reel" ? contentDraft.reelDetails : null,
         requires_filming: contentDraft.requiresFilming,
         filming_details: contentDraft.filmingDetails,
-        live_post_url: contentDraft.livePostUrl.trim() || null,
+        live_post_url: livePostUrl || null,
+        posted_at: postedAt,
+        posted_by: postedBy,
         scheduling_mode: contentDraft.schedulingMode,
         manual_reminder_sent_at: manualReminderSentAt,
         assignee_usernames: contentDraft.assigneeUsernames,
@@ -1299,12 +1338,15 @@ export function SocialApprovalCalendar({
       due_date: contentDraft.dueDate || null,
       brief: contentDraft.brief.trim(),
       visual_note: contentDraft.visualNote.trim() || null,
-      production_status: contentDraft.productionStatus,
+      production_status: productionStatus,
+      publishing_status: publishingStatus,
       status: legacyStatus,
       reel_details: contentDraft.reelDetails,
       requires_filming: contentDraft.requiresFilming,
       filming_details: contentDraft.filmingDetails,
-      live_post_url: contentDraft.livePostUrl.trim() || null,
+      live_post_url: livePostUrl || null,
+      posted_at: postedAt,
+      posted_by: postedBy,
       scheduling_mode: contentDraft.schedulingMode,
       manual_reminder_sent_at: manualReminderSentAt,
       assignee_usernames: contentDraft.assigneeUsernames,
@@ -1331,6 +1373,7 @@ export function SocialApprovalCalendar({
       setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
     }
     if (
+      !shouldMarkPosted &&
       post.scheduled_at !== scheduledAt &&
       deriveClientApprovalState(
         post.client_approvals,
@@ -1344,10 +1387,19 @@ export function SocialApprovalCalendar({
         scheduledAt ?? "unscheduled",
       );
     }
+    if (shouldMarkPosted && !post.posted_at && postedAt) {
+      notifyTransition(
+        { ...post, live_post_url: livePostUrl },
+        "posted",
+        postedAt,
+      );
+    }
     setFeedback(
-      post.format === "carousel"
-        ? "Planning, creative direction, publishing details, and slides saved."
-        : "Planning, production, filming, and publishing details saved.",
+      shouldMarkPosted
+        ? `${post.title} saved as posted and moved to the Archive.`
+        : post.format === "carousel"
+          ? "Planning, creative direction, publishing details, and slides saved."
+          : "Planning, production, filming, and publishing details saved.",
     );
   }
 
@@ -1940,11 +1992,14 @@ export function SocialApprovalCalendar({
   }
 
   async function setPostedState(post: ApprovalPost, isPosted: boolean) {
+    const livePostUrl = contentDraft?.livePostUrl.trim() || post.live_post_url;
     if (
       mode !== "internal" ||
       !canSendToClient ||
       !currentReviewer ||
-      (isPosted && post.publishing_status !== "scheduled") ||
+      (isPosted &&
+        post.publishing_status !== "scheduled" &&
+        !livePostUrl) ||
       (!isPosted && !post.posted_at) ||
       isSaving
     ) {
@@ -1966,6 +2021,7 @@ export function SocialApprovalCalendar({
         posted_by: postedBy,
         status: isPosted ? "posted" : "scheduled",
         publishing_status: publishingStatus,
+        ...(isPosted ? { live_post_url: livePostUrl || null } : {}),
       })
       .eq("id", post.id);
     setIsSaving(false);
@@ -1982,6 +2038,7 @@ export function SocialApprovalCalendar({
       posted_by: postedBy,
       status: isPosted ? "posted" : "scheduled",
       publishing_status: publishingStatus,
+      ...(isPosted ? { live_post_url: livePostUrl || null } : {}),
     });
     if (isPosted && postedAt) {
       notifyTransition(post, "posted", postedAt);
@@ -2721,13 +2778,14 @@ export function SocialApprovalCalendar({
                   </span>
                 ) : (
                   <span
-                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${approvalDisplayStyle(selectedPost, mode, requiredReviewers).pill}`}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${approvalDisplayStyle(selectedPost, mode, requiredReviewers, clientReviewerKeys).pill}`}
                   >
                     {
                       approvalDisplayStyle(
                         selectedPost,
                         mode,
                         requiredReviewers,
+                        clientReviewerKeys,
                       ).label
                     }
                   </span>
@@ -3544,7 +3602,8 @@ export function SocialApprovalCalendar({
                       type="button"
                       disabled={
                         Boolean(selectedPost.posted_at) ||
-                        selectedPost.publishing_status === "scheduled" ||
+                        (selectedPost.publishing_status === "scheduled" &&
+                          activeModalPhase !== "publishing") ||
                         isSaving
                       }
                       onClick={() => void savePlanning(selectedPost)}
@@ -3990,7 +4049,8 @@ export function SocialApprovalCalendar({
                           {isSaving ? "Restoring…" : "Restore to scheduled"}
                         </button>
                       </div>
-                    ) : selectedPost.publishing_status === "scheduled" ? (
+                    ) : selectedPost.publishing_status === "scheduled" ||
+                      Boolean(contentDraft?.livePostUrl.trim()) ? (
                       <div className="rounded-2xl border border-[var(--border)] bg-[var(--muted)] p-4 text-center">
                         <p className="text-sm font-semibold">
                           {selectedPost.scheduling_mode === "manual"
@@ -3998,8 +4058,9 @@ export function SocialApprovalCalendar({
                             : "Waiting for automatic publishing"}
                         </p>
                         <p className="mt-1 text-xs leading-5 text-[var(--foreground)]/55">
-                          Add the live URL above after it goes live, then mark it
-                          as posted.
+                          {contentDraft?.livePostUrl.trim()
+                            ? "The live URL is ready. Mark this post as posted."
+                            : "Add the live URL above after it goes live, then mark it as posted."}
                         </p>
                         <button
                           type="button"

@@ -10,6 +10,7 @@ import {
   normalizeSocialSchedulingMode,
   productionStatusAfterTransition,
   publishingStatusAfterTransition,
+  reconcileSocialProductionStatus,
   requiredSocialClientReviewerKeys,
   SOCIAL_PRODUCTION_STATUSES,
   SOCIAL_PRODUCTION_STATUS_LABELS,
@@ -40,6 +41,7 @@ test("social workflow statuses share one complete label map", () => {
     SOCIAL_POST_STATUS_LABELS.internal_approved,
     "Internal approved",
   );
+  assert.equal(SOCIAL_POST_STATUS_LABELS.external_approved, "Client approved");
   assert.deepEqual(SOCIAL_POST_STATUSES.slice(-4), [
     "external_approved",
     "scheduled",
@@ -68,6 +70,25 @@ test("production transitions return changes to production and complete internal 
   assert.equal(productionStatusAfterTransition("ready_for_review", "request_internal_changes"), "changes_required");
   assert.equal(productionStatusAfterTransition("ready_for_review", "complete_internal_review"), "complete");
   assert.equal(productionStatusAfterTransition("complete", "request_client_changes"), "changes_required");
+});
+
+test("client handoff reconciles legacy production status", () => {
+  assert.equal(
+    reconcileSocialProductionStatus(
+      "ready_for_review",
+      "2026-09-01T12:00:00Z",
+      { MVP_Gary: { status: "approved" } },
+    ),
+    "complete",
+  );
+  assert.equal(
+    reconcileSocialProductionStatus(
+      "complete",
+      "2026-09-01T12:00:00Z",
+      { MVP_Gary: { status: "changes" } },
+    ),
+    "changes_required",
+  );
 });
 
 test("approval states are derived from submission markers and approval JSON", () => {
