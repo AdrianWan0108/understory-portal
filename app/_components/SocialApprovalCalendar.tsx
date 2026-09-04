@@ -20,6 +20,7 @@ import {
   normalizeSocialSchedulingMode,
   productionStatusAfterTransition,
   publishingStatusAfterTransition,
+  requiredSocialClientReviewerKeys,
   SOCIAL_PRODUCTION_STATUS_LABELS,
   SOCIAL_PRODUCTION_STATUSES,
   SOCIAL_PUBLISHING_STATUS_LABELS,
@@ -311,10 +312,6 @@ const workflowStyles: Record<
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-const CLIENT_REVIEWER_KEYS_BY_SLUG: Record<string, string[]> = {
-  mvp: ["MVP_Gary", "MVP_Dorothy"],
-  boardwalk: ["Boardwalk_Sarah"],
-};
 const INTERNAL_REVIEWER_KEYS = ["Understory_Karen"];
 const SOCIAL_ASSET_BUCKET = "client-assets";
 
@@ -699,6 +696,7 @@ export function SocialApprovalCalendar({
 
       let clientId: string | null = null;
       let nextClientName = clientName ?? "Client";
+      let nextClientSlug = clientSlug ?? null;
 
       if (mode === "internal") {
         if (!workspaceId) {
@@ -731,7 +729,8 @@ export function SocialApprovalCalendar({
           : workspace.clients;
         clientId = workspace.client_id;
         nextClientName = clientRecord?.name ?? "Client";
-        setResolvedClientSlug(clientRecord?.slug ?? null);
+        nextClientSlug = clientRecord?.slug ?? null;
+        setResolvedClientSlug(nextClientSlug);
       } else {
         if (!clientSlug) {
           setError("Choose a client profile to view social approvals.");
@@ -853,7 +852,12 @@ export function SocialApprovalCalendar({
           "post",
         );
         const requestedPost = loaded.find((post) => post.id === requestedPostId);
-        if (requestedPost) openPost(requestedPost);
+        if (requestedPost) {
+          openPost(
+            requestedPost,
+            requiredSocialClientReviewerKeys(nextClientSlug),
+          );
+        }
         const firstScheduled = loaded.find((post) => post.scheduled_at);
         if (firstScheduled?.scheduled_at) {
           const date = new Date(firstScheduled.scheduled_at);
@@ -876,10 +880,7 @@ export function SocialApprovalCalendar({
       (entry) => mode === "internal" || entry.stage === "client",
     ) ?? [];
   const clientReviewerKeys = useMemo(
-    () =>
-      resolvedClientSlug
-        ? (CLIENT_REVIEWER_KEYS_BY_SLUG[resolvedClientSlug] ?? [])
-        : [],
+    () => requiredSocialClientReviewerKeys(resolvedClientSlug),
     [resolvedClientSlug],
   );
   const currentWorkflowPhase = selectedPost
@@ -931,9 +932,9 @@ export function SocialApprovalCalendar({
       ? resolveGoogleDriveFileUrls(selectedPost.reel_details.videoUrl)
       : null;
 
-  function openPost(post: ApprovalPost) {
+  function openPost(post: ApprovalPost, reviewerKeys: string[]) {
     setSelectedId(post.id);
-    setActiveModalPhase(workflowPhaseForPost(post, []));
+    setActiveModalPhase(workflowPhaseForPost(post, reviewerKeys));
     setCaptionDraft(post.post_caption);
     setSlideCaptionDrafts(
       Object.fromEntries(
@@ -2186,7 +2187,7 @@ export function SocialApprovalCalendar({
                     <button
                       key={post.id}
                       type="button"
-                      onClick={() => openPost(post)}
+                      onClick={() => openPost(post, clientReviewerKeys)}
                       aria-label={`${post.title} — ${formatDate(collectionDate(post), true)}`}
                       className="group relative aspect-square bg-[var(--muted)] bg-cover bg-center transition hover:opacity-90"
                       style={
@@ -2398,7 +2399,9 @@ export function SocialApprovalCalendar({
                                 !post.posted_at &&
                                 post.publishing_status !== "scheduled"
                               }
-                              onClick={() => openPost(post)}
+                              onClick={() =>
+                                openPost(post, clientReviewerKeys)
+                              }
                               onDragStart={(event) => {
                                 event.dataTransfer.setData(
                                   "text/plain",
@@ -2495,7 +2498,7 @@ export function SocialApprovalCalendar({
                   key={post.id}
                   type="button"
                   draggable
-                  onClick={() => openPost(post)}
+                  onClick={() => openPost(post, clientReviewerKeys)}
                   onDragStart={(event) => {
                     event.dataTransfer.setData("text/plain", post.id);
                     event.dataTransfer.effectAllowed = "move";

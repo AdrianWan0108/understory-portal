@@ -38,6 +38,22 @@ export const SOCIAL_POST_STATUS_LABELS: Record<SocialPostStatus, string> = {
   posted: "Posted",
 };
 
+export const SOCIAL_REQUIRED_CLIENT_REVIEWER_KEYS_BY_SLUG = {
+  mvp: ["MVP_Gary"],
+  boardwalk: ["Boardwalk_Sarah"],
+} as const satisfies Record<string, readonly string[]>;
+
+export function requiredSocialClientReviewerKeys(
+  clientSlug: string | null | undefined,
+): string[] {
+  if (!clientSlug) return [];
+  return [
+    ...(SOCIAL_REQUIRED_CLIENT_REVIEWER_KEYS_BY_SLUG[
+      clientSlug as keyof typeof SOCIAL_REQUIRED_CLIENT_REVIEWER_KEYS_BY_SLUG
+    ] ?? []),
+  ];
+}
+
 export function normalizeSocialPostStatus(value: unknown): SocialPostStatus {
   if (value === "approved") return "internal_approved";
   if (value === "needs_revision") return "changes_requested";

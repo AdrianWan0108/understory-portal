@@ -8,14 +8,22 @@ import {
   CLIENT_IDENTITIES,
   useClientIdentity,
 } from "../../_components/ClientIdentity";
+import { requiredSocialClientReviewerKeys } from "@/lib/social-content";
 
 export default function SocialMediaProjectPage() {
   const { identity, clientSlug, clientName, isReady } = useClientIdentity();
   const profile = identity ? CLIENT_IDENTITIES[identity] : null;
+  const requiredReviewerKeys = new Set(
+    requiredSocialClientReviewerKeys(clientSlug),
+  );
   const requiredReviewers: ApprovalReviewer[] = Object.values(
     CLIENT_IDENTITIES,
   )
-    .filter((reviewer) => reviewer.clientSlug === clientSlug)
+    .filter(
+      (reviewer) =>
+        reviewer.clientSlug === clientSlug &&
+        requiredReviewerKeys.has(reviewer.username),
+    )
     .map((reviewer) => ({
       key: reviewer.username,
       name: reviewer.name,

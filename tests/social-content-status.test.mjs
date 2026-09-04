@@ -10,6 +10,7 @@ import {
   normalizeSocialSchedulingMode,
   productionStatusAfterTransition,
   publishingStatusAfterTransition,
+  requiredSocialClientReviewerKeys,
   SOCIAL_PRODUCTION_STATUSES,
   SOCIAL_PRODUCTION_STATUS_LABELS,
   SOCIAL_PUBLISHING_STATUSES,
@@ -20,6 +21,14 @@ import {
   SOCIAL_POST_STATUS_LABELS,
   SOCIAL_POST_FORMATS,
 } from "../lib/social-content.ts";
+
+test("MVP client approval requires Gary but not Dorothy", () => {
+  assert.deepEqual(requiredSocialClientReviewerKeys("mvp"), ["MVP_Gary"]);
+  assert.deepEqual(requiredSocialClientReviewerKeys("boardwalk"), [
+    "Boardwalk_Sarah",
+  ]);
+  assert.deepEqual(requiredSocialClientReviewerKeys(null), []);
+});
 
 test("social workflow statuses share one complete label map", () => {
   assert.equal(SOCIAL_POST_FORMATS.includes("story"), true);
