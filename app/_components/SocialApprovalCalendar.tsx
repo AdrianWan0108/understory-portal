@@ -676,6 +676,8 @@ export function SocialApprovalCalendar({
   const [isRequestingChanges, setIsRequestingChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [postToDelete, setPostToDelete] = useState<ApprovalPost | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [draggingPostId, setDraggingPostId] = useState<string | null>(null);
   const [dragOverDateKey, setDragOverDateKey] = useState<string | null>(null);
   const [syncRevision, setSyncRevision] = useState(0);
@@ -2094,6 +2096,50 @@ export function SocialApprovalCalendar({
     const url = new URL(window.location.href);
     url.searchParams.set("post", data.id);
     window.location.assign(url.toString());
+  }
+
+  async function deletePost() {
+    if (
+      mode !== "internal" ||
+      !workspaceId ||
+      !postToDelete ||
+      isDeleting
+    ) {
+      return;
+    }
+
+    setIsDeleting(true);
+    setError(null);
+    const { data, error: deleteError } = await supabase
+      .from("tasks")
+      .delete()
+      .eq("id", postToDelete.id)
+      .eq("client_id", postToDelete.client_id)
+      .eq("division_task_id", workspaceId)
+      .select("id");
+    setIsDeleting(false);
+
+    if (deleteError || data?.length !== 1) {
+      setError(
+        `Could not delete this card: ${
+          deleteError?.message ?? "The card was not found or you do not have permission."
+        }`,
+      );
+      return;
+    }
+
+    const deletedTitle = postToDelete.title;
+    const deletedId = postToDelete.id;
+    setPosts((current) => current.filter((post) => post.id !== deletedId));
+    setSelectedId(null);
+    setPostToDelete(null);
+    setFeedback(`${deletedTitle} deleted.`);
+
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("post") === deletedId) {
+      url.searchParams.delete("post");
+      window.history.replaceState({}, "", url);
+    }
   }
 
   const monthLabel = new Intl.DateTimeFormat("en-CA", {
@@ -3646,6 +3692,16 @@ export function SocialApprovalCalendar({
                       </span>
                     </button>
                   )}
+                  <div className="border-t border-[var(--border)] pt-4">
+                    <button
+                      type="button"
+                      disabled={isSaving || isDeleting}
+                      onClick={() => setPostToDelete(selectedPost)}
+                      className="rounded-full border border-[#E2BABA] bg-white px-4 py-2 text-xs font-semibold text-[#9A4040] transition hover:bg-[#FFF0F0] disabled:opacity-50"
+                    >
+                      Delete card
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="mt-5 space-y-5">
@@ -4078,6 +4134,61 @@ export function SocialApprovalCalendar({
                     )}
                   </div>
                 )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {postToDelete && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[var(--foreground)]/60 px-4 py-8 backdrop-blur-sm">
+          <button
+            type="button"
+            aria-label="Cancel card deletion"
+            className="absolute inset-0 cursor-default"
+            onClick={() => {
+              if (!isDeleting) setPostToDelete(null);
+            }}
+          />
+          <section
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-card-title"
+            aria-describedby="delete-card-description"
+            className="relative z-10 w-full max-w-md rounded-[24px] border border-white/70 bg-[var(--card)] p-6 shadow-2xl"
+          >
+            <span className="flex size-11 items-center justify-center rounded-2xl bg-[#FFF0F0] text-xl font-semibold text-[#9A4040]">
+              !
+            </span>
+            <h2
+              id="delete-card-title"
+              className={`${fraunces.className} mt-5 text-2xl font-medium`}
+            >
+              Delete this card?
+            </h2>
+            <p
+              id="delete-card-description"
+              className="mt-2 text-sm leading-6 text-[var(--foreground)]/60"
+            >
+              This will permanently delete “{postToDelete.title}” and its
+              slide data. This action cannot be undone.
+            </p>
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setPostToDelete(null)}
+                className="rounded-full border border-[var(--border)] px-4 py-2.5 text-xs font-semibold transition hover:bg-[var(--muted)] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => void deletePost()}
+                className="rounded-full border border-[#D59494] bg-[#FFF0F0] px-4 py-2.5 text-xs font-semibold text-[#9A4040] transition hover:bg-[#FBE1E1] disabled:opacity-50"
+              >
+                {isDeleting ? "Deleting…" : "Delete card"}
+              </button>
             </div>
           </section>
         </div>
