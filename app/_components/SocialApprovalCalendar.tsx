@@ -1111,13 +1111,6 @@ export function SocialApprovalCalendar({
   const unscheduledPosts = visiblePosts.filter(
     (post) => !post.scheduled_at,
   );
-  const scheduledPosts = visiblePosts
-    .filter((post) => collectionDate(post))
-    .sort(
-      (a, b) =>
-        new Date(collectionDate(b)!).getTime() -
-        new Date(collectionDate(a)!).getTime(),
-    );
   const readyUnsent = posts.filter(
     (post) =>
       !post.posted_at &&
@@ -2334,7 +2327,7 @@ export function SocialApprovalCalendar({
 
   return (
     <main className="min-h-screen px-5 py-10 text-[var(--foreground)] sm:px-8 sm:py-14 lg:px-10">
-      <div className="mx-auto max-w-[1500px]">
+      <div className="mx-auto max-w-[1800px]">
         <header className="flex flex-col gap-6 border-b border-[var(--border)] pb-8 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--primary)]">
@@ -2456,93 +2449,10 @@ export function SocialApprovalCalendar({
           </nav>
         )}
 
-        <div className="mt-10 grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] xl:items-start">
-          <section aria-labelledby="approval-grid-heading" className="xl:sticky xl:top-6 xl:order-2">
-            <div className="mb-4">
-              <h2
-                id="approval-grid-heading"
-                className={`${fraunces.className} text-2xl font-medium`}
-              >
-                Feed preview
-              </h2>
-              <p className="mt-1 text-xs text-[var(--foreground)]/50">
-                {collectionView === "archive"
-                  ? "Published posts with the newest publication time first."
-                  : "Planned posts with the newest publish date first, Instagram-grid style."}
-              </p>
-            </div>
-            {scheduledPosts.length === 0 ? (
-              <p className="rounded-[24px] border border-dashed border-[var(--border)] bg-[var(--card)] px-6 py-14 text-center text-sm text-[var(--foreground)]/45">
-                {collectionView === "archive"
-                  ? "No published posts are in the Archive yet."
-                  : "Schedule a date and time for posts to see them here in feed order."}
-              </p>
-            ) : (
-              <div className="grid grid-cols-3 gap-0.5 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:gap-px">
-                {scheduledPosts.map((post) => {
-                  const previewUrl = postVisualPreviewUrl(post);
-                  return (
-                    <button
-                      key={post.id}
-                      type="button"
-                      onClick={() => openPost(post, clientReviewerKeys)}
-                      aria-label={`${post.title} — ${formatDate(collectionDate(post), true)}`}
-                      className="group relative aspect-square bg-[var(--muted)] bg-cover bg-center transition hover:opacity-90"
-                      style={
-                        previewUrl
-                          ? {
-                              backgroundImage: `url("${previewUrl.replaceAll('"', "%22")}")`,
-                            }
-                          : undefined
-                      }
-                    >
-                      {!previewUrl && (
-                        <div className="flex h-full items-center justify-center">
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            className="size-6 text-[var(--foreground)]/20"
-                          >
-                            <rect x="3" y="3" width="18" height="18" rx="2" />
-                            <circle cx="8.5" cy="8.5" r="1.5" />
-                            <path d="M21 15l-5-5L5 21" />
-                          </svg>
-                        </div>
-                      )}
-                      {post.format === "reel" && (
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="white"
-                          className="absolute right-1.5 top-1.5 size-3.5 drop-shadow"
-                        >
-                          <path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4Z" />
-                        </svg>
-                      )}
-                      {post.format === "carousel" && (
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="white"
-                          strokeWidth="2"
-                          className="absolute right-1.5 top-1.5 size-3.5 drop-shadow"
-                        >
-                          <rect x="9" y="9" width="13" height="13" rx="2" />
-                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                        </svg>
-                      )}
-                      {post.posted_at && (
-                        <PostedStamp className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 px-3 py-1.5 text-[10px]" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-
-          <section aria-labelledby="approval-calendar-heading" className="xl:order-1">
+        <section
+          aria-labelledby="approval-calendar-heading"
+          className="mt-10"
+        >
           <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
             <div>
               <h2
@@ -2778,8 +2688,7 @@ export function SocialApprovalCalendar({
               </div>
             </div>
           </div>
-          </section>
-        </div>
+        </section>
 
         {collectionView === "active" && mode === "internal" && unscheduledPosts.length > 0 && (
           <section className="mt-8">
