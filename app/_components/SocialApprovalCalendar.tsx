@@ -2795,7 +2795,7 @@ export function SocialApprovalCalendar({
                           );
                           const approvalLabel =
                             clientState === "changes_requested"
-                              ? "Client changes"
+                              ? "Client changes requested"
                               : clientState === "pending"
                                 ? "Client pending"
                                 : clientState === "approved"
@@ -2803,8 +2803,24 @@ export function SocialApprovalCalendar({
                                   : internalState === "pending"
                                     ? "Internal review"
                                     : internalState === "changes_requested"
-                                      ? "Internal changes"
-                                      : null;
+                                      ? "Internal changes requested"
+                                      : internalState === "approved"
+                                        ? "Internal approved"
+                                        : null;
+                          const approvalPillClass =
+                            clientState === "changes_requested"
+                              ? "border border-[#D99A8A] bg-[#FBE9E4] text-[#8B3E32]"
+                              : clientState === "pending"
+                                ? "border border-[#E5C76B] bg-[#FFF3C4] text-[#755500]"
+                                : clientState === "approved"
+                                  ? "border border-[#9CC8A9] bg-[#E5F5E9] text-[#2F6B43]"
+                                  : internalState === "changes_requested"
+                                    ? "border border-[#D99A8A] bg-[#FBE9E4] text-[#8B3E32]"
+                                    : internalState === "pending"
+                                      ? "border border-[#E5C76B] bg-[#FFF3C4] text-[#755500]"
+                                      : internalState === "approved"
+                                        ? "border border-[#9CC8A9] bg-[#E5F5E9] text-[#2F6B43]"
+                                        : "border border-[var(--border)] bg-[var(--muted)] text-[var(--foreground)]/65";
                           const previewUrl = postVisualPreviewUrl(post);
                           return (
                             <button
@@ -2881,7 +2897,9 @@ export function SocialApprovalCalendar({
                                       ]}
                                 </span>
                                 {approvalLabel && (
-                                  <span className="mt-1 inline-flex rounded-full bg-[var(--muted)] px-2 py-0.5 text-[8px] font-semibold text-[var(--foreground)]/65">
+                                  <span
+                                    className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[8px] font-semibold ${approvalPillClass}`}
+                                  >
                                     {approvalLabel}
                                   </span>
                                 )}
