@@ -1,7 +1,7 @@
 "use client";
 
 import { Fraunces } from "next/font/google";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   extractGoogleDriveFileId,
   resolveGoogleDriveFileUrls,
@@ -709,6 +709,7 @@ export function SocialApprovalCalendar({
   const [draggingPostId, setDraggingPostId] = useState<string | null>(null);
   const [dragOverDateKey, setDragOverDateKey] = useState<string | null>(null);
   const [syncRevision, setSyncRevision] = useState(0);
+  const storyStripRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!resolvedClientId) return;
@@ -1111,6 +1112,20 @@ export function SocialApprovalCalendar({
   const unscheduledPosts = visiblePosts.filter(
     (post) => !post.scheduled_at,
   );
+  const storyPosts = visiblePosts
+    .filter((post) => post.format === "story" && collectionDate(post))
+    .sort(
+      (a, b) =>
+        new Date(collectionDate(a)!).getTime() -
+        new Date(collectionDate(b)!).getTime(),
+    );
+  const feedPosts = visiblePosts
+    .filter((post) => post.format !== "story" && collectionDate(post))
+    .sort(
+      (a, b) =>
+        new Date(collectionDate(b)!).getTime() -
+        new Date(collectionDate(a)!).getTime(),
+    );
   const readyUnsent = posts.filter(
     (post) =>
       !post.posted_at &&
@@ -2327,7 +2342,7 @@ export function SocialApprovalCalendar({
 
   return (
     <main className="min-h-screen px-5 py-10 text-[var(--foreground)] sm:px-8 sm:py-14 lg:px-10">
-      <div className="mx-auto max-w-[1800px]">
+      <div className="mx-auto max-w-[1500px]">
         <header className="flex flex-col gap-6 border-b border-[var(--border)] pb-8 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--primary)]">
@@ -2449,10 +2464,203 @@ export function SocialApprovalCalendar({
           </nav>
         )}
 
-        <section
-          aria-labelledby="approval-calendar-heading"
-          className="mt-10"
-        >
+        <div className="mt-10 grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] xl:items-start">
+          <section
+            aria-labelledby="approval-grid-heading"
+            className="xl:sticky xl:top-6 xl:order-2"
+          >
+            {storyPosts.length > 0 && (
+              <section aria-labelledby="story-strip-heading" className="mb-8">
+                <div className="mb-3 flex items-end justify-between gap-3">
+                  <div>
+                    <h2
+                      id="story-strip-heading"
+                      className={`${fraunces.className} text-2xl font-medium`}
+                    >
+                      Stories
+                    </h2>
+                    <p className="mt-1 text-xs text-[var(--foreground)]/50">
+                      Separate from the feed grid.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="mr-1 text-[10px] font-semibold text-[var(--foreground)]/40">
+                      {storyPosts.length}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="View previous Stories"
+                      onClick={() =>
+                        storyStripRef.current?.scrollBy({
+                          left: -300,
+                          behavior: "smooth",
+                        })
+                      }
+                      className="flex size-8 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--card)]"
+                    >
+                      ←
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="View more Stories"
+                      onClick={() =>
+                        storyStripRef.current?.scrollBy({
+                          left: 300,
+                          behavior: "smooth",
+                        })
+                      }
+                      className="flex size-8 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--card)]"
+                    >
+                      →
+                    </button>
+                  </div>
+                </div>
+                <div
+                  ref={storyStripRef}
+                  className="flex snap-x snap-mandatory gap-3 overflow-x-auto rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3 scroll-smooth"
+                >
+                  {storyPosts.map((post) => {
+                    const previewUrl = postVisualPreviewUrl(post);
+                    return (
+                      <button
+                        key={post.id}
+                        type="button"
+                        onClick={() => openPost(post, clientReviewerKeys)}
+                        className="group w-28 shrink-0 snap-start text-left sm:w-32"
+                      >
+                        <div
+                          className="relative aspect-[9/14] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--muted)] bg-cover bg-center shadow-sm transition group-hover:border-[var(--primary)]"
+                          style={
+                            previewUrl
+                              ? {
+                                  backgroundImage: `url("${previewUrl.replaceAll('"', "%22")}")`,
+                                }
+                              : undefined
+                          }
+                        >
+                          {!previewUrl && (
+                            <div className="flex h-full items-center justify-center p-3 text-center">
+                              <p
+                                className={`${fraunces.className} text-sm font-medium`}
+                              >
+                                {post.task_slides[0]?.on_screen_text ||
+                                  post.title}
+                              </p>
+                            </div>
+                          )}
+                          {post.story_interaction.type !== "none" && (
+                            <span className="absolute bottom-2 left-2 right-2 truncate rounded-full bg-[var(--card)]/90 px-2 py-1 text-center text-[8px] font-semibold shadow-sm backdrop-blur">
+                              {
+                                STORY_INTERACTION_TYPE_LABELS[
+                                  post.story_interaction.type
+                                ]
+                              }
+                            </span>
+                          )}
+                          {post.posted_at && (
+                            <PostedStamp className="absolute right-2 top-2" />
+                          )}
+                        </div>
+                        <span className="mt-2 block truncate text-xs font-semibold">
+                          {post.title}
+                        </span>
+                        <span className="mt-0.5 block text-[10px] text-[var(--foreground)]/45">
+                          {formatDate(collectionDate(post), true)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+            <div className="mb-4">
+              <h2
+                id="approval-grid-heading"
+                className={`${fraunces.className} text-2xl font-medium`}
+              >
+                Feed preview
+              </h2>
+              <p className="mt-1 text-xs text-[var(--foreground)]/50">
+                {collectionView === "archive"
+                  ? "Published feed posts with the newest publication time first."
+                  : "Planned feed posts with the newest publish date first. Stories appear above."}
+              </p>
+            </div>
+            {feedPosts.length === 0 ? (
+              <p className="rounded-[24px] border border-dashed border-[var(--border)] bg-[var(--card)] px-6 py-14 text-center text-sm text-[var(--foreground)]/45">
+                {collectionView === "archive"
+                  ? "No published feed posts are in the Archive yet."
+                  : "Schedule an Image, Carousel, or Reel to see it here in feed order."}
+              </p>
+            ) : (
+              <div className="grid grid-cols-3 gap-0.5 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:gap-px">
+                {feedPosts.map((post) => {
+                  const previewUrl = postVisualPreviewUrl(post);
+                  return (
+                    <button
+                      key={post.id}
+                      type="button"
+                      onClick={() => openPost(post, clientReviewerKeys)}
+                      aria-label={`${post.title} — ${formatDate(collectionDate(post), true)}`}
+                      className="group relative aspect-square bg-[var(--muted)] bg-cover bg-center transition hover:opacity-90"
+                      style={
+                        previewUrl
+                          ? {
+                              backgroundImage: `url("${previewUrl.replaceAll('"', "%22")}")`,
+                            }
+                          : undefined
+                      }
+                    >
+                      {!previewUrl && (
+                        <div className="flex h-full items-center justify-center">
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            className="size-6 text-[var(--foreground)]/20"
+                          >
+                            <rect x="3" y="3" width="18" height="18" rx="2" />
+                            <circle cx="8.5" cy="8.5" r="1.5" />
+                            <path d="M21 15l-5-5L5 21" />
+                          </svg>
+                        </div>
+                      )}
+                      {post.format === "reel" && (
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="white"
+                          className="absolute right-1.5 top-1.5 size-3.5 drop-shadow"
+                        >
+                          <path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4Z" />
+                        </svg>
+                      )}
+                      {post.format === "carousel" && (
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="white"
+                          strokeWidth="2"
+                          className="absolute right-1.5 top-1.5 size-3.5 drop-shadow"
+                        >
+                          <rect x="9" y="9" width="13" height="13" rx="2" />
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                        </svg>
+                      )}
+                      {post.posted_at && (
+                        <PostedStamp className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 px-3 py-1.5 text-[10px]" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          <section
+            aria-labelledby="approval-calendar-heading"
+            className="xl:order-1"
+          >
           <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
             <div>
               <h2
@@ -2689,6 +2897,7 @@ export function SocialApprovalCalendar({
             </div>
           </div>
         </section>
+        </div>
 
         {collectionView === "active" && mode === "internal" && unscheduledPosts.length > 0 && (
           <section className="mt-8">
