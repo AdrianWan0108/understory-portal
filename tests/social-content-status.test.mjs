@@ -8,6 +8,8 @@ import {
   normalizeSocialProductionStatus,
   normalizeSocialPublishingStatus,
   normalizeSocialSchedulingMode,
+  normalizeStoryInteraction,
+  normalizeReelDetails,
   productionStatusAfterTransition,
   publishingStatusAfterTransition,
   reconcileSocialProductionStatus,
@@ -119,4 +121,40 @@ test("legacy social statuses normalize to the current shared workflow", () => {
   assert.equal(normalizeSocialPostStatus("scheduled"), "scheduled");
   assert.equal(normalizeSocialPostStatus("posted"), "posted");
   assert.equal(normalizeSocialPostStatus("unexpected"), "not_started");
+});
+
+test("Story interaction and Reel production details normalize safely", () => {
+  assert.deepEqual(
+    normalizeStoryInteraction({
+      type: "poll",
+      prompt: "Which one?",
+      options: ["A", "B", 3],
+    }),
+    { type: "poll", prompt: "Which one?", options: ["A", "B"] },
+  );
+  assert.deepEqual(normalizeStoryInteraction(null), {
+    type: "none",
+    prompt: "",
+    options: [],
+  });
+
+  assert.deepEqual(
+    normalizeReelDetails({
+      script: "Voiceover",
+      shotList: "Wide shot",
+      editingFlow: "Hook → reveal",
+      onScreenText: "Watch this",
+    }),
+    {
+      hook: "",
+      script: "Voiceover",
+      shotList: "Wide shot",
+      editingFlow: "Hook → reveal",
+      onScreenText: "Watch this",
+      cta: "",
+      videoUrl: "",
+      footageLinks: [],
+      referenceLinks: [],
+    },
+  );
 });

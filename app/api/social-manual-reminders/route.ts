@@ -9,7 +9,10 @@ import {
   buildManualPostReminderMessage,
   isManualPostReminderDue,
 } from "@/lib/social-manual-reminders";
-import { normalizeReelDetails } from "@/lib/social-content";
+import {
+  normalizeReelDetails,
+  normalizeStoryInteraction,
+} from "@/lib/social-content";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
@@ -27,6 +30,7 @@ type DueTask = {
   visual_note: string | null;
   post_caption: string | null;
   creative_drive_link: string | null;
+  story_interaction: unknown;
   reel_details: unknown;
   scheduled_at: string;
   scheduling_mode: unknown;
@@ -86,6 +90,7 @@ async function sendDueManualPostReminders(request: NextRequest) {
         visual_note,
         post_caption,
         creative_drive_link,
+        story_interaction,
         reel_details,
         scheduled_at,
         scheduling_mode,
@@ -189,6 +194,7 @@ async function sendDueManualPostReminders(request: NextRequest) {
       .map((username) => profiles.get(username))
       .filter((profile): profile is ProfileRow => Boolean(profile));
     const reel = normalizeReelDetails(task.reel_details);
+    const storyInteraction = normalizeStoryInteraction(task.story_interaction);
     const calendarId = task.division_task_id;
     const directLink = calendarId
       ? `${request.nextUrl.origin}/team-hub/projects/${encodeURIComponent(calendarId)}/calendar?post=${encodeURIComponent(task.id)}`
@@ -218,11 +224,16 @@ async function sendDueManualPostReminders(request: NextRequest) {
       visualNote: task.visual_note,
       postCaption: task.format === "carousel" ? null : task.post_caption,
       creativeDriveLink: task.creative_drive_link,
+      storyInteraction:
+        task.format === "story" ? storyInteraction : null,
       reel:
         task.format === "reel"
           ? {
               hook: reel.hook,
               script: reel.script,
+              shotList: reel.shotList,
+              editingFlow: reel.editingFlow,
+              onScreenText: reel.onScreenText,
               cta: reel.cta,
               videoUrl: reel.videoUrl,
             }

@@ -14,6 +14,70 @@ export const SOCIAL_POST_FORMAT_LABELS: Record<SocialPostFormat, string> = {
   story: "Story",
 };
 
+export const STORY_INTERACTION_TYPES = [
+  "none",
+  "poll",
+  "question_box",
+  "quiz",
+  "emoji_slider",
+  "link_sticker",
+  "mention_sticker",
+  "countdown",
+  "other",
+] as const;
+
+export type StoryInteractionType = (typeof STORY_INTERACTION_TYPES)[number];
+
+export const STORY_INTERACTION_TYPE_LABELS: Record<
+  StoryInteractionType,
+  string
+> = {
+  none: "No interaction",
+  poll: "Poll",
+  question_box: "Question box",
+  quiz: "Quiz",
+  emoji_slider: "Emoji slider",
+  link_sticker: "Link sticker",
+  mention_sticker: "Mention sticker",
+  countdown: "Countdown",
+  other: "Other",
+};
+
+export type StoryInteraction = {
+  type: StoryInteractionType;
+  prompt: string;
+  options: string[];
+};
+
+export const EMPTY_STORY_INTERACTION: StoryInteraction = {
+  type: "none",
+  prompt: "",
+  options: [],
+};
+
+export function normalizeStoryInteraction(value: unknown): StoryInteraction {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { ...EMPTY_STORY_INTERACTION };
+  }
+
+  const record = value as Record<string, unknown>;
+  const type =
+    typeof record.type === "string" &&
+    STORY_INTERACTION_TYPES.includes(record.type as StoryInteractionType)
+      ? (record.type as StoryInteractionType)
+      : "none";
+
+  return {
+    type,
+    prompt: typeof record.prompt === "string" ? record.prompt : "",
+    options: Array.isArray(record.options)
+      ? record.options.filter(
+          (option): option is string => typeof option === "string",
+        )
+      : [],
+  };
+}
+
 export const SOCIAL_POST_STATUSES = [
   "not_started",
   "in_progress",
@@ -359,6 +423,9 @@ export function legacyStatusForSocialDimensions(
 export type ReelDetails = {
   hook: string;
   script: string;
+  shotList: string;
+  editingFlow: string;
+  onScreenText: string;
   cta: string;
   videoUrl: string;
   footageLinks: string[];
@@ -368,6 +435,9 @@ export type ReelDetails = {
 export const EMPTY_REEL_DETAILS: ReelDetails = {
   hook: "",
   script: "",
+  shotList: "",
+  editingFlow: "",
+  onScreenText: "",
   cta: "",
   videoUrl: "",
   footageLinks: [],
@@ -509,6 +579,11 @@ export function normalizeReelDetails(value: unknown): ReelDetails {
   return {
     hook: typeof record.hook === "string" ? record.hook : "",
     script: typeof record.script === "string" ? record.script : "",
+    shotList: typeof record.shotList === "string" ? record.shotList : "",
+    editingFlow:
+      typeof record.editingFlow === "string" ? record.editingFlow : "",
+    onScreenText:
+      typeof record.onScreenText === "string" ? record.onScreenText : "",
     cta: typeof record.cta === "string" ? record.cta : "",
     videoUrl: typeof record.videoUrl === "string" ? record.videoUrl : "",
     footageLinks: Array.isArray(record.footageLinks)

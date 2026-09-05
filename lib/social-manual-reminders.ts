@@ -20,9 +20,17 @@ export type ManualPostReminder = {
   visualNote?: string | null;
   postCaption?: string | null;
   creativeDriveLink?: string | null;
+  storyInteraction?: {
+    type?: string | null;
+    prompt?: string | null;
+    options?: string[];
+  } | null;
   reel?: {
     hook?: string | null;
     script?: string | null;
+    shotList?: string | null;
+    editingFlow?: string | null;
+    onScreenText?: string | null;
     cta?: string | null;
     videoUrl?: string | null;
   } | null;
@@ -98,12 +106,36 @@ export function buildManualPostReminderMessage(input: ManualPostReminder) {
     slackLink(input.creativeDriveLink, "Open creative in Google Drive"),
   ];
 
+  if (input.storyInteraction && input.storyInteraction.type !== "none") {
+    const interactionDetails = [
+      clean(input.storyInteraction.prompt, 500),
+      ...(input.storyInteraction.options ?? [])
+        .map((option) => clean(option, 120))
+        .filter((option): option is string => Boolean(option)),
+    ];
+    lines.push(
+      `Story interaction: ${clean(input.storyInteraction.type, 80)?.replaceAll("_", " ") ?? "other"}`,
+      interactionDetails.length
+        ? `Sticker copy / choices: ${interactionDetails.join(" · ")}`
+        : null,
+    );
+  }
+
   if (input.reel) {
     const videoLink = slackLink(input.reel.videoUrl, "Open Reel asset");
     lines.push(
       clean(input.reel.hook) ? `Reel hook: ${clean(input.reel.hook)}` : null,
       clean(input.reel.script, 1_200)
         ? `Reel script:\n${clean(input.reel.script, 1_200)}`
+        : null,
+      clean(input.reel.shotList, 1_000)
+        ? `Shot list:\n${clean(input.reel.shotList, 1_000)}`
+        : null,
+      clean(input.reel.editingFlow, 1_000)
+        ? `Editing flow:\n${clean(input.reel.editingFlow, 1_000)}`
+        : null,
+      clean(input.reel.onScreenText, 700)
+        ? `On-screen text:\n${clean(input.reel.onScreenText, 700)}`
         : null,
       clean(input.reel.cta) ? `Reel CTA: ${clean(input.reel.cta)}` : null,
       videoLink ? `Reel: ${videoLink}` : null,

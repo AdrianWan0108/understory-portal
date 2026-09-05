@@ -45,6 +45,11 @@ test("a manual Slack reminder includes the owner, creative, assets, and deep lin
     visualNote: "Use the green title card.",
     postCaption: "Book your spot.",
     creativeDriveLink: "https://drive.google.com/file/d/creative-1/view",
+    storyInteraction: {
+      type: "poll",
+      prompt: "Which class should we add?",
+      options: ["Reformer", "Mat"],
+    },
     slides: [
       {
         slideNumber: 1,
@@ -63,6 +68,8 @@ test("a manual Slack reminder includes the owner, creative, assets, and deep lin
   assert.match(message, /Show the new class/);
   assert.match(message, /Book your spot/);
   assert.match(message, /Open creative in Google Drive/);
+  assert.match(message, /Story interaction: poll/);
+  assert.match(message, /Which class should we add\? · Reformer · Mat/);
   assert.match(message, /Open final asset/);
   assert.match(message, /Open post in Social Content Calendar/);
 });

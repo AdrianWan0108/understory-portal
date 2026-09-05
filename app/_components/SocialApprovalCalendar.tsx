@@ -18,6 +18,7 @@ import {
   normalizeSocialProductionStatus,
   normalizeSocialPublishingStatus,
   normalizeSocialSchedulingMode,
+  normalizeStoryInteraction,
   productionStatusAfterTransition,
   publishingStatusAfterTransition,
   reconcileSocialProductionStatus,
@@ -28,13 +29,20 @@ import {
   SOCIAL_SCHEDULING_MODE_LABELS,
   SOCIAL_SCHEDULING_MODES,
   SOCIAL_POST_STATUS_LABELS,
+  STORY_INTERACTION_TYPE_LABELS,
+  STORY_INTERACTION_TYPES,
   type ReelDetails,
   type SocialFilmingDetails,
   type SocialProductionStatus,
   type SocialPublishingStatus,
   type SocialSchedulingMode,
   type SocialPostStatus,
+  type StoryInteraction,
 } from "@/lib/social-content";
+import {
+  parseSocialContentImport,
+  SOCIAL_CONTENT_IMPORT_EXAMPLE,
+} from "@/lib/social-content-import";
 import { supabase } from "@/lib/supabase";
 import { TEAM_IDENTITIES } from "@/lib/team-auth";
 import { readTeamSessionProfile } from "@/app/team-hub/_components/TeamIdentity";
@@ -97,6 +105,7 @@ type ApprovalPost = {
   format: string | null;
   brief: string;
   visual_note: string | null;
+  story_interaction: StoryInteraction;
   reel_details: ReelDetails;
   post_caption: string;
   purpose: string | null;
@@ -140,6 +149,7 @@ type TaskRow = Omit<
   | "client_approvals"
   | "approval_history"
   | "reel_details"
+  | "story_interaction"
   | "filming_details"
   | "scheduling_mode"
   | "assignee_usernames"
@@ -152,6 +162,7 @@ type TaskRow = Omit<
   client_approvals: unknown;
   approval_history: unknown;
   reel_details: unknown;
+  story_interaction: unknown;
   filming_details: unknown;
   scheduling_mode: unknown;
   assignee_usernames: string[] | null;
@@ -179,6 +190,7 @@ type PostContentDraft = {
   dueDate: string;
   brief: string;
   visualNote: string;
+  storyInteraction: StoryInteraction;
   productionStatus: SocialProductionStatus;
   reelDetails: ReelDetails;
   requiresFilming: boolean;
@@ -402,6 +414,7 @@ function mapPost(row: TaskRow): ApprovalPost {
     client_approvals: clientApprovals,
     approval_history: normalizeHistory(row.approval_history),
     reel_details: normalizeReelDetails(row.reel_details),
+    story_interaction: normalizeStoryInteraction(row.story_interaction),
     filming_details: normalizeSocialFilmingDetails(
       row.filming_details,
       row.reel_details,
@@ -690,6 +703,9 @@ export function SocialApprovalCalendar({
   const [isSending, setIsSending] = useState(false);
   const [postToDelete, setPostToDelete] = useState<ApprovalPost | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importDraft, setImportDraft] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
   const [draggingPostId, setDraggingPostId] = useState<string | null>(null);
   const [dragOverDateKey, setDragOverDateKey] = useState<string | null>(null);
   const [syncRevision, setSyncRevision] = useState(0);
@@ -807,6 +823,7 @@ export function SocialApprovalCalendar({
             format,
             brief,
             visual_note,
+            story_interaction,
             reel_details,
             post_caption,
             purpose,
@@ -966,6 +983,23 @@ export function SocialApprovalCalendar({
             "",
         )
       : null;
+  const importPreview = useMemo(() => {
+    if (!importDraft.trim()) return { result: null, error: null };
+    try {
+      return {
+        result: parseSocialContentImport(importDraft),
+        error: null,
+      };
+    } catch (importError) {
+      return {
+        result: null,
+        error:
+          importError instanceof Error
+            ? importError.message
+            : "Could not read this import.",
+      };
+    }
+  }, [importDraft]);
 
   function openPost(post: ApprovalPost, reviewerKeys: string[]) {
     setSelectedId(post.id);
@@ -1005,6 +1039,7 @@ export function SocialApprovalCalendar({
       dueDate: post.due_date ?? "",
       brief: post.brief,
       visualNote: post.visual_note ?? "",
+      storyInteraction: post.story_interaction,
       productionStatus: post.production_status,
       reelDetails: post.reel_details,
       requiresFilming: post.requires_filming,
@@ -1266,6 +1301,11 @@ export function SocialApprovalCalendar({
       captionDraft,
       contentDraft.reelDetails.hook,
       contentDraft.reelDetails.script,
+      contentDraft.reelDetails.shotList,
+      contentDraft.reelDetails.editingFlow,
+      contentDraft.reelDetails.onScreenText,
+      contentDraft.storyInteraction.prompt,
+      ...contentDraft.storyInteraction.options,
       contentDraft.filmingDetails.script,
       contentDraft.filmingDetails.shotList,
       ...Object.values(slideTextDrafts),
@@ -1338,6 +1378,10 @@ export function SocialApprovalCalendar({
         due_date: contentDraft.dueDate || null,
         brief: contentDraft.brief.trim(),
         visual_note: contentDraft.visualNote.trim() || null,
+        story_interaction:
+          contentDraft.format === "story"
+            ? contentDraft.storyInteraction
+            : { type: "none", prompt: "", options: [] },
         production_status: productionStatus,
         publishing_status: publishingStatus,
         status: legacyStatus,
@@ -1377,6 +1421,10 @@ export function SocialApprovalCalendar({
       due_date: contentDraft.dueDate || null,
       brief: contentDraft.brief.trim(),
       visual_note: contentDraft.visualNote.trim() || null,
+      story_interaction:
+        contentDraft.format === "story"
+          ? contentDraft.storyInteraction
+          : { type: "none", prompt: "", options: [] },
       production_status: productionStatus,
       publishing_status: publishingStatus,
       status: legacyStatus,
@@ -2134,6 +2182,107 @@ export function SocialApprovalCalendar({
     window.location.assign(url.toString());
   }
 
+  async function importPosts() {
+    if (
+      mode !== "internal" ||
+      !resolvedClientId ||
+      !workspaceId ||
+      !importPreview.result ||
+      isImporting
+    ) {
+      return;
+    }
+
+    const teamProfile = readTeamSessionProfile();
+    const importedPosts = importPreview.result.posts.map((post) => ({
+      ...post,
+      id: crypto.randomUUID(),
+    }));
+    const taskIds = importedPosts.map((post) => post.id);
+    setIsImporting(true);
+    setError(null);
+
+    const { error: taskError } = await supabase.from("tasks").insert(
+      importedPosts.map((post) => ({
+        id: post.id,
+        client_id: resolvedClientId,
+        division_task_id: workspaceId,
+        title: post.title,
+        brief: post.brief,
+        format: post.format,
+        platform: post.platform || null,
+        purpose: post.purpose || null,
+        content_pillar: post.contentPillar || null,
+        target_audience: post.targetAudience || null,
+        cta: post.cta || null,
+        due_date: post.dueDate || null,
+        scheduled_at: post.scheduledAt || null,
+        visual_note: post.visualDirection || null,
+        story_interaction: post.storyInteraction,
+        post_caption: post.caption,
+        reel_details: post.format === "reel" ? post.reelDetails : null,
+        requires_filming: post.requiresFilming,
+        filming_details: post.filmingDetails,
+        status: "not_started",
+        production_status: "not_started",
+        publishing_status: "unscheduled",
+        scheduling_mode: post.schedulingMode,
+        manual_reminder_sent_at: null,
+        assignee_usernames: teamProfile?.username
+          ? [teamProfile.username]
+          : [],
+        assigned_to: teamProfile?.name ?? null,
+        assignee: teamProfile?.name ?? "Unassigned",
+      })),
+    );
+
+    if (taskError) {
+      setIsImporting(false);
+      setError(`Could not import the content cards: ${taskError.message}`);
+      return;
+    }
+
+    const slideRows = importedPosts.flatMap((post) =>
+      post.slides.map((slide, index) => ({
+        task_id: post.id,
+        slide_number: index + 1,
+        on_screen_text: slide.onScreenText,
+        visual_note: slide.visualDirection,
+        slide_caption: slide.caption || null,
+        image_url: slide.imageUrl || null,
+      })),
+    );
+    const { error: slideError } = slideRows.length
+      ? await supabase.from("task_slides").insert(slideRows)
+      : { error: null };
+
+    if (slideError) {
+      await supabase.from("tasks").delete().in("id", taskIds);
+      setIsImporting(false);
+      setError(
+        `The cards could not be completed, so the import was rolled back: ${slideError.message}`,
+      );
+      return;
+    }
+
+    const firstScheduledPost = importedPosts.find((post) => post.scheduledAt);
+    if (firstScheduledPost) {
+      const date = new Date(firstScheduledPost.scheduledAt);
+      setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+    }
+    setIsImporting(false);
+    setIsImportOpen(false);
+    setImportDraft("");
+    setCollectionView("active");
+    setCalendarFilter("all");
+    setFeedback(
+      `${importedPosts.length} ${
+        importedPosts.length === 1 ? "content card was" : "content cards were"
+      } imported with their production details.`,
+    );
+    setSyncRevision((current) => current + 1);
+  }
+
   async function deletePost() {
     if (
       mode !== "internal" ||
@@ -2207,14 +2356,24 @@ export function SocialApprovalCalendar({
             </p>
           </div>
           {mode === "internal" && (
-            <button
-              type="button"
-              disabled={isSaving || isLoading}
-              onClick={() => void addPost()}
-              className="w-fit rounded-full bg-[var(--foreground)] px-5 py-3 text-sm font-semibold text-[var(--background)] shadow-sm disabled:opacity-50"
-            >
-              + Add content
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={isSaving || isLoading}
+                onClick={() => setIsImportOpen(true)}
+                className="w-fit rounded-full border border-[var(--border)] bg-[var(--card)] px-5 py-3 text-sm font-semibold shadow-sm disabled:opacity-50"
+              >
+                Import content
+              </button>
+              <button
+                type="button"
+                disabled={isSaving || isLoading}
+                onClick={() => void addPost()}
+                className="w-fit rounded-full bg-[var(--foreground)] px-5 py-3 text-sm font-semibold text-[var(--background)] shadow-sm disabled:opacity-50"
+              >
+                + Add content
+              </button>
+            </div>
           )}
         </header>
 
@@ -2682,6 +2841,136 @@ export function SocialApprovalCalendar({
         )}
       </div>
 
+      {isImportOpen && mode === "internal" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5">
+          <button
+            type="button"
+            aria-label="Close content import"
+            className="absolute inset-0 bg-[var(--foreground)]/55 backdrop-blur-sm"
+            onClick={() => !isImporting && setIsImportOpen(false)}
+          />
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="content-import-title"
+            className="relative z-10 max-h-[94vh] w-full max-w-3xl overflow-y-auto rounded-[24px] bg-[var(--card)] p-5 shadow-2xl sm:p-7"
+          >
+            <button
+              type="button"
+              aria-label="Close"
+              disabled={isImporting}
+              onClick={() => setIsImportOpen(false)}
+              className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full bg-[var(--muted)] disabled:opacity-50"
+            >
+              ×
+            </button>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--primary)]">
+              ChatGPT → Content Calendar
+            </p>
+            <h2
+              id="content-import-title"
+              className={`${fraunces.className} mt-2 pr-12 text-3xl font-medium`}
+            >
+              Import content cards
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--foreground)]/55">
+              Ask ChatGPT to fill the JSON template, then paste its complete
+              response below. Posts, dates, captions, Reel production notes,
+              slides, and Story interactions will be created together.
+            </p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(
+                    SOCIAL_CONTENT_IMPORT_EXAMPLE,
+                  );
+                  setFeedback("JSON template copied for ChatGPT.");
+                }}
+                className="rounded-full border border-[var(--border)] px-4 py-2 text-xs font-semibold"
+              >
+                Copy JSON template
+              </button>
+              <button
+                type="button"
+                onClick={() => setImportDraft(SOCIAL_CONTENT_IMPORT_EXAMPLE)}
+                className="rounded-full border border-[var(--border)] px-4 py-2 text-xs font-semibold"
+              >
+                Preview example
+              </button>
+            </div>
+            <label className="mt-5 block text-xs font-semibold">
+              ChatGPT JSON
+              <textarea
+                rows={16}
+                autoFocus
+                spellCheck={false}
+                value={importDraft}
+                onChange={(event) => setImportDraft(event.target.value)}
+                placeholder={'{\n  "posts": [\n    { "title": "...", "format": "story" }\n  ]\n}'}
+                className="mt-2 w-full resize-y rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4 font-mono text-xs leading-5"
+              />
+            </label>
+            {importPreview.error && (
+              <p
+                role="alert"
+                className="mt-3 rounded-xl border border-[#E4B9B9] bg-[#FFF0F0] px-3 py-2.5 text-xs leading-5 text-[#8B3E3E]"
+              >
+                {importPreview.error}
+              </p>
+            )}
+            {importPreview.result && (
+              <div className="mt-3 rounded-2xl border border-[#BFD8C7] bg-[#EAF5ED] p-4 text-[#356346]">
+                <p className="text-sm font-semibold">
+                  Ready to create {importPreview.result.posts.length}{" "}
+                  {importPreview.result.posts.length === 1 ? "card" : "cards"}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {importPreview.result.posts.slice(0, 8).map((post, index) => (
+                    <span
+                      key={`${post.title}-${index}`}
+                      className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-semibold"
+                    >
+                      {formatLabel(post.format)} · {post.title}
+                    </span>
+                  ))}
+                  {importPreview.result.posts.length > 8 && (
+                    <span className="px-2 py-1 text-[10px] font-semibold">
+                      +{importPreview.result.posts.length - 8} more
+                    </span>
+                  )}
+                </div>
+                {importPreview.result.warnings.length > 0 && (
+                  <ul className="mt-3 list-disc space-y-1 pl-4 text-[11px] leading-5">
+                    {importPreview.result.warnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+            <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-[var(--border)] pt-5">
+              <button
+                type="button"
+                disabled={isImporting}
+                onClick={() => setIsImportOpen(false)}
+                className="rounded-full border border-[var(--border)] px-4 py-2.5 text-xs font-semibold disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!importPreview.result || isImporting}
+                onClick={() => void importPosts()}
+                className="rounded-full bg-[var(--foreground)] px-5 py-2.5 text-xs font-semibold text-[var(--background)] disabled:opacity-40"
+              >
+                {isImporting ? "Importing…" : "Create content cards"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {selectedPost && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5">
           <button
@@ -3073,6 +3362,87 @@ export function SocialApprovalCalendar({
                             className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm"
                           />
                         </label>
+                        {contentDraft.format === "story" && (
+                          <div className="grid gap-3 rounded-xl border border-[var(--primary)]/25 bg-[var(--muted)] p-3">
+                            <div>
+                              <p className="text-xs font-semibold">
+                                Story interaction
+                              </p>
+                              <p className="mt-1 text-[11px] leading-5 text-[var(--foreground)]/50">
+                                Record the exact sticker, prompt, and choices the
+                                person publishing the Story should add.
+                              </p>
+                            </div>
+                            <label className="text-xs font-semibold">
+                              Interaction type
+                              <select
+                                value={contentDraft.storyInteraction.type}
+                                onChange={(event) =>
+                                  setContentDraft({
+                                    ...contentDraft,
+                                    storyInteraction: {
+                                      ...contentDraft.storyInteraction,
+                                      type: event.target
+                                        .value as StoryInteraction["type"],
+                                    },
+                                  })
+                                }
+                                className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                              >
+                                {STORY_INTERACTION_TYPES.map((type) => (
+                                  <option key={type} value={type}>
+                                    {STORY_INTERACTION_TYPE_LABELS[type]}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            {contentDraft.storyInteraction.type !== "none" && (
+                              <>
+                                <label className="text-xs font-semibold">
+                                  Prompt / sticker copy
+                                  <textarea
+                                    rows={3}
+                                    value={contentDraft.storyInteraction.prompt}
+                                    onChange={(event) =>
+                                      setContentDraft({
+                                        ...contentDraft,
+                                        storyInteraction: {
+                                          ...contentDraft.storyInteraction,
+                                          prompt: event.target.value,
+                                        },
+                                      })
+                                    }
+                                    placeholder="e.g. What should we share more of?"
+                                    className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-normal"
+                                  />
+                                </label>
+                                <label className="text-xs font-semibold">
+                                  Poll / quiz choices or extra instructions
+                                  <textarea
+                                    rows={3}
+                                    value={contentDraft.storyInteraction.options.join(
+                                      "\n",
+                                    )}
+                                    onChange={(event) =>
+                                      setContentDraft({
+                                        ...contentDraft,
+                                        storyInteraction: {
+                                          ...contentDraft.storyInteraction,
+                                          options: event.target.value
+                                            .split("\n")
+                                            .map((value) => value.trim())
+                                            .filter(Boolean),
+                                        },
+                                      })
+                                    }
+                                    placeholder="One choice or instruction per line"
+                                    className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-normal"
+                                  />
+                                </label>
+                              </>
+                            )}
+                          </div>
+                        )}
                         {contentDraft.format === "reel" && (
                           <div className="grid gap-3 rounded-xl bg-[var(--muted)] p-3">
                             <label className="text-xs font-semibold">
@@ -3108,6 +3478,36 @@ export function SocialApprovalCalendar({
                                 className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm"
                               />
                             </label>
+                            {[
+                              ["shotList", "Shot list"],
+                              ["editingFlow", "Editing flow"],
+                              ["onScreenText", "On-screen text"],
+                            ].map(([field, label]) => (
+                              <label key={field} className="text-xs font-semibold">
+                                {label}
+                                <textarea
+                                  rows={3}
+                                  value={
+                                    contentDraft.reelDetails[
+                                      field as
+                                        | "shotList"
+                                        | "editingFlow"
+                                        | "onScreenText"
+                                    ]
+                                  }
+                                  onChange={(event) =>
+                                    setContentDraft({
+                                      ...contentDraft,
+                                      reelDetails: {
+                                        ...contentDraft.reelDetails,
+                                        [field]: event.target.value,
+                                      },
+                                    })
+                                  }
+                                  className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm"
+                                />
+                              </label>
+                            ))}
                             <label className="text-xs font-semibold">
                               Reel CTA
                               <input
@@ -3783,6 +4183,37 @@ export function SocialApprovalCalendar({
                       </p>
                     </div>
                   )}
+                  {selectedPost.format === "story" &&
+                    selectedPost.story_interaction.type !== "none" && (
+                      <div className="rounded-2xl border border-[var(--primary)]/25 bg-[var(--muted)]/50 p-4">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--foreground)]/40">
+                          Story interaction ·{" "}
+                          {
+                            STORY_INTERACTION_TYPE_LABELS[
+                              selectedPost.story_interaction.type
+                            ]
+                          }
+                        </p>
+                        <p className="mt-2 whitespace-pre-line text-sm font-semibold leading-6 text-[var(--foreground)]/75">
+                          {selectedPost.story_interaction.prompt ||
+                            "No sticker copy added."}
+                        </p>
+                        {selectedPost.story_interaction.options.length > 0 && (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {selectedPost.story_interaction.options.map(
+                              (option, index) => (
+                                <span
+                                  key={`${option}-${index}`}
+                                  className="rounded-full bg-[var(--card)] px-3 py-1.5 text-xs"
+                                >
+                                  {option}
+                                </span>
+                              ),
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                 </div>
               )}
 
