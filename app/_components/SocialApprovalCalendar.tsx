@@ -317,7 +317,6 @@ const workflowStyles: Record<
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const INTERNAL_REVIEWER_KEYS = ["Understory_Karen"];
-const SOCIAL_ASSET_BUCKET = "client-assets";
 
 function isReviewStatus(value: unknown): value is ReviewStatus {
   return value === "approved" || value === "pending" || value === "changes";
@@ -1578,29 +1577,6 @@ export function SocialApprovalCalendar({
     setSlideCaptionDrafts((current) => ({ ...current, [slide.id]: "" }));
     setSlideImageDrafts((current) => ({ ...current, [slide.id]: "" }));
     setSelectedSlide(post.task_slides.length);
-  }
-
-  async function uploadSlideImage(post: ApprovalPost, slide: Slide, file: File) {
-    if (!resolvedClientId || isSaving || !file.type.startsWith("image/")) {
-      return;
-    }
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
-    const path = `${resolvedClientId}/social-content/${post.id}/${slide.id}/${crypto.randomUUID()}-${safeName}`;
-    setIsSaving(true);
-    const { error: uploadError } = await supabase.storage
-      .from(SOCIAL_ASSET_BUCKET)
-      .upload(path, file, { contentType: file.type, upsert: false });
-    setIsSaving(false);
-    if (uploadError) {
-      setError(`Could not upload the final asset: ${uploadError.message}`);
-      return;
-    }
-    const { data } = supabase.storage.from(SOCIAL_ASSET_BUCKET).getPublicUrl(path);
-    setSlideImageDrafts((current) => ({
-      ...current,
-      [slide.id]: data.publicUrl,
-    }));
-    setFeedback("Final asset uploaded. Save the post to confirm the change.");
   }
 
   async function moveSlide(post: ApprovalPost, direction: -1 | 1) {
@@ -3181,42 +3157,6 @@ export function SocialApprovalCalendar({
                             ? `Slide ${selectedSlide + 1}`
                             : "Image creative"}
                         </h3>
-                        <label className="text-xs font-semibold">
-                          Final image / slide asset
-                          <input
-                            type="url"
-                            value={
-                              slideImageDrafts[
-                                selectedPost.task_slides[selectedSlide].id
-                              ] ?? ""
-                            }
-                            onChange={(event) => {
-                              const slideId =
-                                selectedPost.task_slides[selectedSlide].id;
-                              setSlideImageDrafts((current) => ({
-                                ...current,
-                                [slideId]: event.target.value,
-                              }));
-                            }}
-                            placeholder="Paste an asset link"
-                            className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-normal"
-                          />
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(event) => {
-                              const file = event.target.files?.[0];
-                              if (file) {
-                                void uploadSlideImage(
-                                  selectedPost,
-                                  selectedPost.task_slides[selectedSlide],
-                                  file,
-                                );
-                              }
-                            }}
-                            className="mt-2 block w-full text-[11px] font-normal"
-                          />
-                        </label>
                         <label className="text-xs font-semibold">
                           On-screen text
                           <textarea
