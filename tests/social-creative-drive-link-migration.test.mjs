@@ -7,10 +7,9 @@ const migrationUrl = new URL(
   import.meta.url,
 );
 
-test("social posts support a production creative link and carousel-wide captions are cleared", async () => {
+test("social posts support a production creative link without rewriting existing content", async () => {
   const sql = await readFile(migrationUrl, "utf8");
 
   assert.match(sql, /add column if not exists creative_drive_link text/i);
-  assert.match(sql, /set post_caption = ''/i);
-  assert.match(sql, /where format = 'carousel'/i);
+  assert.doesNotMatch(sql, /update\s+public\.tasks/i);
 });
