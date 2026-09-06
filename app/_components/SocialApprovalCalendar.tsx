@@ -755,6 +755,15 @@ function visualPreviewUrl(value: string | null | undefined) {
   return value;
 }
 
+function isGoogleDriveUrl(value: string) {
+  try {
+    const hostname = new URL(value.trim()).hostname.toLowerCase();
+    return hostname === "drive.google.com" || hostname === "docs.google.com";
+  } catch {
+    return false;
+  }
+}
+
 function postVisualPreviewUrl(post: ApprovalPost) {
   return visualPreviewUrl(
     post.format === "reel"
@@ -1176,6 +1185,15 @@ export function SocialApprovalCalendar({
             "",
         )
       : null;
+  const selectedSlideItem = selectedPost?.task_slides[selectedSlide];
+  const selectedCreativeLink = selectedPost
+    ? selectedPost.format === "reel"
+      ? selectedPost.creative_drive_link
+      : (mode === "internal" && selectedSlideItem
+          ? slideImageDrafts[selectedSlideItem.id]
+          : selectedSlideItem?.image_url) || selectedPost.creative_drive_link
+    : null;
+  const selectedVisualPreviewUrl = visualPreviewUrl(selectedCreativeLink);
   const importPreview = useMemo(() => {
     if (!importDraft.trim()) return { result: null, error: null };
     try {
@@ -1455,21 +1473,21 @@ export function SocialApprovalCalendar({
     }
     setIsSaving(true);
     setError(null);
-    const creativeDriveLink = contentDraft.creativeDriveLink.trim();
-    if (creativeDriveLink) {
-      try {
-        const hostname = new URL(creativeDriveLink).hostname.toLowerCase();
-        if (
-          hostname !== "drive.google.com" &&
-          hostname !== "docs.google.com"
-        ) {
-          throw new Error("Not a Google Drive URL");
-        }
-      } catch {
-        setIsSaving(false);
-        setError("Enter a valid Google Drive link for the creative.");
-        return false;
-      }
+    const usesSlideDeliverables =
+      contentDraft.format === "carousel" ||
+      contentDraft.format === "image" ||
+      contentDraft.format === "story";
+    const firstSlideDriveLink = usesSlideDeliverables
+      ? post.task_slides
+          .map((slide) => (slideImageDrafts[slide.id] ?? "").trim())
+          .find((link) => link && isGoogleDriveUrl(link))
+      : undefined;
+    const creativeDriveLink =
+      contentDraft.creativeDriveLink.trim() || firstSlideDriveLink || "";
+    if (creativeDriveLink && !isGoogleDriveUrl(creativeDriveLink)) {
+      setIsSaving(false);
+      setError("Enter a valid Google Drive link for the creative.");
+      return false;
     }
     const scheduledAt = scheduleDraft
       ? new Date(scheduleDraft).toISOString()
@@ -1480,6 +1498,22 @@ export function SocialApprovalCalendar({
       contentDraft.format === "image" ||
       contentDraft.format === "story"
     ) {
+      const invalidDeliverableSlide = post.task_slides.find((slide) => {
+        const nextImage = (slideImageDrafts[slide.id] ?? "").trim();
+        return (
+          nextImage &&
+          nextImage !== (slide.image_url ?? "") &&
+          !isGoogleDriveUrl(nextImage)
+        );
+      });
+      if (invalidDeliverableSlide) {
+        setIsSaving(false);
+        setError(
+          `Enter a valid Google Drive deliverable link for slide ${invalidDeliverableSlide.slide_number}.`,
+        );
+        return false;
+      }
+
       for (const slide of post.task_slides) {
         const nextCaption = (slideCaptionDrafts[slide.id] ?? "").trim();
         const nextText = (slideTextDrafts[slide.id] ?? "").trim();
@@ -1716,9 +1750,25 @@ export function SocialApprovalCalendar({
   }
 
   async function saveAndSubmitForInternalReview(post: ApprovalPost) {
-    if (!contentDraft?.creativeDriveLink.trim()) {
+    if (!contentDraft) return;
+
+    const usesSlideDeliverables =
+      contentDraft.format === "carousel" ||
+      contentDraft.format === "image" ||
+      contentDraft.format === "story";
+    const slideDeliverableLinks = post.task_slides.map((slide) =>
+      (slideImageDrafts[slide.id] ?? "").trim(),
+    );
+    const hasEverySlideDeliverable =
+      usesSlideDeliverables &&
+      slideDeliverableLinks.length > 0 &&
+      slideDeliverableLinks.every(Boolean);
+    const postCreativeDriveLink = contentDraft.creativeDriveLink.trim();
+    if (!postCreativeDriveLink && !hasEverySlideDeliverable) {
       setError(
-        "Add the creative Google Drive link before submitting for review.",
+        usesSlideDeliverables && post.task_slides.length > 1
+          ? "Add a Google Drive deliverable link to every slide before submitting for review."
+          : "Add the creative Google Drive link before submitting for review.",
       );
       return;
     }
@@ -1729,7 +1779,8 @@ export function SocialApprovalCalendar({
     await submitForInternalReview({
       ...post,
       title: contentDraft.title.trim() || "Untitled content",
-      creative_drive_link: contentDraft.creativeDriveLink.trim(),
+      creative_drive_link:
+        postCreativeDriveLink || slideDeliverableLinks.find(Boolean) || null,
       assignee_usernames: contentDraft.assigneeUsernames,
     });
   }
@@ -3437,25 +3488,20 @@ export function SocialApprovalCalendar({
                 </div>
               ) : (
                 <div
-                  className="relative flex aspect-[4/5] items-center justify-center overflow-hidden rounded-2xl bg-[var(--background)] bg-cover bg-center shadow-sm"
+                  className={`relative flex items-center justify-center overflow-hidden rounded-2xl bg-[var(--background)] bg-center shadow-sm ${
+                    selectedPost.format === "story"
+                      ? "aspect-[9/16] bg-contain bg-no-repeat"
+                      : "aspect-[4/5] bg-cover"
+                  }`}
                   style={
-                    visualPreviewUrl(
-                      selectedPost.task_slides[selectedSlide]?.image_url ||
-                        selectedPost.creative_drive_link,
-                    )
+                    selectedVisualPreviewUrl
                       ? {
-                          backgroundImage: `url("${visualPreviewUrl(
-                            selectedPost.task_slides[selectedSlide]?.image_url ||
-                              selectedPost.creative_drive_link,
-                          )!.replaceAll('"', "%22")}")`,
+                          backgroundImage: `url("${selectedVisualPreviewUrl.replaceAll('"', "%22")}")`,
                         }
                       : undefined
                   }
                 >
-                  {!visualPreviewUrl(
-                    selectedPost.task_slides[selectedSlide]?.image_url ||
-                      selectedPost.creative_drive_link,
-                  ) && (
+                  {!selectedVisualPreviewUrl && (
                     <div className="max-w-sm p-8 text-center">
                       <p className={`${fraunces.className} text-2xl font-medium`}>
                         {selectedPost.task_slides[selectedSlide]
@@ -3529,14 +3575,17 @@ export function SocialApprovalCalendar({
               {selectedPost.posted_at && (
                 <PostedStamp className="absolute right-8 top-8 z-10 px-4 py-2 text-xs" />
               )}
-              {selectedPost.creative_drive_link && (
+              {selectedCreativeLink && (
                 <a
-                  href={selectedPost.creative_drive_link}
+                  href={selectedCreativeLink}
                   target="_blank"
                   rel="noreferrer"
                   className="mt-3 inline-flex rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[10px] font-semibold underline underline-offset-2"
                 >
-                  Open creative in Google Drive ↗
+                  {selectedPost.format !== "reel" &&
+                  selectedPost.task_slides.length > 1
+                    ? `Open slide ${selectedSlide + 1} deliverable in Google Drive ↗`
+                    : "Open creative in Google Drive ↗"}
                 </a>
               )}
             </div>
@@ -4488,25 +4537,60 @@ export function SocialApprovalCalendar({
                             </p>
                           )}
                         </div>
-                        <label className="text-xs font-semibold">
-                          Creative Google Drive link
-                          <input
-                            type="url"
-                            value={contentDraft.creativeDriveLink}
-                            onChange={(event) =>
-                              setContentDraft({
-                                ...contentDraft,
-                                creativeDriveLink: event.target.value,
-                              })
-                            }
-                            placeholder="https://drive.google.com/..."
-                            className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-normal"
-                          />
-                          <span className="mt-2 block text-[11px] font-normal leading-5 text-[var(--foreground)]/50">
-                            Paste the final creative file or folder link and make
-                            sure “Anyone with the link can view” is enabled.
-                          </span>
-                        </label>
+                        {(contentDraft.format === "carousel" ||
+                          contentDraft.format === "image" ||
+                          contentDraft.format === "story") &&
+                        selectedPost.task_slides[selectedSlide] ? (
+                          <label className="text-xs font-semibold">
+                            {selectedPost.task_slides.length > 1
+                              ? `Slide ${selectedSlide + 1} Google Drive deliverable link`
+                              : "Google Drive deliverable link"}
+                            <input
+                              type="url"
+                              value={
+                                slideImageDrafts[
+                                  selectedPost.task_slides[selectedSlide].id
+                                ] ?? ""
+                              }
+                              onChange={(event) => {
+                                const slideId =
+                                  selectedPost.task_slides[selectedSlide].id;
+                                setSlideImageDrafts((current) => ({
+                                  ...current,
+                                  [slideId]: event.target.value,
+                                }));
+                              }}
+                              placeholder="https://drive.google.com/..."
+                              className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-normal"
+                            />
+                            <span className="mt-2 block text-[11px] font-normal leading-5 text-[var(--foreground)]/50">
+                              {selectedPost.task_slides.length > 1
+                                ? `This link is for Slide ${selectedSlide + 1} only. Select another slide above to add its own deliverable.`
+                                : "Paste the final creative file link and make sure “Anyone with the link can view” is enabled."}
+                            </span>
+                          </label>
+                        ) : (
+                          <label className="text-xs font-semibold">
+                            Creative Google Drive link
+                            <input
+                              type="url"
+                              value={contentDraft.creativeDriveLink}
+                              onChange={(event) =>
+                                setContentDraft({
+                                  ...contentDraft,
+                                  creativeDriveLink: event.target.value,
+                                })
+                              }
+                              placeholder="https://drive.google.com/..."
+                              className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-normal"
+                            />
+                            <span className="mt-2 block text-[11px] font-normal leading-5 text-[var(--foreground)]/50">
+                              Paste the final creative file or folder link and
+                              make sure “Anyone with the link can view” is
+                              enabled.
+                            </span>
+                          </label>
+                        )}
                         <fieldset>
                           <legend className="text-xs font-semibold">Assignees</legend>
                           <div className="mt-2 grid gap-2 sm:grid-cols-2">
