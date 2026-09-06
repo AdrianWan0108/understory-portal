@@ -1,6 +1,7 @@
 "use client";
 
 import { Fraunces } from "next/font/google";
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   extractGoogleDriveFileId,
@@ -11,6 +12,8 @@ import {
   canScheduleSocialPost,
   deriveClientApprovalState,
   deriveInternalApprovalState,
+  deriveSocialWorkflowPhase,
+  estimateSocialProductionDeadline,
   legacyStatusForSocialDimensions,
   normalizeReelDetails,
   normalizeSocialFilmingDetails,
@@ -37,6 +40,7 @@ import {
   type SocialPublishingStatus,
   type SocialSchedulingMode,
   type SocialPostStatus,
+  type SocialWorkflowPhase,
   type StoryInteraction,
 } from "@/lib/social-content";
 import {
@@ -169,6 +173,20 @@ type TaskRow = Omit<
   task_slides: Slide[] | null;
 };
 
+type TeamDirectoryMember = {
+  team_username: string;
+  full_name: string;
+  avatar_url: string | null;
+};
+
+const FALLBACK_TEAM_DIRECTORY: TeamDirectoryMember[] = Object.values(
+  TEAM_IDENTITIES,
+).map((profile) => ({
+  team_username: profile.username,
+  full_name: profile.name,
+  avatar_url: null,
+}));
+
 type Props = {
   mode: "internal" | "client";
   clientSlug?: "mvp" | "boardwalk" | null;
@@ -201,13 +219,7 @@ type PostContentDraft = {
   assigneeUsernames: string[];
 };
 
-type ModalPhase =
-  | "planning"
-  | "creative"
-  | "production"
-  | "approval"
-  | "scheduling"
-  | "publishing";
+type ModalPhase = SocialWorkflowPhase;
 
 const MODAL_PHASES: Array<{ value: ModalPhase; label: string }> = [
   { value: "planning", label: "1. Planning" },
@@ -217,47 +229,6 @@ const MODAL_PHASES: Array<{ value: ModalPhase; label: string }> = [
   { value: "scheduling", label: "5. Scheduling" },
   { value: "publishing", label: "6. Publishing" },
 ];
-
-function workflowPhaseForPost(
-  post: ApprovalPost,
-  clientReviewerKeys: string[],
-): ModalPhase {
-  if (
-    Boolean(post.live_post_url?.trim()) ||
-    post.publishing_status === "scheduled" ||
-    post.publishing_status === "posted"
-  ) {
-    return "publishing";
-  }
-
-  if (
-    deriveClientApprovalState(
-      post.client_approvals,
-      clientReviewerKeys,
-      post.sent_to_client_at,
-    ) === "approved"
-  ) {
-    return "scheduling";
-  }
-
-  if (post.production_status === "changes_required") return "production";
-
-  if (
-    post.sent_to_client_at ||
-    post.internal_review_submitted_at ||
-    post.production_status === "ready_for_review" ||
-    post.production_status === "complete"
-  ) {
-    return "approval";
-  }
-
-  if (post.requires_filming && !post.filming_details.filmed) {
-    return "production";
-  }
-
-  if (post.production_status === "in_progress") return "creative";
-  return "planning";
-}
 
 const reviewStyles: Record<
   ReviewStatus,
@@ -444,6 +415,160 @@ function assigneeDisplayNames(post: ApprovalPost): string[] {
     );
     return profile?.name ?? username;
   });
+}
+
+function assignedTeamMembers(
+  post: ApprovalPost,
+  directory: TeamDirectoryMember[],
+): TeamDirectoryMember[] {
+  const identifiers =
+    post.assignee_usernames.length > 0
+      ? post.assignee_usernames
+      : post.assigned_to
+        ? [post.assigned_to]
+        : [];
+
+  return identifiers.map((identifier) => {
+    const normalized = identifier.trim().toLocaleLowerCase();
+    const directoryMember = directory.find(
+      (member) =>
+        member.team_username.toLocaleLowerCase() === normalized ||
+        member.full_name.trim().toLocaleLowerCase() === normalized,
+    );
+    if (directoryMember) return directoryMember;
+
+    const identity = Object.values(TEAM_IDENTITIES).find(
+      (profile) =>
+        profile.username.toLocaleLowerCase() === normalized ||
+        profile.name.toLocaleLowerCase() === normalized,
+    );
+    return {
+      team_username: identity?.username ?? identifier,
+      full_name: identity?.name ?? identifier,
+      avatar_url: null,
+    };
+  });
+}
+
+function TeamAvatar({
+  member,
+  size = "card",
+}: {
+  member: TeamDirectoryMember;
+  size?: "card" | "detail";
+}) {
+  const pixelSize = size === "detail" ? 24 : 18;
+  const sizeClass = size === "detail" ? "size-6" : "size-[18px]";
+  if (member.avatar_url) {
+    return (
+      <Image
+        src={member.avatar_url}
+        alt=""
+        width={pixelSize}
+        height={pixelSize}
+        className={`${sizeClass} shrink-0 rounded-full object-cover ring-1 ring-[var(--background)]`}
+      />
+    );
+  }
+
+  return (
+    <span
+      aria-hidden="true"
+      className={`flex ${sizeClass} shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-[8px] font-bold text-[var(--primary-foreground)] ring-1 ring-[var(--background)]`}
+    >
+      {member.full_name.trim().charAt(0).toUpperCase() || "?"}
+    </span>
+  );
+}
+
+function AssigneeAvatars({
+  members,
+  size = "card",
+}: {
+  members: TeamDirectoryMember[];
+  size?: "card" | "detail";
+}) {
+  return (
+    <span
+      className="flex shrink-0 -space-x-1"
+      title={members.map((member) => member.full_name).join(", ")}
+    >
+      {members.slice(0, 3).map((member) => (
+        <TeamAvatar
+          key={member.team_username}
+          member={member}
+          size={size}
+        />
+      ))}
+      {members.length > 3 && (
+        <span
+          className={`flex items-center justify-center rounded-full bg-[var(--muted)] font-bold ring-1 ring-[var(--background)] ${
+            size === "detail" ? "size-6 text-[8px]" : "size-[18px] text-[7px]"
+          }`}
+        >
+          +{members.length - 3}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function WorkflowStatusIcon({
+  status,
+  className = "size-3",
+}: {
+  status: SocialProductionStatus | "reviewing";
+  className?: string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`${className} shrink-0`}
+      aria-hidden="true"
+    >
+      {status === "not_started" && (
+        <>
+          <circle cx="8" cy="8" r="5.5" />
+          <path d="M8 4.8V8l2.2 1.4" />
+        </>
+      )}
+      {status === "in_progress" && (
+        <>
+          <circle cx="8" cy="8" r="5.5" />
+          <path d="m6.8 5.6 3.4 2.4-3.4 2.4Z" />
+        </>
+      )}
+      {status === "ready_for_review" && (
+        <>
+          <path d="M4 2.5h5l3 3v8H4z" />
+          <path d="M9 2.5v3h3M6 9l1.3 1.3L10.5 7" />
+        </>
+      )}
+      {status === "reviewing" && (
+        <>
+          <path d="M1.8 8s2.2-3.5 6.2-3.5S14.2 8 14.2 8 12 11.5 8 11.5 1.8 8 1.8 8Z" />
+          <circle cx="8" cy="8" r="1.5" />
+        </>
+      )}
+      {status === "changes_required" && (
+        <>
+          <path d="M8 2.2 14 13H2Z" />
+          <path d="M8 6v3.2M8 11.4h.01" />
+        </>
+      )}
+      {status === "complete" && (
+        <>
+          <circle cx="8" cy="8" r="5.5" />
+          <path d="m5.2 8 1.8 1.8 3.8-4" />
+        </>
+      )}
+    </svg>
+  );
 }
 
 function hasClientChangesRequested(post: ApprovalPost) {
@@ -697,6 +822,8 @@ export function SocialApprovalCalendar({
     null,
   );
   const [scheduleDraft, setScheduleDraft] = useState("");
+  const [isProductionDeadlineAutomatic, setIsProductionDeadlineAutomatic] =
+    useState(true);
   const [commentDraft, setCommentDraft] = useState("");
   const [isRequestingChanges, setIsRequestingChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -709,7 +836,38 @@ export function SocialApprovalCalendar({
   const [draggingPostId, setDraggingPostId] = useState<string | null>(null);
   const [dragOverDateKey, setDragOverDateKey] = useState<string | null>(null);
   const [syncRevision, setSyncRevision] = useState(0);
+  const [teamDirectory, setTeamDirectory] = useState<TeamDirectoryMember[]>(
+    FALLBACK_TEAM_DIRECTORY,
+  );
   const storyStripRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadTeamDirectory() {
+      const { data, error: directoryError } = await supabase
+        .from("team_profile_directory")
+        .select("team_username, full_name, avatar_url")
+        .order("full_name", { ascending: true });
+
+      if (!isActive || directoryError || !data?.length) return;
+      const syncedMembers = data as TeamDirectoryMember[];
+      const syncedUsernames = new Set(
+        syncedMembers.map((member) => member.team_username),
+      );
+      setTeamDirectory([
+        ...syncedMembers,
+        ...FALLBACK_TEAM_DIRECTORY.filter(
+          (member) => !syncedUsernames.has(member.team_username),
+        ),
+      ]);
+    }
+
+    void loadTeamDirectory();
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!resolvedClientId) return;
@@ -924,6 +1082,9 @@ export function SocialApprovalCalendar({
 
   const selectedPost =
     posts.find((post) => post.id === selectedId) ?? null;
+  const selectedAssignees = selectedPost
+    ? assignedTeamMembers(selectedPost, teamDirectory)
+    : [];
   const selectedApprovalHistory =
     selectedPost?.approval_history.filter(
       (entry) => mode === "internal" || entry.stage === "client",
@@ -933,11 +1094,42 @@ export function SocialApprovalCalendar({
     [resolvedClientSlug],
   );
   const currentWorkflowPhase = selectedPost
-    ? workflowPhaseForPost(selectedPost, clientReviewerKeys)
+    ? deriveSocialWorkflowPhase(selectedPost, clientReviewerKeys)
     : "planning";
   const currentWorkflowPhaseOption = MODAL_PHASES.find(
     (phase) => phase.value === currentWorkflowPhase,
   );
+  const productionDeadlineEstimate = useMemo(() => {
+    if (!selectedPost || !contentDraft) return null;
+    return estimateSocialProductionDeadline({
+      scheduledAt: scheduleDraft || null,
+      format: contentDraft.format,
+      purpose: contentDraft.purpose,
+      targetAudience: contentDraft.targetAudience,
+      cta: contentDraft.cta,
+      brief: contentDraft.brief,
+      visualNote: contentDraft.visualNote,
+      postCaption: captionDraft,
+      reelDetails: contentDraft.reelDetails,
+      requiresFilming: contentDraft.requiresFilming,
+      filmingDetails: contentDraft.filmingDetails,
+      slides: selectedPost.task_slides.map((slide) => ({
+        onScreenText: slideTextDrafts[slide.id] ?? slide.on_screen_text,
+        visualNote: slideVisualDrafts[slide.id] ?? slide.visual_note,
+      })),
+    });
+  }, [
+    captionDraft,
+    contentDraft,
+    scheduleDraft,
+    selectedPost,
+    slideTextDrafts,
+    slideVisualDrafts,
+  ]);
+
+  const productionDeadlineValue = isProductionDeadlineAutomatic
+    ? (productionDeadlineEstimate?.date ?? "")
+    : (contentDraft?.dueDate ?? "");
   const collectionPosts = posts.filter((post) =>
     collectionView === "archive"
       ? post.publishing_status === "posted"
@@ -1003,8 +1195,26 @@ export function SocialApprovalCalendar({
   }, [importDraft]);
 
   function openPost(post: ApprovalPost, reviewerKeys: string[]) {
+    const deadlineEstimate = estimateSocialProductionDeadline({
+      scheduledAt: post.scheduled_at,
+      format: post.format,
+      purpose: post.purpose,
+      targetAudience: post.target_audience,
+      cta: post.cta,
+      brief: post.brief,
+      visualNote: post.visual_note,
+      postCaption: post.post_caption,
+      reelDetails: post.reel_details,
+      requiresFilming: post.requires_filming,
+      filmingDetails: post.filming_details,
+      slides: post.task_slides.map((slide) => ({
+        onScreenText: slide.on_screen_text,
+        visualNote: slide.visual_note,
+      })),
+    });
+    const scheduledDateKey = toDateKey(post.scheduled_at);
     setSelectedId(post.id);
-    setActiveModalPhase(workflowPhaseForPost(post, reviewerKeys));
+    setActiveModalPhase(deriveSocialWorkflowPhase(post, reviewerKeys));
     setCaptionDraft(post.post_caption);
     setSlideCaptionDrafts(
       Object.fromEntries(
@@ -1050,6 +1260,11 @@ export function SocialApprovalCalendar({
       schedulingMode: post.scheduling_mode,
       assigneeUsernames: post.assignee_usernames,
     });
+    setIsProductionDeadlineAutomatic(
+      !post.due_date ||
+        post.due_date === deadlineEstimate.date ||
+        post.due_date === scheduledDateKey,
+    );
     setScheduleDraft(toDateTimeInput(post.scheduled_at));
     setSlideReferenceDraft("");
     setCommentDraft("");
@@ -1383,7 +1598,7 @@ export function SocialApprovalCalendar({
         content_pillar: contentDraft.contentPillar.trim() || null,
         target_audience: contentDraft.targetAudience.trim() || null,
         cta: contentDraft.cta.trim() || null,
-        due_date: contentDraft.dueDate || null,
+        due_date: productionDeadlineValue || null,
         brief: contentDraft.brief.trim(),
         visual_note: contentDraft.visualNote.trim() || null,
         story_interaction:
@@ -1426,7 +1641,7 @@ export function SocialApprovalCalendar({
       content_pillar: contentDraft.contentPillar.trim() || null,
       target_audience: contentDraft.targetAudience.trim() || null,
       cta: contentDraft.cta.trim() || null,
-      due_date: contentDraft.dueDate || null,
+      due_date: productionDeadlineValue || null,
       brief: contentDraft.brief.trim(),
       visual_note: contentDraft.visualNote.trim() || null,
       story_interaction:
@@ -2783,6 +2998,10 @@ export function SocialApprovalCalendar({
                       )}
                       <div className="mt-2 space-y-2">
                         {dayPosts.map((post) => {
+                          const assignees = assignedTeamMembers(
+                            post,
+                            teamDirectory,
+                          );
                           const internalState = deriveInternalApprovalState(
                             post.internal_approvals,
                             INTERNAL_REVIEWER_KEYS,
@@ -2797,16 +3016,30 @@ export function SocialApprovalCalendar({
                             clientState === "changes_requested"
                               ? "Client changes requested"
                               : clientState === "pending"
-                                ? "Client pending"
+                                ? "Client reviewing"
                                 : clientState === "approved"
                                   ? "Client approved"
                                   : internalState === "pending"
-                                    ? "Internal review"
+                                    ? "Reviewing"
                                     : internalState === "changes_requested"
                                       ? "Internal changes requested"
                                       : internalState === "approved"
                                         ? "Internal approved"
                                         : null;
+                          const approvalIconStatus:
+                            | SocialProductionStatus
+                            | "reviewing"
+                            | null =
+                            clientState === "changes_requested" ||
+                            internalState === "changes_requested"
+                              ? "changes_required"
+                              : clientState === "pending" ||
+                                  internalState === "pending"
+                                ? "reviewing"
+                                : clientState === "approved" ||
+                                    internalState === "approved"
+                                  ? "complete"
+                                  : null;
                           const approvalPillClass =
                             clientState === "changes_requested"
                               ? "border border-[#D99A8A] bg-[#FBE9E4] text-[#8B3E32]"
@@ -2877,8 +3110,22 @@ export function SocialApprovalCalendar({
                                 <span className="block truncate text-[10px] font-semibold">
                                   {post.title}
                                 </span>
-                                <span className="mt-1 block text-[9px] text-[var(--foreground)]/45">
-                                  {formatLabel(post.format)} · {assigneeDisplayNames(post)[0] ?? "Unassigned"}
+                                <span className="mt-1 flex min-w-0 items-center gap-1 text-[9px] text-[var(--foreground)]/45">
+                                  <span className="shrink-0">
+                                    {formatLabel(post.format)} ·
+                                  </span>
+                                  {assignees.length > 0 ? (
+                                    <>
+                                      <AssigneeAvatars members={assignees} />
+                                      <span className="truncate">
+                                        {assignees
+                                          .map((member) => member.full_name)
+                                          .join(", ")}
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <span>Unassigned</span>
+                                  )}
                                 </span>
                                 <span className="mt-1 block text-[9px] text-[var(--foreground)]/45">
                                   {new Intl.DateTimeFormat("en-CA", {
@@ -2886,20 +3133,38 @@ export function SocialApprovalCalendar({
                                     minute: "2-digit",
                                   }).format(new Date(collectionDate(post)!))}
                                 </span>
-                                <span className="mt-2 block text-[9px] font-semibold text-[var(--primary)]">
-                                  {SOCIAL_PRODUCTION_STATUS_LABELS[post.production_status]} ·{" "}
-                                  {post.publishing_status === "scheduled"
-                                    ? post.scheduling_mode === "manual"
-                                      ? "Manual reminder"
-                                      : "Automatic"
-                                    : SOCIAL_PUBLISHING_STATUS_LABELS[
-                                        post.publishing_status
-                                      ]}
+                                <span className="mt-2 flex min-w-0 items-center gap-1 text-[9px] font-semibold text-[var(--primary)]">
+                                  <WorkflowStatusIcon
+                                    status={post.production_status}
+                                  />
+                                  <span className="shrink-0">
+                                    {
+                                      SOCIAL_PRODUCTION_STATUS_LABELS[
+                                        post.production_status
+                                      ]
+                                    }
+                                  </span>
+                                  <span aria-hidden="true">·</span>
+                                  <span className="truncate">
+                                    {post.publishing_status === "scheduled"
+                                      ? post.scheduling_mode === "manual"
+                                        ? "Manual"
+                                        : "Automatic"
+                                      : SOCIAL_PUBLISHING_STATUS_LABELS[
+                                          post.publishing_status
+                                        ]}
+                                  </span>
                                 </span>
                                 {approvalLabel && (
                                   <span
-                                    className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[8px] font-semibold ${approvalPillClass}`}
+                                    className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[8px] font-semibold ${approvalPillClass}`}
                                   >
+                                    {approvalIconStatus && (
+                                      <WorkflowStatusIcon
+                                        status={approvalIconStatus}
+                                        className="size-2.5"
+                                      />
+                                    )}
                                     {approvalLabel}
                                   </span>
                                 )}
@@ -2927,32 +3192,57 @@ export function SocialApprovalCalendar({
               set an exact date and time.
             </p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {unscheduledPosts.map((post) => (
-                <button
-                  key={post.id}
-                  type="button"
-                  draggable
-                  onClick={() => openPost(post, clientReviewerKeys)}
-                  onDragStart={(event) => {
-                    event.dataTransfer.setData("text/plain", post.id);
-                    event.dataTransfer.effectAllowed = "move";
-                    setDraggingPostId(post.id);
-                  }}
-                  onDragEnd={() => {
-                    setDraggingPostId(null);
-                    setDragOverDateKey(null);
-                  }}
-                  className={`cursor-grab rounded-2xl border border-dashed border-[var(--border)] bg-[var(--card)] p-4 text-left transition hover:border-[var(--primary)] active:cursor-grabbing ${
-                    draggingPostId === post.id ? "opacity-40" : ""
-                  }`}
-                >
-                  <span className="text-sm font-semibold">{post.title}</span>
-                  <span className="mt-1 block text-xs text-[var(--foreground)]/45">
-                    Submitted{" "}
-                    {formatDate(post.internal_review_submitted_at, true)}
-                  </span>
-                </button>
-              ))}
+              {unscheduledPosts.map((post) => {
+                const assignees = assignedTeamMembers(post, teamDirectory);
+                return (
+                  <button
+                    key={post.id}
+                    type="button"
+                    draggable
+                    onClick={() => openPost(post, clientReviewerKeys)}
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData("text/plain", post.id);
+                      event.dataTransfer.effectAllowed = "move";
+                      setDraggingPostId(post.id);
+                    }}
+                    onDragEnd={() => {
+                      setDraggingPostId(null);
+                      setDragOverDateKey(null);
+                    }}
+                    className={`cursor-grab rounded-2xl border border-dashed border-[var(--border)] bg-[var(--card)] p-4 text-left transition hover:border-[var(--primary)] active:cursor-grabbing ${
+                      draggingPostId === post.id ? "opacity-40" : ""
+                    }`}
+                  >
+                    <span className="text-sm font-semibold">{post.title}</span>
+                    <span className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-[var(--foreground)]/50">
+                      {assignees.length > 0 ? (
+                        <>
+                          <AssigneeAvatars members={assignees} size="detail" />
+                          <span className="truncate">
+                            {assignees
+                              .map((member) => member.full_name)
+                              .join(", ")}
+                          </span>
+                        </>
+                      ) : (
+                        <span>Unassigned</span>
+                      )}
+                    </span>
+                    <span className="mt-2 flex items-center gap-1 text-xs font-semibold text-[var(--primary)]">
+                      <WorkflowStatusIcon status={post.production_status} />
+                      {
+                        SOCIAL_PRODUCTION_STATUS_LABELS[
+                          post.production_status
+                        ]
+                      }
+                    </span>
+                    <span className="mt-1 block text-xs text-[var(--foreground)]/45">
+                      Submitted{" "}
+                      {formatDate(post.internal_review_submitted_at, true)}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </section>
         )}
@@ -3325,12 +3615,20 @@ export function SocialApprovalCalendar({
               >
                 {selectedPost.title}
               </h2>
-              {mode === "internal" &&
-                assigneeDisplayNames(selectedPost).length > 0 && (
-                  <p className="mt-1 text-xs text-[var(--foreground)]/50">
-                    Assigned to {assigneeDisplayNames(selectedPost).join(", ")}
-                  </p>
-                )}
+              {mode === "internal" && selectedAssignees.length > 0 && (
+                <div className="mt-2 flex items-center gap-2 text-xs text-[var(--foreground)]/50">
+                  <AssigneeAvatars
+                    members={selectedAssignees}
+                    size="detail"
+                  />
+                  <span>
+                    Assigned to{" "}
+                    {selectedAssignees
+                      .map((member) => member.full_name)
+                      .join(", ")}
+                  </span>
+                </div>
+              )}
 
               {mode === "internal" ? (
                 <div className="mt-6 grid gap-4">
@@ -3440,20 +3738,6 @@ export function SocialApprovalCalendar({
                                 setContentDraft({
                                   ...contentDraft,
                                   cta: event.target.value,
-                                })
-                              }
-                              className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
-                            />
-                          </label>
-                          <label className="text-xs font-semibold">
-                            Internal production deadline
-                            <input
-                              type="date"
-                              value={contentDraft.dueDate}
-                              onChange={(event) =>
-                                setContentDraft({
-                                  ...contentDraft,
-                                  dueDate: event.target.value,
                                 })
                               }
                               className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
@@ -4122,6 +4406,68 @@ export function SocialApprovalCalendar({
                             ))}
                           </select>
                         </label>
+                        <div className="rounded-xl border border-[var(--border)] bg-[var(--muted)]/45 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <label
+                              htmlFor={`production-deadline-${selectedPost.id}`}
+                              className="text-xs font-semibold"
+                            >
+                              Assignee production deadline
+                            </label>
+                            {isProductionDeadlineAutomatic &&
+                              productionDeadlineEstimate?.date && (
+                                <span className="rounded-full bg-[#E8F4F7] px-2 py-1 text-[10px] font-semibold text-[#2F6470]">
+                                  Auto-estimated
+                                </span>
+                              )}
+                          </div>
+                          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                            <input
+                              id={`production-deadline-${selectedPost.id}`}
+                              type="date"
+                              value={productionDeadlineValue}
+                              onChange={(event) => {
+                                setIsProductionDeadlineAutomatic(false);
+                                setContentDraft({
+                                  ...contentDraft,
+                                  dueDate: event.target.value,
+                                });
+                              }}
+                              className="h-11 min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                            />
+                            <button
+                              type="button"
+                              disabled={!productionDeadlineEstimate?.date}
+                              onClick={() => {
+                                if (!productionDeadlineEstimate?.date) return;
+                                setIsProductionDeadlineAutomatic(true);
+                              }}
+                              className="h-11 rounded-xl border border-[var(--primary)] px-3 text-xs font-semibold text-[var(--primary)] disabled:opacity-40"
+                            >
+                              Recalculate
+                            </button>
+                          </div>
+                          {productionDeadlineEstimate?.date ? (
+                            <div className="mt-2 text-[11px] leading-5 text-[var(--foreground)]/55">
+                              <p>
+                                Suggested {productionDeadlineEstimate.date} ·{" "}
+                                {productionDeadlineEstimate.leadTimeBusinessDays}{" "}
+                                business days before publishing ·{" "}
+                                {productionDeadlineEstimate.complexity} complexity
+                              </p>
+                              <p>
+                                Content readiness:{" "}
+                                {productionDeadlineEstimate.contentReadinessPercent}%
+                                . {productionDeadlineEstimate.reasons.join(" · ")}
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="mt-2 text-[11px] leading-5 text-[var(--foreground)]/55">
+                              Add the planned publishing date in Scheduling to
+                              calculate this deadline automatically.
+                            </p>
+                          )}
+                        </div>
                         <label className="text-xs font-semibold">
                           Creative Google Drive link
                           <input

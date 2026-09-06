@@ -4,6 +4,9 @@ import {
   canScheduleSocialPost,
   deriveClientApprovalState,
   deriveInternalApprovalState,
+  deriveSocialWorkflowPhase,
+  estimateSocialProductionDeadline,
+  normalizeSocialFilmingDetails,
   normalizeSocialPostStatus,
   normalizeSocialProductionStatus,
   normalizeSocialPublishingStatus,
@@ -72,6 +75,96 @@ test("production transitions return changes to production and complete internal 
   assert.equal(productionStatusAfterTransition("ready_for_review", "request_internal_changes"), "changes_required");
   assert.equal(productionStatusAfterTransition("ready_for_review", "complete_internal_review"), "complete");
   assert.equal(productionStatusAfterTransition("complete", "request_client_changes"), "changes_required");
+});
+
+test("current workflow phase includes active production before review", () => {
+  const post = {
+    live_post_url: null,
+    publishing_status: "unscheduled",
+    production_status: "in_progress",
+    client_approvals: {},
+    sent_to_client_at: null,
+    internal_review_submitted_at: null,
+    requires_filming: false,
+    filming_details: { filmed: false },
+  };
+
+  assert.equal(deriveSocialWorkflowPhase(post, []), "production");
+  assert.equal(
+    deriveSocialWorkflowPhase(
+      { ...post, production_status: "ready_for_review" },
+      [],
+    ),
+    "approval",
+  );
+});
+
+test("production deadlines are estimated from publish date and content readiness", () => {
+  const completeImage = estimateSocialProductionDeadline({
+    scheduledAt: "2026-09-14T10:00:00-04:00",
+    format: "image",
+    purpose: "Explain the product benefit clearly to prospective customers.",
+    targetAudience: "Prospective eyewear customers",
+    cta: "Book an appointment",
+    brief: "Create a polished product post with one clear benefit and a concise supporting message.",
+    visualNote: "Use a clean product photograph with branded typography.",
+    postCaption: "A clear product benefit supported by a concise call to action.",
+    reelDetails: normalizeReelDetails(null),
+    requiresFilming: false,
+    filmingDetails: normalizeSocialFilmingDetails(null),
+    slides: [],
+  });
+  const incompleteImage = estimateSocialProductionDeadline({
+    scheduledAt: "2026-09-14T10:00:00-04:00",
+    format: "image",
+    purpose: "",
+    targetAudience: "",
+    cta: "",
+    brief: "",
+    visualNote: "",
+    postCaption: "",
+    reelDetails: normalizeReelDetails(null),
+    requiresFilming: false,
+    filmingDetails: normalizeSocialFilmingDetails(null),
+    slides: [],
+  });
+
+  assert.equal(completeImage.date, "2026-09-09");
+  assert.equal(completeImage.leadTimeBusinessDays, 3);
+  assert.equal(incompleteImage.date, "2026-09-07");
+  assert.equal(incompleteImage.leadTimeBusinessDays, 5);
+  assert.equal(incompleteImage.contentReadinessPercent, 0);
+});
+
+test("complex unfinished video production receives a longer deadline", () => {
+  const estimate = estimateSocialProductionDeadline({
+    scheduledAt: "2026-09-21T10:00:00-04:00",
+    format: "reel",
+    purpose: "Explain the full production process and build customer trust.",
+    targetAudience: "Prospective eyewear customers",
+    cta: "Book an appointment",
+    brief: "Create a detailed behind-the-scenes Reel that follows the product from raw material to final delivery.",
+    visualNote: "Use documentary footage, branded graphics, and polished transitions.",
+    postCaption: "",
+    reelDetails: normalizeReelDetails({
+      hook: "How your glasses are really made",
+      script: "x".repeat(800),
+      shotList: "1\n2\n3\n4\n5\n6\n7\n8",
+      editingFlow: "Animation, motion tracking, subtitles, and sound design",
+      onScreenText: "From raw material to your finished pair",
+    }),
+    requiresFilming: true,
+    filmingDetails: {
+      ...normalizeSocialFilmingDetails(null),
+      needsModels: true,
+      filmed: false,
+    },
+    slides: [],
+  });
+
+  assert.equal(estimate.date, "2026-09-02");
+  assert.equal(estimate.leadTimeBusinessDays, 13);
+  assert.equal(estimate.complexity, "high");
 });
 
 test("client handoff reconciles legacy production status", () => {

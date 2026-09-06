@@ -420,6 +420,66 @@ export function legacyStatusForSocialDimensions(
   return productionStatus === "in_progress" ? "in_progress" : "not_started";
 }
 
+export type SocialWorkflowPhase =
+  | "planning"
+  | "creative"
+  | "production"
+  | "approval"
+  | "scheduling"
+  | "publishing";
+
+export function deriveSocialWorkflowPhase(
+  post: {
+    live_post_url: string | null;
+    publishing_status: SocialPublishingStatus;
+    production_status: SocialProductionStatus;
+    client_approvals: unknown;
+    sent_to_client_at: unknown;
+    internal_review_submitted_at: unknown;
+    requires_filming: boolean;
+    filming_details: { filmed: boolean };
+  },
+  clientReviewerKeys: string[],
+): SocialWorkflowPhase {
+  if (
+    Boolean(post.live_post_url?.trim()) ||
+    post.publishing_status === "scheduled" ||
+    post.publishing_status === "posted"
+  ) {
+    return "publishing";
+  }
+
+  if (
+    deriveClientApprovalState(
+      post.client_approvals,
+      clientReviewerKeys,
+      post.sent_to_client_at,
+    ) === "approved"
+  ) {
+    return "scheduling";
+  }
+
+  if (post.production_status === "changes_required") return "production";
+
+  if (
+    post.sent_to_client_at ||
+    post.internal_review_submitted_at ||
+    post.production_status === "ready_for_review" ||
+    post.production_status === "complete"
+  ) {
+    return "approval";
+  }
+
+  if (
+    post.production_status === "in_progress" ||
+    (post.requires_filming && !post.filming_details.filmed)
+  ) {
+    return "production";
+  }
+
+  return "planning";
+}
+
 export type ReelDetails = {
   hook: string;
   script: string;
@@ -465,6 +525,178 @@ export const EMPTY_SOCIAL_FILMING_DETAILS: SocialFilmingDetails = {
   rawFootageLinks: [],
   filmed: false,
 };
+
+export type SocialProductionDeadlineEstimate = {
+  date: string | null;
+  leadTimeBusinessDays: number;
+  contentReadinessPercent: number;
+  complexity: "standard" | "complex" | "high";
+  reasons: string[];
+};
+
+function deadlineFieldScore(value: string | null | undefined, target: number) {
+  const length = value?.trim().length ?? 0;
+  if (length === 0) return 0;
+  return Math.min(1, length / target);
+}
+
+function subtractBusinessDays(dateKey: string, businessDays: number) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateKey);
+  if (!match) return null;
+  const date = new Date(
+    Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])),
+  );
+  if (Number.isNaN(date.getTime())) return null;
+
+  let remaining = businessDays;
+  while (remaining > 0) {
+    date.setUTCDate(date.getUTCDate() - 1);
+    const weekday = date.getUTCDay();
+    if (weekday !== 0 && weekday !== 6) remaining -= 1;
+  }
+  return date.toISOString().slice(0, 10);
+}
+
+export function estimateSocialProductionDeadline(input: {
+  scheduledAt: string | null;
+  format: string | null;
+  purpose: string | null;
+  targetAudience: string | null;
+  cta: string | null;
+  brief: string;
+  visualNote: string | null;
+  postCaption: string;
+  reelDetails: ReelDetails;
+  requiresFilming: boolean;
+  filmingDetails: SocialFilmingDetails;
+  slides: Array<{ onScreenText: string; visualNote: string }>;
+}): SocialProductionDeadlineEstimate {
+  const format = isSocialPostFormat(input.format) ? input.format : "image";
+  const baseDays: Record<SocialPostFormat, number> = {
+    image: 3,
+    story: 3,
+    carousel: 4,
+    reel: 5,
+  };
+  let leadTimeBusinessDays = baseDays[format];
+  const reasons = [
+    `${SOCIAL_POST_FORMAT_LABELS[format]} base production: ${baseDays[format]} business days`,
+  ];
+
+  const readinessScores = [
+    deadlineFieldScore(input.purpose, 40),
+    deadlineFieldScore(input.targetAudience, 20),
+    deadlineFieldScore(input.cta, 10),
+    deadlineFieldScore(input.brief, 80),
+    deadlineFieldScore(input.visualNote, 40),
+  ];
+
+  if (format === "reel") {
+    readinessScores.push(
+      deadlineFieldScore(input.reelDetails.hook, 15),
+      deadlineFieldScore(input.reelDetails.script, 120),
+      deadlineFieldScore(input.reelDetails.shotList, 40),
+      deadlineFieldScore(input.reelDetails.editingFlow, 40),
+      deadlineFieldScore(input.reelDetails.onScreenText, 20),
+    );
+
+    if (input.requiresFilming && !input.filmingDetails.filmed) {
+      leadTimeBusinessDays += 2;
+      reasons.push("Filming still required: +2 days");
+    }
+    if (input.filmingDetails.needsModels) {
+      leadTimeBusinessDays += 1;
+      reasons.push("Model coordination: +1 day");
+    }
+
+    const shotCount = [
+      input.reelDetails.shotList,
+      input.filmingDetails.shotList,
+    ]
+      .join("\n")
+      .split("\n")
+      .filter((line) => line.trim()).length;
+    if (shotCount >= 8) {
+      leadTimeBusinessDays += 2;
+      reasons.push("Large shot list: +2 days");
+    } else if (shotCount >= 4) {
+      leadTimeBusinessDays += 1;
+      reasons.push("Multi-shot video: +1 day");
+    }
+
+    const editingText = [
+      input.reelDetails.editingFlow,
+      input.reelDetails.onScreenText,
+      input.visualNote ?? "",
+    ].join(" ");
+    const advancedEditingSignals =
+      editingText.match(
+        /animation|motion|mask|tracking|colour|color|sound design|voiceover|subtitles|b-roll|montage|green screen|vfx/gi,
+      )?.length ?? 0;
+    if (advancedEditingSignals >= 3) {
+      leadTimeBusinessDays += 2;
+      reasons.push("Advanced edit requirements: +2 days");
+    } else if (advancedEditingSignals > 0) {
+      leadTimeBusinessDays += 1;
+      reasons.push("Additional edit treatment: +1 day");
+    }
+
+    const scriptLength = Math.max(
+      input.reelDetails.script.trim().length,
+      input.filmingDetails.script.trim().length,
+    );
+    if (scriptLength >= 800) {
+      leadTimeBusinessDays += 1;
+      reasons.push("Long-form script: +1 day");
+    }
+  } else {
+    readinessScores.push(deadlineFieldScore(input.postCaption, 40));
+    for (const slide of input.slides) {
+      readinessScores.push(
+        deadlineFieldScore(slide.onScreenText, 15),
+        deadlineFieldScore(slide.visualNote, 20),
+      );
+    }
+
+    if (format === "carousel" && input.slides.length > 3) {
+      const extraDays = Math.min(3, Math.ceil((input.slides.length - 3) / 3));
+      leadTimeBusinessDays += extraDays;
+      reasons.push(
+        `${input.slides.length}-slide carousel: +${extraDays} ${extraDays === 1 ? "day" : "days"}`,
+      );
+    }
+  }
+
+  const contentReadinessPercent = Math.round(
+    (readinessScores.reduce((total, score) => total + score, 0) /
+      readinessScores.length) *
+      100,
+  );
+  if (contentReadinessPercent < 50) {
+    leadTimeBusinessDays += 2;
+    reasons.push("Content needs substantial development: +2 days");
+  } else if (contentReadinessPercent < 75) {
+    leadTimeBusinessDays += 1;
+    reasons.push("Content needs further development: +1 day");
+  }
+
+  const complexity =
+    leadTimeBusinessDays >= 9
+      ? "high"
+      : leadTimeBusinessDays >= 6
+        ? "complex"
+        : "standard";
+
+  return {
+    date: input.scheduledAt
+      ? subtractBusinessDays(input.scheduledAt, leadTimeBusinessDays)
+      : null,
+    leadTimeBusinessDays,
+    contentReadinessPercent,
+    complexity,
+    reasons,
+  };
+}
 
 export type SocialResearchEntry = {
   id: string;
