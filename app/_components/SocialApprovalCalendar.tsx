@@ -230,6 +230,17 @@ const MODAL_PHASES: Array<{ value: ModalPhase; label: string }> = [
   { value: "publishing", label: "6. Publishing" },
 ];
 
+const SOCIAL_MEDIA_CHANNELS = [
+  "Instagram",
+  "Facebook",
+  "TikTok",
+  "LinkedIn",
+  "YouTube",
+  "Pinterest",
+  "Threads",
+  "X",
+];
+
 const reviewStyles: Record<
   ReviewStatus,
   { label: string; pill: string; dot: string }
@@ -3724,8 +3735,8 @@ export function SocialApprovalCalendar({
                             </select>
                           </label>
                           <label className="text-xs font-semibold">
-                            Platform
-                            <input
+                            Social media channel
+                            <select
                               value={contentDraft.platform}
                               onChange={(event) =>
                                 setContentDraft({
@@ -3733,9 +3744,25 @@ export function SocialApprovalCalendar({
                                   platform: event.target.value,
                                 })
                               }
-                              placeholder="Instagram"
                               className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
-                            />
+                            >
+                              <option value="" disabled>
+                                Choose a channel
+                              </option>
+                              {SOCIAL_MEDIA_CHANNELS.map((channel) => (
+                                <option key={channel} value={channel}>
+                                  {channel}
+                                </option>
+                              ))}
+                              {contentDraft.platform &&
+                                !SOCIAL_MEDIA_CHANNELS.includes(
+                                  contentDraft.platform,
+                                ) && (
+                                  <option value={contentDraft.platform}>
+                                    {contentDraft.platform}
+                                  </option>
+                                )}
+                            </select>
                           </label>
                         </div>
                         <label className="text-xs font-semibold">
