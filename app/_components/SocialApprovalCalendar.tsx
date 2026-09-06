@@ -2933,7 +2933,7 @@ export function SocialApprovalCalendar({
           </div>
 
           <div className="overflow-x-auto rounded-2xl border border-[var(--border)] bg-[var(--card)]">
-            <div className="min-w-[900px]">
+            <div className="min-w-[1120px]">
               <div className="grid grid-cols-7 border-b border-[var(--border)] bg-[var(--muted)]">
                 {WEEKDAYS.map((day) => (
                   <div
@@ -2985,7 +2985,7 @@ export function SocialApprovalCalendar({
                         setDraggingPostId(null);
                         if (post) void reschedulePost(post, dateKey);
                       }}
-                      className={`min-h-32 border-b border-r border-[var(--border)] p-2.5 transition ${
+                      className={`min-h-40 border-b border-r border-[var(--border)] p-2.5 transition ${
                         isDragTarget
                           ? "bg-[var(--primary)]/10 ring-2 ring-inset ring-[var(--primary)]/40"
                           : ""
@@ -3088,7 +3088,7 @@ export function SocialApprovalCalendar({
                               } ${draggingPostId === post.id ? "opacity-40" : ""}`}
                             >
                               <div
-                                className="h-14 w-full bg-[var(--muted)] bg-cover bg-center"
+                                className="h-16 w-full bg-[var(--muted)] bg-cover bg-center"
                                 style={
                                   previewUrl
                                     ? {
@@ -3107,17 +3107,17 @@ export function SocialApprovalCalendar({
                                 <PostedStamp className="absolute right-1.5 top-1.5 z-10" />
                               )}
                               <div className="p-2.5">
-                                <span className="block truncate text-[10px] font-semibold">
+                                <span className="line-clamp-2 min-h-[2.5em] text-[10px] font-semibold leading-[1.25]">
                                   {post.title}
                                 </span>
-                                <span className="mt-1 flex min-w-0 items-center gap-1 text-[9px] text-[var(--foreground)]/45">
+                                <span className="mt-1 flex min-w-0 flex-wrap items-center gap-1 text-[9px] leading-tight text-[var(--foreground)]/45">
                                   <span className="shrink-0">
                                     {formatLabel(post.format)} ·
                                   </span>
                                   {assignees.length > 0 ? (
                                     <>
                                       <AssigneeAvatars members={assignees} />
-                                      <span className="truncate">
+                                      <span>
                                         {assignees
                                           .map((member) => member.full_name)
                                           .join(", ")}
@@ -3133,7 +3133,7 @@ export function SocialApprovalCalendar({
                                     minute: "2-digit",
                                   }).format(new Date(collectionDate(post)!))}
                                 </span>
-                                <span className="mt-2 flex min-w-0 items-center gap-1 text-[9px] font-semibold text-[var(--primary)]">
+                                <span className="mt-2 flex min-w-0 flex-wrap items-center gap-1 text-[9px] font-semibold leading-tight text-[var(--primary)]">
                                   <WorkflowStatusIcon
                                     status={post.production_status}
                                   />
@@ -3145,7 +3145,7 @@ export function SocialApprovalCalendar({
                                     }
                                   </span>
                                   <span aria-hidden="true">·</span>
-                                  <span className="truncate">
+                                  <span>
                                     {post.publishing_status === "scheduled"
                                       ? post.scheduling_mode === "manual"
                                         ? "Manual"
