@@ -4209,27 +4209,6 @@ export function SocialApprovalCalendar({
                                 />
                               </label>
                             ))}
-                            <label className="text-xs font-semibold">
-                              Raw footage links
-                              <textarea
-                                rows={3}
-                                value={contentDraft.filmingDetails.rawFootageLinks.join("\n")}
-                                onChange={(event) =>
-                                  setContentDraft({
-                                    ...contentDraft,
-                                    filmingDetails: {
-                                      ...contentDraft.filmingDetails,
-                                      rawFootageLinks: event.target.value
-                                        .split("\n")
-                                        .map((value) => value.trim())
-                                        .filter(Boolean),
-                                    },
-                                  })
-                                }
-                                placeholder="One link per line"
-                                className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm"
-                              />
-                            </label>
                             <label className="flex items-center gap-2 text-xs font-semibold">
                               <input
                                 type="checkbox"
@@ -4247,6 +4226,47 @@ export function SocialApprovalCalendar({
                               Filmed
                             </label>
                           </div>
+                        )}
+                        {(contentDraft.format === "reel" ||
+                          contentDraft.requiresFilming) && (
+                          <label className="text-xs font-semibold">
+                            Raw footage / source links
+                            <textarea
+                              rows={4}
+                              value={contentDraft.filmingDetails.rawFootageLinks.join(
+                                "\n",
+                              )}
+                              onChange={(event) => {
+                                const rawFootageLinks = event.target.value
+                                  .split("\n")
+                                  .map((value) => value.trim())
+                                  .filter(Boolean);
+                                setContentDraft({
+                                  ...contentDraft,
+                                  filmingDetails: {
+                                    ...contentDraft.filmingDetails,
+                                    rawFootageLinks,
+                                  },
+                                  ...(contentDraft.format === "reel"
+                                    ? {
+                                        reelDetails: {
+                                          ...contentDraft.reelDetails,
+                                          footageLinks: rawFootageLinks,
+                                        },
+                                      }
+                                    : {}),
+                                });
+                              }}
+                              placeholder={
+                                "One Google Drive, Dropbox, Frame.io, or source link per line"
+                              }
+                              className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm"
+                            />
+                            <span className="mt-2 block text-[11px] font-normal leading-5 text-[var(--foreground)]/50">
+                              Add original clips or a folder link here. This is
+                              kept separate from the final Reel deliverable.
+                            </span>
+                          </label>
                         )}
                       </section>
 
