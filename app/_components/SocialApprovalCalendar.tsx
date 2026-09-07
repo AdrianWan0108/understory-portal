@@ -736,6 +736,144 @@ function formatLabel(format: string | null) {
     .join(" ");
 }
 
+function socialChannelKey(channel: string | null | undefined) {
+  const normalized = channel?.trim().toLowerCase() ?? "";
+  if (normalized.includes("instagram")) return "instagram";
+  if (normalized.includes("facebook")) return "facebook";
+  if (normalized.includes("tiktok")) return "tiktok";
+  if (normalized.includes("linkedin")) return "linkedin";
+  if (normalized.includes("youtube")) return "youtube";
+  if (normalized.includes("pinterest")) return "pinterest";
+  if (normalized.includes("threads")) return "threads";
+  if (normalized === "x" || normalized.includes("twitter")) return "x";
+  return "other";
+}
+
+function SocialChannelIcon({
+  channel,
+  className = "size-3.5",
+}: {
+  channel: string | null | undefined;
+  className?: string;
+}) {
+  const key = socialChannelKey(channel);
+
+  if (key === "instagram") {
+    return (
+      <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="none">
+        <rect x="3" y="3" width="18" height="18" rx="5" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="17.4" cy="6.7" r="1.15" fill="currentColor" />
+      </svg>
+    );
+  }
+
+  if (key === "facebook") {
+    return (
+      <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="currentColor">
+        <path d="M13.7 21v-8h2.7l.4-3h-3.1V8.1c0-.87.24-1.46 1.55-1.46H17V4a23 23 0 0 0-2.42-.12c-2.4 0-4.04 1.46-4.04 4.13V10H7.8v3h2.74v8h3.16Z" />
+      </svg>
+    );
+  }
+
+  if (key === "tiktok") {
+    return (
+      <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="currentColor">
+        <path d="M15.2 3c.25 2.15 1.45 3.43 3.8 3.58v3.05a7.3 7.3 0 0 1-3.76-1.08v6.04A5.42 5.42 0 1 1 10.57 9.2v3.1a2.39 2.39 0 1 0 1.66 2.29V3h2.97Z" />
+      </svg>
+    );
+  }
+
+  if (key === "linkedin") {
+    return (
+      <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="currentColor">
+        <rect x="3" y="3" width="18" height="18" rx="2.5" />
+        <circle cx="8" cy="9" r="1.4" fill="white" />
+        <path d="M6.75 11.3h2.5V18h-2.5zm4.05 0h2.4v.92c.72-.8 1.5-1.18 2.58-1.18 1.85 0 2.97 1.2 2.97 3.42V18h-2.5v-3.13c0-1.06-.38-1.72-1.35-1.72-1.02 0-1.6.7-1.6 1.98V18h-2.5z" fill="white" />
+      </svg>
+    );
+  }
+
+  if (key === "youtube") {
+    return (
+      <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="currentColor">
+        <path d="M21 8.2a3 3 0 0 0-2.1-2.13C17.05 5.55 12 5.55 12 5.55s-5.05 0-6.9.52A3 3 0 0 0 3 8.2 31 31 0 0 0 2.5 12 31 31 0 0 0 3 15.8a3 3 0 0 0 2.1 2.13c1.85.52 6.9.52 6.9.52s5.05 0 6.9-.52A3 3 0 0 0 21 15.8a31 31 0 0 0 .5-3.8 31 31 0 0 0-.5-3.8Z" />
+        <path d="m10 15 5-3-5-3v6Z" fill="white" />
+      </svg>
+    );
+  }
+
+  if (key === "pinterest") {
+    return (
+      <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="currentColor">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M10.7 17.8c.55-1.2.72-2.08 1.08-3.6.52.92 1.6 1.4 2.75 1.4 3.6 0 5.47-3.25 5.47-6.12C20 6.23 17.28 4 13.78 4 9.43 4 7 7.1 7 9.7c0 1.2.45 2.68 1.55 3.15.14.07.27 0 .31-.16l.3-1.2a.4.4 0 0 0-.08-.38 2.9 2.9 0 0 1-.57-1.82c0-2.44 1.9-4.66 4.94-4.66 2.7 0 4.58 1.83 4.58 4.16 0 2.76-1.27 4.8-3.14 4.8-1 0-1.74-.78-1.5-1.73.3-1.14.82-2.36.82-3.18 0-.73-.4-1.34-1.23-1.34-.97 0-1.75.97-1.75 2.27 0 .83.29 1.39.29 1.39l-1.13 4.6c-.34 1.37-.2 2.95-.12 3.77.02.24.35.3.43.08Z" fill="white" />
+      </svg>
+    );
+  }
+
+  if (key === "threads") {
+    return (
+      <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+        <path d="M17.8 8.3C16.8 5.5 14.9 4 12 4c-4 0-6.6 3-6.6 8s2.6 8 6.7 8c3.5 0 6.1-2 6.1-5 0-2.5-1.8-4.2-4.8-4.2-2.8 0-4.5 1.2-4.5 3 0 1.5 1.2 2.5 2.9 2.5 2.5 0 4.2-2 4.2-5.1 0-3.4-1.4-5.2-4.2-5.2" />
+      </svg>
+    );
+  }
+
+  if (key === "x") {
+    return (
+      <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+        <path d="M5 4l14 16M19 4 5 20" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+    </svg>
+  );
+}
+
+function SocialChannelBadge({
+  channel,
+  compact = false,
+  className = "",
+}: {
+  channel: string | null | undefined;
+  compact?: boolean;
+  className?: string;
+}) {
+  const label = channel?.trim() || "Instagram";
+  const colorClass = {
+    instagram: "text-[#C13584]",
+    facebook: "text-[#1877F2]",
+    tiktok: "text-[#111111]",
+    linkedin: "text-[#0A66C2]",
+    youtube: "text-[#FF0000]",
+    pinterest: "text-[#E60023]",
+    threads: "text-[#111111]",
+    x: "text-[#111111]",
+    other: "text-[var(--foreground)]/60",
+  }[socialChannelKey(label)];
+
+  return (
+    <span
+      className={`pointer-events-none inline-flex max-w-full items-center rounded-full border border-[var(--border)] bg-[var(--card)]/92 font-semibold text-[var(--foreground)] shadow-sm backdrop-blur ${
+        compact ? "gap-1 px-1.5 py-0.5 text-[8px]" : "gap-1.5 px-2 py-1 text-[10px]"
+      } ${className}`}
+      title={`Social media channel: ${label}`}
+    >
+      <SocialChannelIcon
+        channel={label}
+        className={`${compact ? "size-2.5" : "size-3.5"} shrink-0 ${colorClass}`}
+      />
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}
+
 function approvalStateLabel(state: ReturnType<typeof deriveInternalApprovalState>) {
   const labels = {
     not_submitted: "Not submitted",
@@ -2825,6 +2963,11 @@ export function SocialApprovalCalendar({
                               </p>
                             </div>
                           )}
+                          <SocialChannelBadge
+                            channel={post.platform}
+                            compact
+                            className="absolute left-2 top-2 z-10 max-w-[calc(100%-1rem)]"
+                          />
                           {post.story_interaction.type !== "none" && (
                             <span className="absolute bottom-2 left-2 right-2 truncate rounded-full bg-[var(--card)]/90 px-2 py-1 text-center text-[8px] font-semibold shadow-sm backdrop-blur">
                               {
@@ -2924,6 +3067,11 @@ export function SocialApprovalCalendar({
                           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                         </svg>
                       )}
+                      <SocialChannelBadge
+                        channel={post.platform}
+                        compact
+                        className="absolute bottom-1.5 left-1.5 z-10 max-w-[calc(100%-0.75rem)]"
+                      />
                       {post.posted_at && (
                         <PostedStamp className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 px-3 py-1.5 text-[10px]" />
                       )}
@@ -3165,6 +3313,11 @@ export function SocialApprovalCalendar({
                                   </div>
                                 )}
                               </div>
+                              <SocialChannelBadge
+                                channel={post.platform}
+                                compact
+                                className="absolute left-1.5 top-1.5 z-10 max-w-[calc(100%-0.75rem)]"
+                              />
                               {post.posted_at && (
                                 <PostedStamp className="absolute right-1.5 top-1.5 z-10" />
                               )}
@@ -3275,6 +3428,10 @@ export function SocialApprovalCalendar({
                       draggingPostId === post.id ? "opacity-40" : ""
                     }`}
                   >
+                    <SocialChannelBadge
+                      channel={post.platform}
+                      className="mb-2"
+                    />
                     <span className="text-sm font-semibold">{post.title}</span>
                     <span className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-[var(--foreground)]/50">
                       {assignees.length > 0 ? (
@@ -3484,7 +3641,7 @@ export function SocialApprovalCalendar({
 
             <div className="relative bg-[var(--muted)] p-4 sm:p-6">
               {selectedReelVideoUrls ? (
-                <div className="relative flex aspect-[4/5] items-center justify-center overflow-hidden rounded-2xl bg-black shadow-sm">
+                <div className="relative flex aspect-[9/16] items-center justify-center overflow-hidden rounded-2xl bg-black shadow-sm">
                   <iframe
                     src={selectedReelVideoUrls.previewUrl}
                     title={`${selectedPost.title} Reel video`}
@@ -3637,6 +3794,13 @@ export function SocialApprovalCalendar({
                 </div>
               )}
               <div className="flex flex-wrap items-center gap-2">
+                <SocialChannelBadge
+                  channel={
+                    mode === "internal"
+                      ? contentDraft?.platform || selectedPost.platform
+                      : selectedPost.platform
+                  }
+                />
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--foreground)]/45">
                   {formatLabel(selectedPost.format)} ·{" "}
                   {formatDate(selectedPost.scheduled_at, true)}
