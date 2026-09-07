@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import ApprovalCard, { CategoryIcon } from "@/components/ApprovalCard";
 import { extractGoogleDriveFileId } from "@/lib/google-drive";
+import { isFrameIoUrl } from "@/lib/review-media-links";
 import { sendSlackNotification } from "@/lib/slack-notifications";
 import {
   isSocialPostFormat,
@@ -163,6 +164,7 @@ function approvalStatusFor(
 
 function previewUrl(value: string | null | undefined) {
   if (!value) return undefined;
+  if (isFrameIoUrl(value)) return undefined;
   const driveFileId = extractGoogleDriveFileId(value);
   if (driveFileId) {
     return `https://drive.google.com/thumbnail?id=${encodeURIComponent(
@@ -343,7 +345,9 @@ export default function ApprovalsPage() {
                 (reelDetails.videoUrl || row.creative_drive_link)
                   ? reelDetails.videoUrl || row.creative_drive_link || undefined
                   : undefined,
-              creativeUrl: row.creative_drive_link ?? undefined,
+              creativeUrl:
+                row.creative_drive_link ??
+                (format === "reel" ? reelDetails.videoUrl || undefined : undefined),
               format,
               slides:
                 format === "carousel"

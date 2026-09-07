@@ -5,6 +5,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { socialPostHref } from "@/lib/social-post-links";
 import { useAdmin } from "../_components/AdminContext";
 import {
   AdminButton,
@@ -234,7 +235,10 @@ export default function AdminApprovalsPage() {
                     <Link
                       href={
                         approval.source === "social"
-                          ? `/team-hub/projects/${approval.workspaceId}/calendar?post=${encodeURIComponent(approval.id)}`
+                          ? socialPostHref({
+                              id: approval.id,
+                              title: approval.title,
+                            })
                           : `/team-hub/projects/${approval.workspaceId}`
                       }
                       className="rounded-full bg-[#341F60] px-4 py-2.5 text-xs font-semibold text-white"

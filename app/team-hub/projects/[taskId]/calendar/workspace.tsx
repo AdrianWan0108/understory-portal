@@ -25,7 +25,13 @@ const REQUIRED_INTERNAL_REVIEWERS = INTERNAL_TEAM.filter(
   (reviewer) => reviewer.key === "Understory_Karen",
 );
 
-export function SocialContentCalendarWorkspace({ taskId }: { taskId: string }) {
+export function SocialContentCalendarWorkspace({
+  taskId,
+  initialPostId,
+}: {
+  taskId: string;
+  initialPostId?: string;
+}) {
   const { username, accessLevel, isReady } = useTeamIdentity();
   const currentReviewer =
     isReady && username
@@ -36,6 +42,7 @@ export function SocialContentCalendarWorkspace({ taskId }: { taskId: string }) {
     <SocialApprovalCalendar
       mode="internal"
       workspaceId={taskId}
+      initialPostId={initialPostId}
       currentReviewer={currentReviewer}
       requiredReviewers={REQUIRED_INTERNAL_REVIEWERS}
       canSendToClient={

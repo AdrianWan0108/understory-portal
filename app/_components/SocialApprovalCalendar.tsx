@@ -3,11 +3,13 @@
 import { Fraunces } from "next/font/google";
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { extractGoogleDriveFileId } from "@/lib/google-drive";
 import {
-  extractGoogleDriveFileId,
-  resolveGoogleDriveFileUrls,
-} from "@/lib/google-drive";
+  isFrameIoUrl,
+  resolveReviewMediaLink,
+} from "@/lib/review-media-links";
 import { sendSlackNotification } from "@/lib/slack-notifications";
+import { socialPostHref } from "@/lib/social-post-links";
 import {
   canScheduleSocialPost,
   deriveClientApprovalState,
@@ -190,6 +192,7 @@ type Props = {
   clientSlug?: "mvp" | "boardwalk" | null;
   clientName?: string | null;
   workspaceId?: string;
+  initialPostId?: string;
   currentReviewer: ApprovalReviewer | null;
   requiredReviewers: ApprovalReviewer[];
   canSendToClient?: boolean;
@@ -949,6 +952,7 @@ function approvalStateLabel(state: ReturnType<typeof deriveInternalApprovalState
 
 function visualPreviewUrl(value: string | null | undefined) {
   if (!value) return null;
+  if (isFrameIoUrl(value)) return null;
   const driveFileId = extractGoogleDriveFileId(value);
   if (driveFileId) {
     return `https://drive.google.com/thumbnail?id=${encodeURIComponent(
@@ -990,6 +994,7 @@ export function SocialApprovalCalendar({
   clientSlug,
   clientName,
   workspaceId,
+  initialPostId,
   currentReviewer,
   requiredReviewers,
   canSendToClient = false,
@@ -1275,14 +1280,15 @@ export function SocialApprovalCalendar({
       } else {
         const loaded = ((data ?? []) as unknown as TaskRow[]).map(mapPost);
         setPosts(loaded);
-        const requestedPostId = new URLSearchParams(window.location.search).get(
-          "post",
-        );
+        const requestedPostId =
+          initialPostId ??
+          new URLSearchParams(window.location.search).get("post");
         const requestedPost = loaded.find((post) => post.id === requestedPostId);
         if (requestedPost) {
           openPost(
             requestedPost,
             requiredSocialClientReviewerKeys(nextClientSlug),
+            initialPostId ? false : "replace",
           );
         }
         const firstScheduled = loaded.find((post) => post.scheduled_at);
@@ -1298,7 +1304,11 @@ export function SocialApprovalCalendar({
     return () => {
       isActive = false;
     };
-  }, [clientName, clientSlug, mode, syncRevision, workspaceId]);
+    // openPost initializes the modal from the freshly loaded row. Keeping it
+    // outside the dependency list prevents a render-only function identity
+    // change from reloading the entire calendar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientName, clientSlug, initialPostId, mode, syncRevision, workspaceId]);
 
   const selectedPost =
     posts.find((post) => post.id === selectedId) ?? null;
@@ -1388,18 +1398,26 @@ export function SocialApprovalCalendar({
   const archiveCount = posts.filter(
     (post) => post.publishing_status === "posted",
   ).length;
-  const selectedReelVideoUrls =
+  const selectedReelMedia =
     selectedPost?.format === "reel"
-      ? resolveGoogleDriveFileUrls(
+      ? resolveReviewMediaLink(
           selectedPost.reel_details.videoUrl ||
             selectedPost.creative_drive_link ||
             "",
         )
       : null;
+  const selectedReelVideoUrls = selectedReelMedia?.previewUrl
+    ? {
+        previewUrl: selectedReelMedia.previewUrl,
+        openUrl: selectedReelMedia.openUrl,
+      }
+    : null;
   const selectedSlideItem = selectedPost?.task_slides[selectedSlide];
   const selectedCreativeLink = selectedPost
     ? selectedPost.format === "reel"
-      ? selectedPost.creative_drive_link
+      ? selectedReelMedia?.openUrl ||
+        selectedPost.reel_details.videoUrl ||
+        selectedPost.creative_drive_link
       : (mode === "internal" && selectedSlideItem
           ? slideImageDrafts[selectedSlideItem.id]
           : selectedSlideItem?.image_url) || selectedPost.creative_drive_link
@@ -1423,7 +1441,11 @@ export function SocialApprovalCalendar({
     }
   }, [importDraft]);
 
-  function openPost(post: ApprovalPost, reviewerKeys: string[]) {
+  function openPost(
+    post: ApprovalPost,
+    reviewerKeys: string[],
+    navigation: "push" | "replace" | false = "push",
+  ) {
     const deadlineEstimate = estimateSocialProductionDeadline({
       scheduledAt: post.scheduled_at,
       format: post.format,
@@ -1500,12 +1522,44 @@ export function SocialApprovalCalendar({
     setIsRequestingChanges(false);
     setSelectedSlide(0);
     setFeedback(null);
+    if (mode === "internal" && navigation) {
+      const href = socialPostHref(post);
+      if (`${window.location.pathname}${window.location.search}` !== href) {
+        if (navigation === "replace") {
+          window.history.replaceState({}, "", href);
+        } else {
+          window.history.pushState({}, "", href);
+        }
+      }
+    }
+  }
+
+  function closePost() {
+    setSelectedId(null);
+    if (mode !== "internal") return;
+
+    const url = new URL(window.location.href);
+    const isSocialPostRoute = url.pathname.startsWith(
+      "/team-hub/social-media-calendar/",
+    );
+    if (isSocialPostRoute && workspaceId) {
+      window.history.replaceState(
+        {},
+        "",
+        `/team-hub/projects/${encodeURIComponent(workspaceId)}/calendar`,
+      );
+      return;
+    }
+    if (url.searchParams.has("post")) {
+      url.searchParams.delete("post");
+      window.history.replaceState({}, "", url);
+    }
   }
 
   function showCollection(nextView: "active" | "archive") {
     setCollectionView(nextView);
     setCalendarFilter(nextView === "archive" ? "posted" : "all");
-    setSelectedId(null);
+    closePost();
     const firstDatedPost = posts.find(
       (post) =>
         Boolean(
@@ -1695,9 +1749,18 @@ export function SocialApprovalCalendar({
       : undefined;
     const creativeDriveLink =
       contentDraft.creativeDriveLink.trim() || firstSlideDriveLink || "";
-    if (creativeDriveLink && !isGoogleDriveUrl(creativeDriveLink)) {
+    const acceptsFrameIoCreative = contentDraft.format === "reel";
+    if (
+      creativeDriveLink &&
+      !isGoogleDriveUrl(creativeDriveLink) &&
+      !(acceptsFrameIoCreative && isFrameIoUrl(creativeDriveLink))
+    ) {
       setIsSaving(false);
-      setError("Enter a valid Google Drive link for the creative.");
+      setError(
+        acceptsFrameIoCreative
+          ? "Enter a valid Google Drive or Frame.io link for the Reel."
+          : "Enter a valid Google Drive link for the creative.",
+      );
       return false;
     }
     const scheduledAt = scheduleDraft
@@ -1833,10 +1896,11 @@ export function SocialApprovalCalendar({
       publishingStatus,
       clientState,
     );
+    const nextPostTitle = contentDraft.title.trim() || "Untitled content";
     const { error: saveError } = await supabase
       .from("tasks")
       .update({
-        title: contentDraft.title.trim() || "Untitled content",
+        title: nextPostTitle,
         format: contentDraft.format,
         platform: contentDraft.platform.trim() || null,
         purpose: contentDraft.purpose.trim() || null,
@@ -1879,7 +1943,7 @@ export function SocialApprovalCalendar({
       return false;
     }
     updatePost(post.id, {
-      title: contentDraft.title.trim() || "Untitled content",
+      title: nextPostTitle,
       format: contentDraft.format,
       platform: contentDraft.platform.trim() || null,
       purpose: contentDraft.purpose.trim() || null,
@@ -1924,6 +1988,13 @@ export function SocialApprovalCalendar({
             : slide.slide_caption,
       })),
     });
+    if (mode === "internal") {
+      window.history.replaceState(
+        {},
+        "",
+        socialPostHref({ id: post.id, title: nextPostTitle }),
+      );
+    }
     if (scheduledAt) {
       const date = new Date(scheduledAt);
       setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
@@ -1974,12 +2045,18 @@ export function SocialApprovalCalendar({
       usesSlideDeliverables &&
       slideDeliverableLinks.length > 0 &&
       slideDeliverableLinks.every(Boolean);
-    const postCreativeDriveLink = contentDraft.creativeDriveLink.trim();
-    if (!postCreativeDriveLink && !hasEverySlideDeliverable) {
+    const postCreativeLink =
+      contentDraft.creativeDriveLink.trim() ||
+      (contentDraft.format === "reel"
+        ? contentDraft.reelDetails.videoUrl.trim()
+        : "");
+    if (!postCreativeLink && !hasEverySlideDeliverable) {
       setError(
         usesSlideDeliverables && post.task_slides.length > 1
           ? "Add a Google Drive deliverable link to every slide before submitting for review."
-          : "Add the creative Google Drive link before submitting for review.",
+          : contentDraft.format === "reel"
+            ? "Add a Google Drive or Frame.io Reel link before submitting for review."
+            : "Add the creative Google Drive link before submitting for review.",
       );
       return;
     }
@@ -1991,7 +2068,7 @@ export function SocialApprovalCalendar({
       ...post,
       title: contentDraft.title.trim() || "Untitled content",
       creative_drive_link:
-        postCreativeDriveLink || slideDeliverableLinks.find(Boolean) || null,
+        postCreativeLink || slideDeliverableLinks.find(Boolean) || null,
       assignee_usernames: contentDraft.assigneeUsernames,
     });
   }
@@ -2662,9 +2739,9 @@ export function SocialApprovalCalendar({
       );
       return;
     }
-    const url = new URL(window.location.href);
-    url.searchParams.set("post", data.id);
-    window.location.assign(url.toString());
+    window.location.assign(
+      socialPostHref({ id: data.id, title: "Untitled content" }),
+    );
   }
 
   async function importPosts() {
@@ -2801,15 +2878,10 @@ export function SocialApprovalCalendar({
     const deletedTitle = postToDelete.title;
     const deletedId = postToDelete.id;
     setPosts((current) => current.filter((post) => post.id !== deletedId));
-    setSelectedId(null);
+    closePost();
     setPostToDelete(null);
     setFeedback(`${deletedTitle} deleted.`);
 
-    const url = new URL(window.location.href);
-    if (url.searchParams.get("post") === deletedId) {
-      url.searchParams.delete("post");
-      window.history.replaceState({}, "", url);
-    }
   }
 
   const monthLabel = new Intl.DateTimeFormat("en-CA", {
@@ -3684,7 +3756,7 @@ export function SocialApprovalCalendar({
             type="button"
             aria-label="Close post details"
             className="absolute inset-0 bg-[var(--foreground)]/55 backdrop-blur-sm"
-            onClick={() => setSelectedId(null)}
+            onClick={closePost}
           />
           <section
             role="dialog"
@@ -3695,7 +3767,7 @@ export function SocialApprovalCalendar({
             <button
               type="button"
               aria-label="Close"
-              onClick={() => setSelectedId(null)}
+              onClick={closePost}
               className="absolute right-4 top-4 z-20 flex size-9 items-center justify-center rounded-full bg-[var(--card)] shadow"
             >
               ×
@@ -3733,13 +3805,34 @@ export function SocialApprovalCalendar({
                 >
                   {!selectedVisualPreviewUrl && (
                     <div className="max-w-sm p-8 text-center">
-                      <p className={`${fraunces.className} text-2xl font-medium`}>
-                        {selectedPost.task_slides[selectedSlide]
-                          ?.on_screen_text || selectedPost.title}
-                      </p>
-                      <p className="mt-4 text-xs text-[var(--foreground)]/45">
-                        Final visual pending
-                      </p>
+                      {selectedReelMedia?.provider === "frame-io" ? (
+                        <>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--primary)]">
+                            Frame.io review asset
+                          </p>
+                          <p
+                            className={`${fraunces.className} mt-3 text-2xl font-medium`}
+                          >
+                            {selectedPost.title}
+                          </p>
+                          <p className="mt-4 text-xs leading-5 text-[var(--foreground)]/45">
+                            Open the share link below to watch and review this
+                            Reel in Frame.io.
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p
+                            className={`${fraunces.className} text-2xl font-medium`}
+                          >
+                            {selectedPost.task_slides[selectedSlide]
+                              ?.on_screen_text || selectedPost.title}
+                          </p>
+                          <p className="mt-4 text-xs text-[var(--foreground)]/45">
+                            Final visual pending
+                          </p>
+                        </>
+                      )}
                     </div>
                   )}
                   <span className="absolute left-3 top-3 rounded-full bg-[var(--foreground)]/75 px-2.5 py-1 text-[10px] font-semibold text-white">
@@ -3815,7 +3908,11 @@ export function SocialApprovalCalendar({
                   {selectedPost.format !== "reel" &&
                   selectedPost.task_slides.length > 1
                     ? `Open slide ${selectedSlide + 1} deliverable in Google Drive ↗`
-                    : "Open creative in Google Drive ↗"}
+                    : selectedReelMedia
+                      ? `Open Reel in ${selectedReelMedia.providerLabel} ↗`
+                      : selectedPost.format === "reel"
+                        ? "Open Reel asset ↗"
+                        : "Open creative in Google Drive ↗"}
                 </a>
               )}
             </div>
@@ -3901,6 +3998,28 @@ export function SocialApprovalCalendar({
               >
                 {selectedPost.title}
               </h2>
+              {mode === "internal" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard
+                      .writeText(
+                        new URL(
+                          socialPostHref(selectedPost),
+                          window.location.origin,
+                        ).toString(),
+                      )
+                      .then(() => setFeedback("Post link copied."))
+                      .catch(() =>
+                        setError("Could not copy the post link."),
+                      );
+                  }}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1.5 text-[10px] font-semibold text-[var(--foreground)]/65 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                >
+                  <span aria-hidden="true">↗</span>
+                  Copy post link
+                </button>
+              )}
               {mode === "internal" && selectedAssignees.length > 0 && (
                 <div className="mt-2 flex items-center gap-2 text-xs text-[var(--foreground)]/50">
                   <AssigneeAvatars
@@ -4280,7 +4399,7 @@ export function SocialApprovalCalendar({
                               />
                             </label>
                             <label className="text-xs font-semibold">
-                              Draft / final Reel deliverable link
+                              Draft / final Reel link (Google Drive or Frame.io)
                               <input
                                 type="url"
                                 value={contentDraft.reelDetails.videoUrl}
@@ -4293,6 +4412,7 @@ export function SocialApprovalCalendar({
                                     },
                                   })
                                 }
+                                placeholder="https://f.io/... or https://drive.google.com/..."
                                 className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
                               />
                             </label>
@@ -4857,7 +4977,9 @@ export function SocialApprovalCalendar({
                           </label>
                         ) : (
                           <label className="text-xs font-semibold">
-                            Creative Google Drive link
+                            {contentDraft.format === "reel"
+                              ? "Creative link (Google Drive or Frame.io)"
+                              : "Creative Google Drive link"}
                             <input
                               type="url"
                               value={contentDraft.creativeDriveLink}
@@ -4867,13 +4989,17 @@ export function SocialApprovalCalendar({
                                   creativeDriveLink: event.target.value,
                                 })
                               }
-                              placeholder="https://drive.google.com/..."
+                              placeholder={
+                                contentDraft.format === "reel"
+                                  ? "https://f.io/... or https://drive.google.com/..."
+                                  : "https://drive.google.com/..."
+                              }
                               className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-normal"
                             />
                             <span className="mt-2 block text-[11px] font-normal leading-5 text-[var(--foreground)]/50">
-                              Paste the final creative file or folder link and
-                              make sure “Anyone with the link can view” is
-                              enabled.
+                              {contentDraft.format === "reel"
+                                ? "Paste a shareable Google Drive or Frame.io link for the final Reel."
+                                : "Paste the final creative file or folder link and make sure “Anyone with the link can view” is enabled."}
                             </span>
                           </label>
                         )}

@@ -103,7 +103,7 @@ export function buildManualPostReminderMessage(input: ManualPostReminder) {
     !isCarousel && clean(input.postCaption, 1_500)
       ? `Caption:\n${clean(input.postCaption, 1_500)}`
       : null,
-    slackLink(input.creativeDriveLink, "Open creative in Google Drive"),
+    slackLink(input.creativeDriveLink, "Open creative asset"),
   ];
 
   if (input.storyInteraction && input.storyInteraction.type !== "none") {

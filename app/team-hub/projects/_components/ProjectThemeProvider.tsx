@@ -35,8 +35,10 @@ function taskIdFromPathname(pathname: string) {
 
 export function ProjectThemeProvider({
   children,
+  initialTaskId,
 }: {
   children: React.ReactNode;
+  initialTaskId?: string;
 }) {
   const pathname = usePathname();
   const [client, setClientState] = useState("mvp");
@@ -60,7 +62,7 @@ export function ProjectThemeProvider({
         return;
       }
 
-      const taskId = taskIdFromPathname(pathname);
+      const taskId = initialTaskId ?? taskIdFromPathname(pathname);
       if (taskId) {
         const { data: task } = await supabase
           .from("division_tasks")
@@ -95,7 +97,7 @@ export function ProjectThemeProvider({
     return () => {
       isActive = false;
     };
-  }, [pathname, setClient]);
+  }, [initialTaskId, pathname, setClient]);
 
   const value = useMemo(
     () => ({ client, isReady, setClient }),

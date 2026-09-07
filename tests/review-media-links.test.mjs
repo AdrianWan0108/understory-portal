@@ -1,0 +1,34 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  isFrameIoUrl,
+  resolveReviewMediaLink,
+} from "../lib/review-media-links.ts";
+
+test("accepts Frame.io short and application share links", () => {
+  for (const url of [
+    "https://f.io/_aBcDeF",
+    "https://frame.io/share/abc123",
+    "https://app.frame.io/reviews/abc123",
+    "https://next.frame.io/share/abc123",
+  ]) {
+    assert.equal(isFrameIoUrl(url), true);
+    assert.deepEqual(resolveReviewMediaLink(url), {
+      provider: "frame-io",
+      providerLabel: "Frame.io",
+      openUrl: url,
+      previewUrl: null,
+    });
+  }
+});
+
+test("keeps Google Drive previews and rejects lookalike Frame.io domains", () => {
+  const drive = resolveReviewMediaLink(
+    "https://drive.google.com/file/d/abc123/view",
+  );
+
+  assert.equal(drive?.provider, "google-drive");
+  assert.equal(drive?.previewUrl, "https://drive.google.com/file/d/abc123/preview");
+  assert.equal(isFrameIoUrl("https://frame.io.evil.example/share/abc"), false);
+  assert.equal(resolveReviewMediaLink("https://example.com/video"), null);
+});

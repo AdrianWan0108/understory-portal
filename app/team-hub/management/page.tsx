@@ -241,11 +241,11 @@ export default function TeamHubManagementPage() {
             Owner access
           </p>
           <h2 className="mt-2 text-lg font-semibold text-[#341F60]">
-            Claude assistant usage
+            AI team usage
           </h2>
           <p className="mt-2 text-sm leading-6 text-[#75647F]">
-            Spend across the whole team this month, from the assistant
-            bubble on the Projects tab.
+            Combined ChatGPT, Perplexity, and Claude spend from the AI team
+            on the Projects tab this month.
           </p>
 
           {usageError && (

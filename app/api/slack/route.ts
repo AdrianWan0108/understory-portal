@@ -7,6 +7,7 @@ import {
 import { syncClientReview } from "@/lib/client-review-sync";
 import { sendSlackMessage, type SlackWebhookTarget } from "@/lib/slack";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { absoluteSocialPostUrl } from "@/lib/social-post-links";
 import {
   WORKSPACE_CLIENTS,
   isWorkspaceClientSlug,
@@ -285,6 +286,7 @@ function socialContext(input: {
   scheduledAt?: string | null;
   calendarId?: string | null;
   taskId?: string;
+  title: string;
 }, request: NextRequest) {
   const details = [
     input.assigneeNames?.length
@@ -296,8 +298,11 @@ function socialContext(input: {
           timeStyle: "short",
         }).format(new Date(input.scheduledAt))}`
       : null,
-    input.calendarId && input.taskId
-      ? `Open: ${request.nextUrl.origin}/team-hub/projects/${encodeURIComponent(input.calendarId)}/calendar?post=${encodeURIComponent(input.taskId)}`
+    input.taskId
+      ? `Open: ${absoluteSocialPostUrl(request.nextUrl.origin, {
+          id: input.taskId,
+          title: input.title,
+        })}`
       : null,
   ].filter(Boolean);
   return details.length ? `\n${details.join("\n")}` : "";
@@ -344,10 +349,12 @@ export async function POST(request: NextRequest) {
         {
           ...notification,
           clientName,
-          directLink:
-            notification.calendarId && notification.taskId
-              ? `${request.nextUrl.origin}/team-hub/projects/${encodeURIComponent(notification.calendarId)}/calendar?post=${encodeURIComponent(notification.taskId)}`
-              : undefined,
+          directLink: notification.taskId
+            ? absoluteSocialPostUrl(request.nextUrl.origin, {
+                id: notification.taskId,
+                title: notification.title,
+              })
+            : undefined,
         },
         {
           writeActivity: async (activity) => {

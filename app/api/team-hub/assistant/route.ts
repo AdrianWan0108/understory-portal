@@ -15,16 +15,22 @@ import {
   MAX_TOOL_ITERATIONS,
   MODEL_ID,
   MONTHLY_BUDGET_USD,
-  type AssistantAgent,
   buildClientContext,
   buildProjectContext,
   estimateCostUsd,
   getAnthropicClient,
   getMonthlySpend,
-  isAssistantAgent,
   startOfCurrentMonthIso,
 } from "@/lib/anthropic-assistant";
 import { PROJECT_MANAGER_TOOLS, runProjectManagerTool } from "@/lib/anthropic-tools";
+import {
+  type AssistantAgent,
+  type AssistantSource,
+  getProviderAvailability,
+  isAssistantAgent,
+  runContentSpecialist,
+  runResearcher,
+} from "@/lib/assistant-providers";
 
 export const runtime = "nodejs";
 
@@ -42,6 +48,7 @@ type MessageRow = {
   id: string;
   role: string;
   content: string;
+  sources?: AssistantSource[] | null;
   created_at: string;
 };
 
@@ -145,7 +152,7 @@ export async function GET(request: NextRequest) {
 
     const { data: messages, error: messagesError } = await admin
       .from("assistant_messages")
-      .select("id, role, content, created_at")
+      .select("id, role, content, sources, created_at")
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: true });
 
@@ -156,6 +163,7 @@ export async function GET(request: NextRequest) {
       messages: (messages ?? []) as MessageRow[],
       monthlySpend,
       monthlyBudget: MONTHLY_BUDGET_USD,
+      providers: getProviderAvailability(),
     });
   }
 
@@ -171,6 +179,7 @@ export async function GET(request: NextRequest) {
     conversations: (conversations ?? []) as ConversationRow[],
     monthlySpend,
     monthlyBudget: MONTHLY_BUDGET_USD,
+    providers: getProviderAvailability(),
   });
 }
 
@@ -209,14 +218,6 @@ export async function POST(request: NextRequest) {
 
   const admin = getSupabaseAdmin();
   if (!admin) return jsonError("Assistant storage is not configured.", 500);
-
-  const anthropic = getAnthropicClient();
-  if (!anthropic) {
-    return jsonError(
-      "The assistant is not configured yet (missing ANTHROPIC_API_KEY).",
-      500,
-    );
-  }
 
   let monthlySpend: number;
   try {
@@ -318,6 +319,21 @@ export async function POST(request: NextRequest) {
     }
     const projectContext = buildProjectContext(taskRows ?? []);
     if (projectContext) systemPrompt += `\n\n${projectContext}`;
+
+    if (conversation.agent === "content") {
+      const { data: memoryRows, error: memoryError } = await admin
+        .from("assistant_memories")
+        .select("category, content")
+        .eq("client_id", effectiveClientId)
+        .order("created_at", { ascending: true });
+      if (memoryError) return jsonError(memoryError.message, 500);
+      if (memoryRows?.length) {
+        const memories = memoryRows
+          .map((row) => `- [${row.category}] ${row.content}`)
+          .join("\n");
+        systemPrompt += `\n\nDurable brand memory shared by the Understory team:\n${memories}`;
+      }
+    }
   }
 
   const tools =
@@ -326,50 +342,89 @@ export async function POST(request: NextRequest) {
   let reply = "";
   let inputTokens = 0;
   let outputTokens = 0;
+  let model = MODEL_ID;
+  let provider = "anthropic";
+  let sources: AssistantSource[] = [];
+  let cost = 0;
   try {
-    const conversationMessages: Anthropic.MessageParam[] = [
+    const textMessages: Array<{
+      role: "user" | "assistant";
+      content: string;
+    }> = [
       ...priorMessages,
       { role: "user", content: message },
     ];
 
-    for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-      const response = await anthropic.messages.create({
-        model: MODEL_ID,
-        max_tokens: MAX_REPLY_TOKENS,
-        system: systemPrompt,
-        messages: conversationMessages,
-        ...(tools ? { tools } : {}),
-      });
-      inputTokens += response.usage.input_tokens;
-      outputTokens += response.usage.output_tokens;
-
-      const textReply = response.content
-        .filter((block): block is Anthropic.TextBlock => block.type === "text")
-        .map((block) => block.text)
-        .join("\n")
-        .trim();
-
-      const toolUseBlocks = response.content.filter(
-        (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
+    if (conversation.agent === "content") {
+      const result = await runContentSpecialist(
+        systemPrompt,
+        textMessages,
+        MAX_REPLY_TOKENS,
       );
-
-      if (response.stop_reason !== "tool_use" || toolUseBlocks.length === 0) {
-        reply = textReply;
-        break;
-      }
-
-      conversationMessages.push({ role: "assistant", content: response.content });
-
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
-      for (const toolUse of toolUseBlocks) {
-        const result = await runProjectManagerTool(
-          admin,
-          toolUse.name,
-          (toolUse.input ?? {}) as Record<string, unknown>,
+      ({ reply, inputTokens, outputTokens, model, provider, sources } = result);
+      cost = result.estimatedCostUsd;
+    } else if (conversation.agent === "research") {
+      const result = await runResearcher(
+        systemPrompt,
+        textMessages,
+        MAX_REPLY_TOKENS,
+      );
+      ({ reply, inputTokens, outputTokens, model, provider, sources } = result);
+      cost = result.estimatedCostUsd;
+    } else {
+      const anthropic = getAnthropicClient();
+      if (!anthropic) {
+        return jsonError(
+          "Claude is not configured yet (missing ANTHROPIC_API_KEY).",
+          500,
         );
-        toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: result });
       }
-      conversationMessages.push({ role: "user", content: toolResults });
+      const conversationMessages: Anthropic.MessageParam[] = textMessages;
+
+      for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+        const response = await anthropic.messages.create({
+          model: MODEL_ID,
+          max_tokens: MAX_REPLY_TOKENS,
+          system: systemPrompt,
+          messages: conversationMessages,
+          ...(tools ? { tools } : {}),
+        });
+        inputTokens += response.usage.input_tokens;
+        outputTokens += response.usage.output_tokens;
+
+        const textReply = response.content
+          .filter((block): block is Anthropic.TextBlock => block.type === "text")
+          .map((block) => block.text)
+          .join("\n")
+          .trim();
+
+        const toolUseBlocks = response.content.filter(
+          (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
+        );
+
+        if (response.stop_reason !== "tool_use" || toolUseBlocks.length === 0) {
+          reply = textReply;
+          break;
+        }
+
+        conversationMessages.push({ role: "assistant", content: response.content });
+
+        const toolResults: Anthropic.ToolResultBlockParam[] = [];
+        for (const toolUse of toolUseBlocks) {
+          const result = await runProjectManagerTool(
+            admin,
+            toolUse.name,
+            (toolUse.input ?? {}) as Record<string, unknown>,
+          );
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: result,
+          });
+        }
+        conversationMessages.push({ role: "user", content: toolResults });
+      }
+      cost = estimateCostUsd(inputTokens, outputTokens);
     }
   } catch (caught) {
     return jsonError(
@@ -391,15 +446,20 @@ export async function POST(request: NextRequest) {
 
   const { error: insertReplyError } = await admin
     .from("assistant_messages")
-    .insert({ conversation_id: conversation.id, role: "assistant", content: reply });
+    .insert({
+      conversation_id: conversation.id,
+      role: "assistant",
+      content: reply,
+      sources,
+    });
   if (insertReplyError) return jsonError(insertReplyError.message, 500);
 
-  const cost = estimateCostUsd(inputTokens, outputTokens);
   const { error: usageError } = await admin.from("assistant_usage").insert({
     team_username: caller.username,
     conversation_id: conversation.id,
     agent: conversation.agent,
-    model: MODEL_ID,
+    model,
+    provider,
     input_tokens: inputTokens,
     output_tokens: outputTokens,
     estimated_cost_usd: cost,
@@ -414,6 +474,8 @@ export async function POST(request: NextRequest) {
   return Response.json({
     conversationId: conversation.id,
     reply,
+    sources,
+    provider,
     monthlySpend: monthlySpend + cost,
     monthlyBudget: MONTHLY_BUDGET_USD,
   });

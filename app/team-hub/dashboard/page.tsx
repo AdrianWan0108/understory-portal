@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { socialPostHref } from "@/lib/social-post-links";
 import { teamNameForUsername } from "@/lib/team-assignments";
 import {
   WORKSPACE_CLIENTS,
@@ -182,13 +183,13 @@ function taskHref(
   clientSlug: string,
   workspaceId?: string | null,
   postId?: string,
+  postTitle?: string,
 ) {
   if (!isWorkspaceClientSlug(clientSlug)) return "/team-hub/projects";
   if (source === "website") return `/team/website?client=${clientSlug}`;
+  if (postId && postTitle) return socialPostHref({ id: postId, title: postTitle });
   if (workspaceId) {
-    return `/team-hub/projects/${encodeURIComponent(workspaceId)}/calendar${
-      postId ? `?post=${encodeURIComponent(postId)}` : ""
-    }`;
+    return `/team-hub/projects/${encodeURIComponent(workspaceId)}/calendar`;
   }
   return `/team/${clientSlug}/social-media/august-content-calendar`;
 }
@@ -634,6 +635,7 @@ export default function TeamHubDashboardPage() {
               client.slug,
               task.division_task_id,
               task.id,
+              task.title,
             ),
             createdAt: task.created_at,
             assigneeNames: task.assignee_usernames
@@ -757,6 +759,7 @@ export default function TeamHubDashboardPage() {
               client.slug,
               task.division_task_id,
               task.id,
+              task.title,
             ),
             createdAt: task.created_at,
             assigneeNames: task.assignee_usernames
@@ -829,6 +832,7 @@ export default function TeamHubDashboardPage() {
               client.slug,
               task.division_task_id,
               task.id,
+              task.title,
             ),
             createdAt: task.created_at,
             priority: 0,

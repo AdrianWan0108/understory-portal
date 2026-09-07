@@ -18,7 +18,12 @@ export function isAssistantAgent(value: unknown): value is AssistantAgent {
 // budget. Update PRICING alongside MODEL_ID if the model tier ever changes.
 export const MODEL_ID = "claude-haiku-4-5";
 export const PRICING = { input: 1, output: 5 }; // USD per million tokens
-export const MONTHLY_BUDGET_USD = 20;
+const configuredMonthlyBudget = Number.parseFloat(
+  process.env.ASSISTANT_MONTHLY_BUDGET_USD || "20",
+);
+export const MONTHLY_BUDGET_USD = Number.isFinite(configuredMonthlyBudget)
+  ? configuredMonthlyBudget
+  : 20;
 export const MAX_REPLY_TOKENS = 1024;
 export const MAX_HISTORY_MESSAGES = 20;
 export const MAX_PROJECT_TASKS = 30;
@@ -28,15 +33,17 @@ export const MAX_TOOL_ITERATIONS = 4;
 
 export const AGENT_SYSTEM_PROMPTS: Record<AssistantAgent, string> = {
   content:
-    "You are a marketing copywriter for Understory, a small marketing agency, helping write content for its clients. " +
-    "Write in the client's brand voice when one is given below. Produce tight, ready-to-use output — social captions, " +
-    "ad copy, brief drafts — not lengthy explanations. Ask a clarifying question only if the request is genuinely ambiguous. " +
+    "You are Understory's Content Specialist: a sharp, imaginative creative partner for a boutique marketing agency. " +
+    "Think in distinct creative territories before choosing the strongest route. Write in the client's brand voice and use " +
+    "the durable brand memory below as learned team knowledge. Produce tight, ready-to-use output — social captions, hooks, " +
+    "campaign ideas, ad copy, and brief drafts — not lengthy explanations. When ideating, favour a few genuinely different " +
+    "directions over minor rewrites. Ask a clarifying question only if the request is genuinely ambiguous. " +
     "If a client's current projects/tasks list is given below, treat it as accurate and up to date — use it directly to " +
     "answer status questions instead of saying you lack access.",
   research:
-    "You are a research assistant for Understory, a small marketing agency. Synthesize what you're told about a client " +
-    "below plus your own general knowledge into clear, actionable findings for the team. You do not have live internet " +
-    "access — say so plainly if asked for something time-sensitive you can't know, rather than guessing. " +
+    "You are Understory's Researcher for a boutique marketing agency. Use live search evidence to deliver concise, actionable " +
+    "findings for strategy and content. Prefer current primary sources, distinguish facts from interpretation, include dates " +
+    "when recency matters, and never invent evidence. If sources conflict or do not answer the question, say so plainly. " +
     "If a client's current projects/tasks list is given below, treat it as accurate and up to date — use it directly to " +
     "answer status questions instead of saying you lack access.",
   project_manager:

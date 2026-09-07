@@ -67,7 +67,7 @@ test("a manual Slack reminder includes the owner, creative, assets, and deep lin
   assert.match(message, /<@U123>/);
   assert.match(message, /Show the new class/);
   assert.match(message, /Book your spot/);
-  assert.match(message, /Open creative in Google Drive/);
+  assert.match(message, /Open creative asset/);
   assert.match(message, /Story interaction: poll/);
   assert.match(message, /Which class should we add\? · Reformer · Mat/);
   assert.match(message, /Open final asset/);

@@ -6,7 +6,7 @@ import {
   normalizeFilmingCardData,
   type FilmingCardData,
 } from "@/lib/division-tasks";
-import { resolveGoogleDriveFileUrls } from "@/lib/google-drive";
+import { resolveReviewMediaLink } from "@/lib/review-media-links";
 import { projectInputClass } from "@/lib/project-client-theme";
 import { appendDivisionTaskMention } from "@/lib/project-mentions";
 import { resolveInstagramEmbedUrl } from "@/lib/social-content";
@@ -26,12 +26,12 @@ type SourceReference = {
 };
 
 function FootagePreview({ link }: { link: string }) {
-  const urls = useMemo(() => resolveGoogleDriveFileUrls(link), [link]);
+  const media = useMemo(() => resolveReviewMediaLink(link), [link]);
   const [state, setState] =
     useState<"loading" | "loaded" | "failed">("loading");
 
   useEffect(() => {
-    if (!urls) return;
+    if (!media?.previewUrl) return;
 
     const timeout = window.setTimeout(() => {
       setState((current) =>
@@ -39,22 +39,22 @@ function FootagePreview({ link }: { link: string }) {
       );
     }, 6000);
     return () => window.clearTimeout(timeout);
-  }, [urls]);
+  }, [media]);
 
-  if (!urls || state === "failed") {
+  if (!media?.previewUrl || state === "failed") {
     return (
       <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--muted)] px-6 py-10 text-center">
         <p className="text-sm font-semibold text-[var(--foreground)]">
           This footage can&apos;t be previewed here — open it directly instead.
         </p>
-        {urls?.openUrl && (
+        {media?.openUrl && (
           <a
-            href={urls.openUrl}
+            href={media.openUrl}
             target="_blank"
             rel="noreferrer"
             className="mt-4 inline-flex rounded-full bg-[var(--primary)] px-4 py-2.5 text-xs font-semibold text-[var(--primary-foreground)]"
           >
-            Open in Google Drive ↗
+            Open in {media.providerLabel} ↗
           </a>
         )}
       </div>
@@ -65,17 +65,17 @@ function FootagePreview({ link }: { link: string }) {
     <div>
       <div className="mb-3 flex justify-end">
         <a
-          href={urls.openUrl}
+          href={media.openUrl}
           target="_blank"
           rel="noreferrer"
           className="inline-flex rounded-full bg-[var(--primary)] px-4 py-2.5 text-xs font-semibold text-[var(--primary-foreground)]"
         >
-          Open in Google Drive ↗
+          Open in {media.providerLabel} ↗
         </a>
       </div>
       <div className="relative h-[430px] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)]">
         <iframe
-          src={urls.previewUrl}
+          src={media.previewUrl}
           title="Filming footage preview"
           loading="lazy"
           allow="autoplay"
@@ -187,11 +187,11 @@ export function FilmingDetailsEditor({
     if (isSaving) return;
     if (
       card.footage_drive_link.trim() &&
-      !resolveGoogleDriveFileUrls(card.footage_drive_link)
+      !resolveReviewMediaLink(card.footage_drive_link)
     ) {
       setMessage({
         tone: "error",
-        text: "Paste a valid Google Drive file link for the footage.",
+        text: "Paste a valid Google Drive or Frame.io link for the footage.",
       });
       return;
     }
@@ -488,7 +488,7 @@ export function FilmingDetailsEditor({
         </label>
 
         <label className="text-xs font-semibold text-[var(--foreground)] lg:col-span-2">
-          Footage Drive link
+          Footage link (Google Drive or Frame.io)
           <input
             type="url"
             value={card.footage_drive_link}
@@ -496,10 +496,10 @@ export function FilmingDetailsEditor({
               updateField("footage_drive_link", event.target.value)
             }
             className={`mt-2 ${projectInputClass}`}
-            placeholder="https://drive.google.com/file/d/..."
+            placeholder="https://f.io/... or https://drive.google.com/file/d/..."
           />
           <span className="mt-2 block text-[11px] font-normal leading-5 text-[var(--muted-foreground)]">
-            Make sure the file is shared as “Anyone with the link can view.”
+            Use a share link that the team can open without requesting access.
           </span>
         </label>
 

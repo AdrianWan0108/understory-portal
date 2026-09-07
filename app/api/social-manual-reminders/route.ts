@@ -14,6 +14,7 @@ import {
   normalizeStoryInteraction,
 } from "@/lib/social-content";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { absoluteSocialPostUrl } from "@/lib/social-post-links";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -195,9 +196,8 @@ async function sendDueManualPostReminders(request: NextRequest) {
       .filter((profile): profile is ProfileRow => Boolean(profile));
     const reel = normalizeReelDetails(task.reel_details);
     const storyInteraction = normalizeStoryInteraction(task.story_interaction);
-    const calendarId = task.division_task_id;
-    const directLink = calendarId
-      ? `${request.nextUrl.origin}/team-hub/projects/${encodeURIComponent(calendarId)}/calendar?post=${encodeURIComponent(task.id)}`
+    const directLink = task.division_task_id
+      ? absoluteSocialPostUrl(request.nextUrl.origin, task)
       : `${request.nextUrl.origin}/team-hub/projects`;
     const message = buildManualPostReminderMessage({
       clientName: client?.name ?? "Client",

@@ -4,6 +4,7 @@
 
 import { useRef, useState } from "react";
 import { resolveGoogleDriveFileUrls } from "@/lib/google-drive";
+import { isFrameIoUrl } from "@/lib/review-media-links";
 import type { ApprovalItem } from "@/types/approvals";
 import { categoryConfig, statusConfig } from "@/types/approvals";
 
@@ -136,8 +137,13 @@ function ApprovalVisual({
   const videoRef = useRef<HTMLVideoElement>(null);
   const category = categoryConfig[item.category];
   const isCarousel = item.format === "carousel";
+  const frameIoVideoUrl =
+    item.videoSrc && isFrameIoUrl(item.videoSrc) ? item.videoSrc : null;
   const isPlayableReel =
-    item.format === "reel" && Boolean(item.videoSrc) && !compact;
+    item.format === "reel" &&
+    Boolean(item.videoSrc) &&
+    !frameIoVideoUrl &&
+    !compact;
   const driveVideoUrls = item.videoSrc
     ? resolveGoogleDriveFileUrls(item.videoSrc)
     : null;
@@ -175,7 +181,25 @@ function ApprovalVisual({
           : "relative flex aspect-square w-full items-center justify-center overflow-hidden border-b border-border bg-muted"
       }
     >
-      {isPlayableReel && isVideoPlaying && driveVideoUrls ? (
+      {frameIoVideoUrl && !compact ? (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-[#111318] px-6 text-center text-white">
+          <span className="rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em]">
+            Frame.io review asset
+          </span>
+          <p className="max-w-xs text-xs leading-5 text-white/65">
+            Open the secure share page to watch the Reel and leave
+            frame-accurate feedback.
+          </p>
+          <a
+            href={frameIoVideoUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-full bg-white px-4 py-2.5 text-xs font-semibold text-[#111318]"
+          >
+            Open in Frame.io ↗
+          </a>
+        </div>
+      ) : isPlayableReel && isVideoPlaying && driveVideoUrls ? (
         <iframe
           src={`${driveVideoUrls.previewUrl}?autoplay=1`}
           title={`${item.title} video`}
@@ -369,7 +393,7 @@ export default function ApprovalCard({
               rel="noreferrer"
               className="mt-3 inline-flex w-fit text-[11px] font-semibold text-primary underline underline-offset-4"
             >
-              Open creative in Google Drive ↗
+              Open creative asset ↗
             </a>
           )}
 
