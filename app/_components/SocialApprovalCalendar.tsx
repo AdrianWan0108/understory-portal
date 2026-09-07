@@ -237,6 +237,7 @@ const SOCIAL_MEDIA_CHANNELS = [
   "LinkedIn",
   "YouTube",
   "Pinterest",
+  "小紅書",
   "Threads",
   "X",
 ];
@@ -762,6 +763,14 @@ function socialChannelKey(channel: string | null | undefined) {
   if (normalized.includes("linkedin")) return "linkedin";
   if (normalized.includes("youtube")) return "youtube";
   if (normalized.includes("pinterest")) return "pinterest";
+  if (
+    normalized.includes("小紅書") ||
+    normalized.includes("小红书") ||
+    normalized.includes("xiaohongshu") ||
+    normalized.includes("rednote")
+  ) {
+    return "xiaohongshu";
+  }
   if (normalized.includes("threads")) return "threads";
   if (normalized === "x" || normalized.includes("twitter")) return "x";
   return "other";
@@ -775,6 +784,7 @@ function socialChannelColor(channel: string | null | undefined) {
     linkedin: "text-[#0A66C2]",
     youtube: "text-[#FF0000]",
     pinterest: "text-[#E60023]",
+    xiaohongshu: "text-[#FF2442]",
     threads: "text-[#111111]",
     x: "text-[#111111]",
     other: "text-[var(--foreground)]/60",
@@ -840,6 +850,30 @@ function SocialChannelIcon({
       <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="currentColor">
         <circle cx="12" cy="12" r="9" />
         <path d="M10.7 17.8c.55-1.2.72-2.08 1.08-3.6.52.92 1.6 1.4 2.75 1.4 3.6 0 5.47-3.25 5.47-6.12C20 6.23 17.28 4 13.78 4 9.43 4 7 7.1 7 9.7c0 1.2.45 2.68 1.55 3.15.14.07.27 0 .31-.16l.3-1.2a.4.4 0 0 0-.08-.38 2.9 2.9 0 0 1-.57-1.82c0-2.44 1.9-4.66 4.94-4.66 2.7 0 4.58 1.83 4.58 4.16 0 2.76-1.27 4.8-3.14 4.8-1 0-1.74-.78-1.5-1.73.3-1.14.82-2.36.82-3.18 0-.73-.4-1.34-1.23-1.34-.97 0-1.75.97-1.75 2.27 0 .83.29 1.39.29 1.39l-1.13 4.6c-.34 1.37-.2 2.95-.12 3.77.02.24.35.3.43.08Z" fill="white" />
+      </svg>
+    );
+  }
+
+  if (key === "xiaohongshu") {
+    return (
+      <svg
+        aria-hidden="true"
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+      >
+        <rect x="2" y="4" width="20" height="16" rx="5" fill="currentColor" />
+        <text
+          x="12"
+          y="14.8"
+          textAnchor="middle"
+          fill="white"
+          fontSize="6.5"
+          fontWeight="800"
+          letterSpacing="-.2"
+        >
+          RED
+        </text>
       </svg>
     );
   }
