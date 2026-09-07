@@ -26,6 +26,7 @@ test("imports accept fenced JSON and common ChatGPT field aliases", () => {
     "posts": [{
       "title": "Question Story",
       "type": "Stories",
+      "channels": ["Instagram", "Facebook"],
       "publishAt": "2026-09-30 09:30",
       "interaction": {
         "type": "question box",
@@ -36,6 +37,7 @@ test("imports accept fenced JSON and common ChatGPT field aliases", () => {
   \`\`\``);
 
   assert.equal(result.posts[0].format, "story");
+  assert.equal(result.posts[0].platform, "Instagram, Facebook");
   assert.equal(result.posts[0].storyInteraction.type, "question_box");
   assert.equal(result.posts[0].storyInteraction.prompt, "Ask us anything");
   assert.equal(result.posts[0].slides.length, 1);

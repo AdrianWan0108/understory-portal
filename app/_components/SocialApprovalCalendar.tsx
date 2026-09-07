@@ -241,6 +241,24 @@ const SOCIAL_MEDIA_CHANNELS = [
   "X",
 ];
 
+function socialChannelsFromValue(value: string | null | undefined) {
+  const channels = (value ?? "")
+    .split(/,\s*|\s+\+\s+|\s+&\s+/)
+    .map((channel) => channel.trim())
+    .filter(Boolean);
+  return channels.length > 0 ? Array.from(new Set(channels)) : ["Instagram"];
+}
+
+function toggleSocialChannel(value: string, channel: string) {
+  const selectedChannels = socialChannelsFromValue(value);
+  const isSelected = selectedChannels.includes(channel);
+  if (isSelected && selectedChannels.length === 1) return value;
+  return (isSelected
+    ? selectedChannels.filter((item) => item !== channel)
+    : [...selectedChannels, channel]
+  ).join(", ");
+}
+
 const reviewStyles: Record<
   ReviewStatus,
   { label: string; pill: string; dot: string }
@@ -749,6 +767,20 @@ function socialChannelKey(channel: string | null | undefined) {
   return "other";
 }
 
+function socialChannelColor(channel: string | null | undefined) {
+  return {
+    instagram: "text-[#C13584]",
+    facebook: "text-[#1877F2]",
+    tiktok: "text-[#111111]",
+    linkedin: "text-[#0A66C2]",
+    youtube: "text-[#FF0000]",
+    pinterest: "text-[#E60023]",
+    threads: "text-[#111111]",
+    x: "text-[#111111]",
+    other: "text-[var(--foreground)]/60",
+  }[socialChannelKey(channel)];
+}
+
 function SocialChannelIcon({
   channel,
   className = "size-3.5",
@@ -845,31 +877,29 @@ function SocialChannelBadge({
   compact?: boolean;
   className?: string;
 }) {
-  const label = channel?.trim() || "Instagram";
-  const colorClass = {
-    instagram: "text-[#C13584]",
-    facebook: "text-[#1877F2]",
-    tiktok: "text-[#111111]",
-    linkedin: "text-[#0A66C2]",
-    youtube: "text-[#FF0000]",
-    pinterest: "text-[#E60023]",
-    threads: "text-[#111111]",
-    x: "text-[#111111]",
-    other: "text-[var(--foreground)]/60",
-  }[socialChannelKey(label)];
+  const channels = socialChannelsFromValue(channel);
 
   return (
     <span
-      className={`pointer-events-none inline-flex max-w-full items-center rounded-full border border-[var(--border)] bg-[var(--card)]/92 font-semibold text-[var(--foreground)] shadow-sm backdrop-blur ${
-        compact ? "gap-1 px-1.5 py-0.5 text-[8px]" : "gap-1.5 px-2 py-1 text-[10px]"
-      } ${className}`}
-      title={`Social media channel: ${label}`}
+      className={`pointer-events-none inline-flex max-w-full flex-wrap items-center gap-1 ${className}`}
+      title={`Social media channels: ${channels.join(", ")}`}
     >
-      <SocialChannelIcon
-        channel={label}
-        className={`${compact ? "size-2.5" : "size-3.5"} shrink-0 ${colorClass}`}
-      />
-      <span className="truncate">{label}</span>
+      {channels.map((label, index) => (
+        <span
+          key={`${label}-${index}`}
+          className={`inline-flex max-w-full items-center rounded-full border border-[var(--border)] bg-[var(--card)]/92 font-semibold text-[var(--foreground)] shadow-sm backdrop-blur ${
+            compact
+              ? "gap-1 px-1.5 py-0.5 text-[8px]"
+              : "gap-1.5 px-2 py-1 text-[10px]"
+          }`}
+        >
+          <SocialChannelIcon
+            channel={label}
+            className={`${compact ? "size-2.5" : "size-3.5"} shrink-0 ${socialChannelColor(label)}`}
+          />
+          <span className="truncate">{label}</span>
+        </span>
+      ))}
     </span>
   );
 }
@@ -2879,10 +2909,10 @@ export function SocialApprovalCalendar({
           </nav>
         )}
 
-        <div className="mt-10 grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] xl:items-start">
+        <div className="mt-10 grid gap-6 2xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] 2xl:items-start">
           <section
             aria-labelledby="approval-grid-heading"
-            className="xl:sticky xl:top-6 xl:order-2"
+            className="2xl:sticky 2xl:top-6 2xl:order-2"
           >
             {storyPosts.length > 0 && (
               <section aria-labelledby="story-strip-heading" className="mb-8">
@@ -3084,7 +3114,7 @@ export function SocialApprovalCalendar({
 
           <section
             aria-labelledby="approval-calendar-heading"
-            className="xl:order-1"
+            className="2xl:order-1"
           >
           <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
             <div>
@@ -3143,7 +3173,7 @@ export function SocialApprovalCalendar({
           </div>
 
           <div className="overflow-x-auto rounded-2xl border border-[var(--border)] bg-[var(--card)]">
-            <div className="min-w-[1120px]">
+            <div className="min-w-[840px] 2xl:min-w-0">
               <div className="grid grid-cols-7 border-b border-[var(--border)] bg-[var(--muted)]">
                 {WEEKDAYS.map((day) => (
                   <div
@@ -3898,36 +3928,69 @@ export function SocialApprovalCalendar({
                               <option value="story">Story</option>
                             </select>
                           </label>
-                          <label className="text-xs font-semibold">
-                            Social media channel
-                            <select
-                              value={contentDraft.platform}
-                              onChange={(event) =>
-                                setContentDraft({
-                                  ...contentDraft,
-                                  platform: event.target.value,
-                                })
-                              }
-                              className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
-                            >
-                              <option value="" disabled>
-                                Choose a channel
-                              </option>
-                              {SOCIAL_MEDIA_CHANNELS.map((channel) => (
-                                <option key={channel} value={channel}>
-                                  {channel}
-                                </option>
-                              ))}
-                              {contentDraft.platform &&
-                                !SOCIAL_MEDIA_CHANNELS.includes(
+                          <fieldset className="min-w-0">
+                            <legend className="text-xs font-semibold">
+                              Social media channels
+                            </legend>
+                            <div className="mt-2 grid grid-cols-2 gap-2">
+                              {[
+                                ...SOCIAL_MEDIA_CHANNELS,
+                                ...socialChannelsFromValue(
                                   contentDraft.platform,
-                                ) && (
-                                  <option value={contentDraft.platform}>
-                                    {contentDraft.platform}
-                                  </option>
-                                )}
-                            </select>
-                          </label>
+                                ).filter(
+                                  (channel) =>
+                                    !SOCIAL_MEDIA_CHANNELS.includes(channel),
+                                ),
+                              ].map((channel) => {
+                                const isSelected =
+                                  socialChannelsFromValue(
+                                    contentDraft.platform,
+                                  ).includes(channel);
+                                return (
+                                  <label
+                                    key={channel}
+                                    className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold transition ${
+                                      isSelected
+                                        ? "border-[var(--primary)] bg-[var(--muted)] text-[var(--foreground)]"
+                                        : "border-[var(--border)] bg-[var(--background)] text-[var(--foreground)]/55"
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() =>
+                                        setContentDraft({
+                                          ...contentDraft,
+                                          platform: toggleSocialChannel(
+                                            contentDraft.platform,
+                                            channel,
+                                          ),
+                                        })
+                                      }
+                                      className="sr-only"
+                                    />
+                                    <SocialChannelIcon
+                                      channel={channel}
+                                      className={`size-4 shrink-0 ${socialChannelColor(channel)}`}
+                                    />
+                                    <span className="min-w-0 truncate">
+                                      {channel}
+                                    </span>
+                                    <span
+                                      aria-hidden="true"
+                                      className={`ml-auto flex size-4 shrink-0 items-center justify-center rounded-full border text-[9px] ${
+                                        isSelected
+                                          ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)]"
+                                          : "border-[var(--border)]"
+                                      }`}
+                                    >
+                                      {isSelected ? "✓" : ""}
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </fieldset>
                         </div>
                         <label className="text-xs font-semibold">
                           Purpose / content goal

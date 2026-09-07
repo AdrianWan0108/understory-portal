@@ -301,7 +301,10 @@ export function parseSocialContentImport(
     return {
       title,
       format,
-      platform: text(record.platform) || "Instagram",
+      platform:
+        stringList(
+          field(record, "platform", "platforms", "channels", "socialChannels"),
+        ).join(", ") || "Instagram",
       purpose: text(field(record, "purpose", "goal")),
       contentPillar: text(field(record, "contentPillar", "content_pillar", "campaign")),
       targetAudience: text(field(record, "targetAudience", "target_audience", "audience")),
