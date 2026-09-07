@@ -12,7 +12,7 @@ import {
   type TeamIdentity,
   useTeamIdentity,
 } from "./TeamIdentity";
-import { TEAM_LOGIN_PATH } from "@/lib/team-auth";
+import { TEAM_GUEST_DEFAULT_PATH, TEAM_LOGIN_PATH } from "@/lib/team-auth";
 
 type NavIcon =
   | "dashboard"
@@ -32,6 +32,7 @@ const navigation: Array<{
   href: string;
   icon: NavIcon;
   ownerOnly?: boolean;
+  guestAllowed?: boolean;
 }> = [
   {
     label: "Dashboard",
@@ -70,11 +71,13 @@ const navigation: Array<{
     label: "Gallery",
     href: "/team-hub/gallery",
     icon: "gallery",
+    guestAllowed: true,
   },
   {
     label: "Client info",
     href: "/team-hub/client-info",
     icon: "clients",
+    guestAllowed: true,
   },
   {
     label: "Payroll",
@@ -274,7 +277,9 @@ function TeamNavigation({
     <nav aria-label="Team Hub navigation" className="space-y-1.5">
       {navigation
         .filter(
-          (item) => accessLevel === "owner" || !item.ownerOnly,
+          (item) =>
+            accessLevel === "owner" ||
+            (accessLevel === "guest" ? item.guestAllowed : !item.ownerOnly),
         )
         .map((item) => {
           const isActive =
@@ -327,7 +332,11 @@ function TeamHubShellContent({ children }: { children: React.ReactNode }) {
     }
 
     if (isReady && identity && pathname === "/team-hub") {
-      router.replace("/team-hub/dashboard");
+      router.replace(
+        accessLevel === "guest"
+          ? TEAM_GUEST_DEFAULT_PATH
+          : "/team-hub/dashboard",
+      );
     }
   }, [accessLevel, identity, isPickerOpen, isReady, pathname, router]);
 

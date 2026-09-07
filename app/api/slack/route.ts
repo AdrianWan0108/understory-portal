@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import {
-  getTeamIdentityForUsername,
+  getTeamMemberIdentityForUsername,
   TEAM_IDENTITIES,
   TEAM_SESSION_COOKIE,
 } from "@/lib/team-auth";
@@ -112,7 +112,7 @@ function clientWebhookTarget(
 
 function teamProfileFromRequest(request: NextRequest) {
   const username = request.cookies.get(TEAM_SESSION_COOKIE)?.value;
-  const identity = getTeamIdentityForUsername(username);
+  const identity = getTeamMemberIdentityForUsername(username);
   return identity ? TEAM_IDENTITIES[identity] : null;
 }
 
@@ -419,7 +419,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const staffIdentity = getTeamIdentityForUsername(
+      const staffIdentity = getTeamMemberIdentityForUsername(
         notification.staffUsername,
       );
       if (!staffIdentity) {

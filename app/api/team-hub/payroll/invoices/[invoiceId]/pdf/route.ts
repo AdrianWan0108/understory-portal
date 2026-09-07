@@ -25,6 +25,12 @@ export async function GET(
     );
   }
   const caller = TEAM_IDENTITIES[identity];
+  if (caller.accessLevel === "guest") {
+    return Response.json(
+      { error: "Team member access is required." },
+      { status: 403 },
+    );
+  }
 
   try {
     const { invoiceId } = await context.params;

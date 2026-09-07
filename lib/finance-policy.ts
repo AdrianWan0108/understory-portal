@@ -6,7 +6,7 @@ export type FinanceAccessState =
 export function evaluateFinanceAccess(input: {
   username?: string | null;
   name?: string | null;
-  accessLevel?: "owner" | "staff" | null;
+  accessLevel?: "owner" | "staff" | "guest" | null;
 }): FinanceAccessState {
   if (!input.username || !input.name || !input.accessLevel) {
     return { kind: "unauthenticated" };
@@ -24,7 +24,7 @@ export function evaluateFinanceAccess(input: {
 }
 
 export function shouldShowFinanceNavigation(
-  accessLevel: "owner" | "staff" | null,
+  accessLevel: "owner" | "staff" | "guest" | null,
 ) {
   return accessLevel === "owner";
 }

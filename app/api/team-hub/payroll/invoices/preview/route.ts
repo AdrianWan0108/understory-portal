@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import {
   TEAM_IDENTITIES,
   TEAM_SESSION_COOKIE,
-  getTeamIdentityForUsername,
+  getTeamMemberIdentityForUsername,
 } from "@/lib/team-auth";
 import {
   getStaffInvoicePreview,
@@ -12,7 +12,7 @@ import {
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
-  const identity = getTeamIdentityForUsername(
+  const identity = getTeamMemberIdentityForUsername(
     request.cookies.get(TEAM_SESSION_COOKIE)?.value,
   );
   const caller = identity ? TEAM_IDENTITIES[identity] : null;

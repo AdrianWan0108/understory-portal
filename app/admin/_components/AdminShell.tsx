@@ -7,7 +7,6 @@ import { useState } from "react";
 import understoryLogo from "@/public/under story logo-purple.png";
 import { ClientSelect } from "@/app/_components/ClientSelect";
 import {
-  ADMIN_CLIENTS,
   AdminProvider,
   type AdminClientSlug,
   useAdmin,
@@ -101,16 +100,14 @@ function LoginScreen() {
 }
 
 function ClientChooser() {
-  const { selectClient, logout } = useAdmin();
+  const { clients, clientsLoading, selectClient, logout } = useAdmin();
   const router = useRouter();
-  const [selectedClient, setSelectedClient] =
-    useState<AdminClientSlug>("mvp");
-  const clientOptions = (Object.keys(ADMIN_CLIENTS) as AdminClientSlug[]).map(
-    (slug) => ({
-      value: slug,
-      label: ADMIN_CLIENTS[slug].name,
-    }),
-  );
+  const [selectedClient, setSelectedClient] = useState<AdminClientSlug>("");
+  const clientOptions = clients.map((client) => ({
+    value: client.slug,
+    label: client.name,
+  }));
+  const activeSelection = selectedClient || clients[0]?.slug || "";
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#E9E0EF] px-5 py-10">
@@ -126,7 +123,7 @@ function ClientChooser() {
         </p>
         <div className="mt-7 flex flex-col gap-3 sm:flex-row">
           <ClientSelect
-            value={selectedClient}
+            value={activeSelection}
             onChange={(value) =>
               setSelectedClient(value as AdminClientSlug)
             }
@@ -137,10 +134,12 @@ function ClientChooser() {
           <button
             type="button"
             onClick={() => {
-              selectClient(selectedClient);
+              if (!activeSelection) return;
+              selectClient(activeSelection);
               router.push("/admin/dashboard");
             }}
-            className="rounded-xl bg-[#341F60] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#28154F]"
+            disabled={!activeSelection || clientsLoading}
+            className="rounded-xl bg-[#341F60] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#28154F] disabled:cursor-not-allowed disabled:opacity-45"
           >
             Continue
           </button>
@@ -167,6 +166,8 @@ function AdminShellContent({ children }: { children: React.ReactNode }) {
     clientName,
     clientId,
     clientError,
+    clients,
+    clientsLoading,
     selectClient,
     logout,
   } = useAdmin();
@@ -174,12 +175,10 @@ function AdminShellContent({ children }: { children: React.ReactNode }) {
   if (!isReady) return <div className="min-h-screen bg-[#E9E0EF]" />;
   if (!isAuthenticated) return <LoginScreen />;
   if (!clientSlug) return <ClientChooser />;
-  const clientOptions = (Object.keys(ADMIN_CLIENTS) as AdminClientSlug[]).map(
-    (slug) => ({
-      value: slug,
-      label: ADMIN_CLIENTS[slug].name,
-    }),
-  );
+  const clientOptions = clients.map((client) => ({
+    value: client.slug,
+    label: client.name,
+  }));
 
   return (
     <div className="min-h-screen bg-[#F4EEF8] text-[#28154F]">
@@ -207,6 +206,7 @@ function AdminShellContent({ children }: { children: React.ReactNode }) {
               options={clientOptions}
               ariaLabel="Switch admin client"
               tone="dark"
+              disabled={clientsLoading}
             />
             <button
               type="button"

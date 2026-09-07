@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
-import { TEAM_IDENTITIES } from "@/lib/team-auth";
+import { TEAM_MEMBER_PROFILES } from "@/lib/team-auth";
 import { supabase } from "@/lib/supabase";
 import { TeamModal } from "../../_components/TeamHubUi";
 
@@ -12,7 +12,7 @@ export type TaskTeamMember = {
   avatar_url: string | null;
 };
 
-const fallbackMembers: TaskTeamMember[] = Object.values(TEAM_IDENTITIES).map(
+const fallbackMembers: TaskTeamMember[] = TEAM_MEMBER_PROFILES.map(
   (member) => ({
     team_username: member.username,
     full_name: member.name,

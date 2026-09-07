@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { sendSlackNotification } from "@/lib/slack-notifications";
+import { isWorkspaceClientSlug } from "@/lib/workspace-clients";
 import { useAdmin } from "../_components/AdminContext";
 import {
   AdminButton,
@@ -141,7 +142,7 @@ export default function AdminInvoicesPage() {
           uploaded_by: "Understory admin",
         });
       if (insertError) throw insertError;
-      if (clientSlug) {
+      if (isWorkspaceClientSlug(clientSlug)) {
         void sendSlackNotification({
           type: "client_invoice",
           clientSlug,

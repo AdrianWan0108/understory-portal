@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import {
   TEAM_IDENTITIES,
   TEAM_SESSION_COOKIE,
-  getTeamIdentityForUsername,
+  getTeamMemberIdentityForUsername,
 } from "@/lib/team-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
@@ -22,7 +22,7 @@ function jsonError(message: string, status: number) {
 }
 
 function callerFromRequest(request: NextRequest) {
-  const identity = getTeamIdentityForUsername(
+  const identity = getTeamMemberIdentityForUsername(
     request.cookies.get(TEAM_SESSION_COOKIE)?.value,
   );
   if (!identity) return null;

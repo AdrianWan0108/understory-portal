@@ -1,26 +1,20 @@
-export type TeamAccessLevel = "owner" | "staff";
+export type TeamAccessLevel = "owner" | "staff" | "guest";
 export type TeamIdentity =
   | "karen"
   | "adrian"
   | "arion"
   | "sure"
   | "xiyangcen"
-  | "bruno";
+  | "bruno"
+  | "guest";
+export type TeamMemberIdentity = Exclude<TeamIdentity, "guest">;
 
 export const TEAM_SESSION_COOKIE = "team_session";
 export const TEAM_LOGIN_PATH = "/team-hub/login";
 export const TEAM_DEFAULT_PATH = "/team-hub/dashboard";
+export const TEAM_GUEST_DEFAULT_PATH = "/team-hub/client-info";
 
-export const TEAM_IDENTITIES: Record<
-  TeamIdentity,
-  {
-    username: string;
-    name: string;
-    title: string;
-    accessLevel: TeamAccessLevel;
-    initials: string;
-  }
-> = {
+export const TEAM_IDENTITIES = {
   karen: {
     username: "Understory_Karen",
     name: "Karen",
@@ -63,7 +57,27 @@ export const TEAM_IDENTITIES: Record<
     accessLevel: "staff",
     initials: "B",
   },
-};
+  guest: {
+    username: "Understory_Guest",
+    name: "Guest",
+    title: "View-only guest",
+    accessLevel: "guest",
+    initials: "G",
+  },
+} satisfies Record<
+  TeamIdentity,
+  {
+    username: string;
+    name: string;
+    title: string;
+    accessLevel: TeamAccessLevel;
+    initials: string;
+  }
+>;
+
+export const TEAM_MEMBER_PROFILES = Object.values(TEAM_IDENTITIES).filter(
+  (profile) => profile.accessLevel !== "guest",
+);
 
 export const VALID_TEAM_USERNAMES = Object.values(TEAM_IDENTITIES).map(
   (profile) => profile.username,
@@ -85,10 +99,26 @@ export function getTeamIdentityForUsername(
   );
 }
 
+export function getTeamMemberIdentityForUsername(
+  username: string | null | undefined,
+): TeamMemberIdentity | null {
+  const identity = getTeamIdentityForUsername(username);
+  return identity && identity !== "guest" ? identity : null;
+}
+
 export function isValidTeamUsername(
   username: string | null | undefined,
 ): boolean {
   return getTeamIdentityForUsername(username) !== null;
+}
+
+export function isGuestAllowedTeamPath(pathname: string) {
+  return (
+    pathname === "/team-hub/client-info" ||
+    pathname.startsWith("/team-hub/client-info/") ||
+    pathname === "/team-hub/gallery" ||
+    pathname.startsWith("/team-hub/gallery/")
+  );
 }
 
 export function getSafeTeamReturnPath(
@@ -100,7 +130,7 @@ export function getSafeTeamReturnPath(
     !requestedPath.startsWith("/") ||
     requestedPath.startsWith("//")
   ) {
-    return TEAM_DEFAULT_PATH;
+    return accessLevel === "guest" ? TEAM_GUEST_DEFAULT_PATH : TEAM_DEFAULT_PATH;
   }
 
   let parsedPath: URL;
@@ -108,7 +138,7 @@ export function getSafeTeamReturnPath(
   try {
     parsedPath = new URL(requestedPath, "https://team.local");
   } catch {
-    return TEAM_DEFAULT_PATH;
+    return accessLevel === "guest" ? TEAM_GUEST_DEFAULT_PATH : TEAM_DEFAULT_PATH;
   }
 
   const isTeamRoute =
@@ -118,7 +148,14 @@ export function getSafeTeamReturnPath(
     parsedPath.pathname.startsWith("/team-hub/");
 
   if (!isTeamRoute || parsedPath.pathname === TEAM_LOGIN_PATH) {
-    return TEAM_DEFAULT_PATH;
+    return accessLevel === "guest" ? TEAM_GUEST_DEFAULT_PATH : TEAM_DEFAULT_PATH;
+  }
+
+  if (
+    accessLevel === "guest" &&
+    !isGuestAllowedTeamPath(parsedPath.pathname)
+  ) {
+    return TEAM_GUEST_DEFAULT_PATH;
   }
 
   if (

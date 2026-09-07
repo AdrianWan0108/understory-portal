@@ -8,15 +8,9 @@ import {
   useState,
 } from "react";
 import { supabase } from "@/lib/supabase";
-import {
-  WORKSPACE_CLIENTS,
-  isWorkspaceClientSlug,
-  type WorkspaceClientSlug,
-} from "@/lib/workspace-clients";
 
-export type AdminClientSlug = WorkspaceClientSlug;
-
-export const ADMIN_CLIENTS = WORKSPACE_CLIENTS;
+export type AdminClientSlug = string;
+export type AdminClient = { id: string; name: string; slug: string };
 
 export const ADMIN_USERNAME = "understory_admin";
 export const ADMIN_PASSWORD = "understory2026";
@@ -30,6 +24,8 @@ type AdminContextValue = {
   clientSlug: AdminClientSlug | null;
   clientName: string | null;
   clientId: string | null;
+  clients: AdminClient[];
+  clientsLoading: boolean;
   clientError: string | null;
   login: (username: string, password: string) => boolean;
   logout: () => void;
@@ -44,6 +40,8 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [clientSlug, setClientSlug] = useState<AdminClientSlug | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
+  const [clients, setClients] = useState<AdminClient[]>([]);
+  const [clientsLoading, setClientsLoading] = useState(false);
   const [clientError, setClientError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -51,7 +49,7 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
       const authenticated = window.sessionStorage.getItem(AUTH_KEY) === "true";
       const savedClient = window.sessionStorage.getItem(CLIENT_KEY);
       setIsAuthenticated(authenticated);
-      if (authenticated && isWorkspaceClientSlug(savedClient)) {
+      if (authenticated && savedClient) {
         setClientSlug(savedClient);
       }
       setIsReady(true);
@@ -63,28 +61,41 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let isActive = true;
 
-    async function resolveClient() {
+    async function resolveClients() {
       setClientId(null);
       setClientError(null);
-      if (!isAuthenticated || !clientSlug) return;
+      if (!isAuthenticated) return;
+      setClientsLoading(true);
 
       const { data, error } = await supabase
         .from("clients")
-        .select("id")
-        .eq("slug", clientSlug)
-        .single();
+        .select("id, name, slug")
+        .order("name", { ascending: true });
 
       if (!isActive) return;
-      if (error || !data) {
-        setClientError(
-          `Could not resolve ${ADMIN_CLIENTS[clientSlug].name}: ${error?.message ?? "Client not found."}`,
-        );
-      } else {
-        setClientId(data.id);
+      setClientsLoading(false);
+      if (error) {
+        setClients([]);
+        setClientError(`Could not load clients: ${error.message}`);
+        return;
       }
+      const nextClients = (data ?? []) as AdminClient[];
+      setClients(nextClients);
+      if (!clientSlug) return;
+
+      const selectedClient = nextClients.find(
+        (client) => client.slug === clientSlug,
+      );
+      if (selectedClient) {
+        setClientId(selectedClient.id);
+        return;
+      }
+
+      window.sessionStorage.removeItem(CLIENT_KEY);
+      setClientSlug(null);
     }
 
-    void resolveClient();
+    void resolveClients();
     return () => {
       isActive = false;
     };
@@ -95,8 +106,11 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
       isReady,
       isAuthenticated,
       clientSlug,
-      clientName: clientSlug ? ADMIN_CLIENTS[clientSlug].name : null,
+      clientName:
+        clients.find((client) => client.slug === clientSlug)?.name ?? null,
       clientId,
+      clients,
+      clientsLoading,
       clientError,
       login: (username, password) => {
         const isValid =
@@ -115,6 +129,7 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
         setIsAuthenticated(false);
         setClientSlug(null);
         setClientId(null);
+        setClients([]);
       },
       selectClient: (slug) => {
         window.sessionStorage.setItem(CLIENT_KEY, slug);
@@ -130,6 +145,8 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
       clientError,
       clientId,
       clientSlug,
+      clients,
+      clientsLoading,
       isAuthenticated,
       isReady,
     ],

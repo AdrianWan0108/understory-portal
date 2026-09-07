@@ -48,7 +48,7 @@ import {
   SOCIAL_CONTENT_IMPORT_EXAMPLE,
 } from "@/lib/social-content-import";
 import { supabase } from "@/lib/supabase";
-import { TEAM_IDENTITIES } from "@/lib/team-auth";
+import { TEAM_IDENTITIES, TEAM_MEMBER_PROFILES } from "@/lib/team-auth";
 import { readTeamSessionProfile } from "@/app/team-hub/_components/TeamIdentity";
 import { isWorkspaceClientSlug } from "@/lib/workspace-clients";
 
@@ -179,9 +179,7 @@ type TeamDirectoryMember = {
   avatar_url: string | null;
 };
 
-const FALLBACK_TEAM_DIRECTORY: TeamDirectoryMember[] = Object.values(
-  TEAM_IDENTITIES,
-).map((profile) => ({
+const FALLBACK_TEAM_DIRECTORY: TeamDirectoryMember[] = TEAM_MEMBER_PROFILES.map((profile) => ({
   team_username: profile.username,
   full_name: profile.name,
   avatar_url: null,
@@ -1760,7 +1758,7 @@ export function SocialApprovalCalendar({
       }
     }
 
-    const assignedProfiles = Object.values(TEAM_IDENTITIES).filter((profile) =>
+    const assignedProfiles = TEAM_MEMBER_PROFILES.filter((profile) =>
       contentDraft.assigneeUsernames.includes(profile.username),
     );
     const mentionSource = [
@@ -1783,7 +1781,7 @@ export function SocialApprovalCalendar({
     ]
       .join("\n")
       .toLocaleLowerCase();
-    const mentionedUsernames = Object.values(TEAM_IDENTITIES)
+    const mentionedUsernames = TEAM_MEMBER_PROFILES
       .filter(
         (profile) =>
           mentionSource.includes(`@${profile.name.toLocaleLowerCase()}`) ||
@@ -4882,7 +4880,7 @@ export function SocialApprovalCalendar({
                         <fieldset>
                           <legend className="text-xs font-semibold">Assignees</legend>
                           <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                            {Object.values(TEAM_IDENTITIES).map((profile) => (
+                            {TEAM_MEMBER_PROFILES.map((profile) => (
                               <label
                                 key={profile.username}
                                 className="flex items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-xs"

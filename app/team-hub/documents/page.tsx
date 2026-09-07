@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import {
-  TEAM_IDENTITIES,
+  TEAM_MEMBER_PROFILES,
   useTeamIdentity,
 } from "../_components/TeamIdentity";
 import {
@@ -33,7 +33,7 @@ type DocumentEditor = {
   file: File | null;
 };
 
-const profiles = Object.values(TEAM_IDENTITIES);
+const profiles = TEAM_MEMBER_PROFILES;
 const profileByUsername = profiles.reduce<
   Record<string, { name: string; title: string }>
 >((result, profile) => {

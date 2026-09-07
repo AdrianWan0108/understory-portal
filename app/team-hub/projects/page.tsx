@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ClientSelect } from "@/app/_components/ClientSelect";
 import {
-  TEAM_IDENTITIES,
+  TEAM_MEMBER_PROFILES,
   useTeamIdentity,
 } from "@/app/team-hub/_components/TeamIdentity";
 import {
@@ -220,7 +220,7 @@ function MemberAvatar({
   );
 }
 
-const fallbackTeamMembers: TeamMember[] = Object.values(TEAM_IDENTITIES).map(
+const fallbackTeamMembers: TeamMember[] = TEAM_MEMBER_PROFILES.map(
   (member) => ({
     team_username: member.username,
     full_name: member.name,

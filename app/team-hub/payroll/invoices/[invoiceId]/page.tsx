@@ -47,6 +47,7 @@ export default async function StaffInvoicePage({
   );
   if (!identity) notFound();
   const caller = TEAM_IDENTITIES[identity];
+  if (caller.accessLevel === "guest") notFound();
   const { invoiceId } = await params;
   const invoice = await getStaffInvoiceById(invoiceId, caller);
   if (!invoice) notFound();

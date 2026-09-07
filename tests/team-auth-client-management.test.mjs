@@ -1,0 +1,57 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  getSafeTeamReturnPath,
+  getTeamIdentityForUsername,
+  getTeamMemberIdentityForUsername,
+  isGuestAllowedTeamPath,
+  TEAM_GUEST_DEFAULT_PATH,
+  TEAM_MEMBER_PROFILES,
+} from "../lib/team-auth.ts";
+import {
+  ClientInputError,
+  slugifyClientName,
+  validateNewClientInput,
+} from "../lib/client-management.ts";
+
+test("guest login is recognized but is not treated as a team member", () => {
+  assert.equal(getTeamIdentityForUsername("understory_guest"), "guest");
+  assert.equal(getTeamMemberIdentityForUsername("Understory_Guest"), null);
+  assert.equal(
+    TEAM_MEMBER_PROFILES.some((profile) => profile.username === "Understory_Guest"),
+    false,
+  );
+});
+
+test("guest routes are constrained to client info and gallery", () => {
+  assert.equal(isGuestAllowedTeamPath("/team-hub/client-info/acme"), true);
+  assert.equal(isGuestAllowedTeamPath("/team-hub/gallery"), true);
+  assert.equal(isGuestAllowedTeamPath("/team-hub/payroll"), false);
+  assert.equal(
+    getSafeTeamReturnPath("/team-hub/payroll", "guest"),
+    TEAM_GUEST_DEFAULT_PATH,
+  );
+  assert.equal(
+    getSafeTeamReturnPath("/team-hub/gallery?client=mvp", "guest"),
+    "/team-hub/gallery?client=mvp",
+  );
+});
+
+test("new client input creates a stable URL slug", () => {
+  assert.equal(slugifyClientName("  Café North Shore  "), "cafe-north-shore");
+  assert.deepEqual(validateNewClientInput({ name: " North Shore Coffee " }), {
+    name: "North Shore Coffee",
+    slug: "north-shore-coffee",
+  });
+});
+
+test("new client input rejects unusable names and slugs", () => {
+  assert.throws(
+    () => validateNewClientInput({ name: "A" }),
+    ClientInputError,
+  );
+  assert.throws(
+    () => validateNewClientInput({ name: "茶店" }),
+    /URL slug/,
+  );
+});

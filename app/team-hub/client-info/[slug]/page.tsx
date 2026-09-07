@@ -362,7 +362,8 @@ function PhotoCaptionField({
 
 export default function TeamHubClientInfoDetailPage() {
   const { slug } = useParams<{ slug: string }>();
-  const { username } = useTeamIdentity();
+  const { username, accessLevel } = useTeamIdentity();
+  const isGuest = accessLevel === "guest";
 
   const [client, setClient] = useState<ClientRow | null>(null);
   const [profile, setProfile] = useState<ClientProfileRow | null>(null);
@@ -438,6 +439,7 @@ export default function TeamHubClientInfoDetailPage() {
   }, [loadPhotos]);
 
   function startEditing() {
+    if (isGuest) return;
     const next = { ...EMPTY_FIELDS };
     (Object.keys(EMPTY_FIELDS) as Array<keyof ClientProfileFields>).forEach(
       (key) => {
@@ -675,7 +677,7 @@ export default function TeamHubClientInfoDetailPage() {
                   </p>
                 )}
               </div>
-              {!isEditing && (
+              {!isEditing && !isGuest && (
                 <button
                   type="button"
                   onClick={startEditing}
@@ -785,8 +787,9 @@ export default function TeamHubClientInfoDetailPage() {
               <p className="mt-3 whitespace-pre-wrap text-base leading-8 text-[#28154F] sm:text-lg">
                 {profile?.overview || (
                   <span className="text-sm font-normal leading-6 text-[#8B7895]">
-                    No research written yet. Click “Edit info” to add the
-                    story behind this business.
+                    {isGuest
+                      ? "No research written yet."
+                      : "No research written yet. Click “Edit info” to add the story behind this business."}
                   </span>
                 )}
               </p>
@@ -941,8 +944,9 @@ export default function TeamHubClientInfoDetailPage() {
             </p>
           </div>
           <p className="mt-1 text-xs text-[#8B7895]">
-            Storefront, product, team — anything that helps the team picture
-            the business.
+            {isGuest
+              ? "Reference photos shared for this client."
+              : "Storefront, product, team — anything that helps the team picture the business."}
           </p>
 
           {photoError && (
@@ -955,29 +959,31 @@ export default function TeamHubClientInfoDetailPage() {
           )}
 
           <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <label className="flex aspect-[4/3] cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#CDBAD9] text-[#7D4698] transition hover:border-[#7D4698] hover:bg-[#F7F1FB]">
-              {isUploadingPhoto ? (
-                <span className="text-xs font-semibold">Uploading…</span>
-              ) : (
-                <>
-                  <span className="flex size-9 items-center justify-center rounded-full bg-[#EEE3FA]">
-                    <InfoIcon name="plus" className="size-4" />
-                  </span>
-                  <span className="text-xs font-semibold">Add photos</span>
-                </>
-              )}
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                disabled={isUploadingPhoto}
-                onChange={(event) => {
-                  void uploadPhotos(event.target.files);
-                  event.target.value = "";
-                }}
-                className="hidden"
-              />
-            </label>
+            {!isGuest && (
+              <label className="flex aspect-[4/3] cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#CDBAD9] text-[#7D4698] transition hover:border-[#7D4698] hover:bg-[#F7F1FB]">
+                {isUploadingPhoto ? (
+                  <span className="text-xs font-semibold">Uploading…</span>
+                ) : (
+                  <>
+                    <span className="flex size-9 items-center justify-center rounded-full bg-[#EEE3FA]">
+                      <InfoIcon name="plus" className="size-4" />
+                    </span>
+                    <span className="text-xs font-semibold">Add photos</span>
+                  </>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  disabled={isUploadingPhoto}
+                  onChange={(event) => {
+                    void uploadPhotos(event.target.files);
+                    event.target.value = "";
+                  }}
+                  className="hidden"
+                />
+              </label>
+            )}
 
             {isLoadingPhotos ? (
               <div className="aspect-[4/3] animate-pulse rounded-2xl bg-[#EEE3FA]" />
@@ -992,23 +998,31 @@ export default function TeamHubClientInfoDetailPage() {
                     alt={photo.caption || client.name}
                     className="aspect-[4/3] w-full object-cover"
                   />
-                  <button
-                    type="button"
-                    onClick={() => void deletePhoto(photo)}
-                    className={`absolute right-2 top-2 flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[10px] font-semibold text-white shadow transition ${
-                      deletePhotoId === photo.id
-                        ? "bg-[#9A4040]"
-                        : "bg-black/45 opacity-0 backdrop-blur hover:bg-[#9A4040] group-hover:opacity-100"
-                    }`}
-                  >
-                    <InfoIcon name="trash" className="size-3" />
-                    {deletePhotoId === photo.id ? "Confirm?" : ""}
-                  </button>
+                  {!isGuest && (
+                    <button
+                      type="button"
+                      onClick={() => void deletePhoto(photo)}
+                      className={`absolute right-2 top-2 flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[10px] font-semibold text-white shadow transition ${
+                        deletePhotoId === photo.id
+                          ? "bg-[#9A4040]"
+                          : "bg-black/45 opacity-0 backdrop-blur hover:bg-[#9A4040] group-hover:opacity-100"
+                      }`}
+                    >
+                      <InfoIcon name="trash" className="size-3" />
+                      {deletePhotoId === photo.id ? "Confirm?" : ""}
+                    </button>
+                  )}
                   <div className="p-2.5">
-                    <PhotoCaptionField
-                      photo={photo}
-                      onSave={(caption) => void saveCaption(photo, caption)}
-                    />
+                    {isGuest ? (
+                      <p className="text-xs text-[#341F60]">
+                        {photo.caption || "Client reference photo"}
+                      </p>
+                    ) : (
+                      <PhotoCaptionField
+                        photo={photo}
+                        onSave={(caption) => void saveCaption(photo, caption)}
+                      />
+                    )}
                     <p className="mt-1.5 text-[10px] text-[#8B7895]">
                       {photo.uploaded_by || "Team"}
                     </p>

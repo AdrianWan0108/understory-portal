@@ -18,6 +18,7 @@ import { supabase } from "@/lib/supabase";
 
 export {
   TEAM_IDENTITIES,
+  TEAM_MEMBER_PROFILES,
   VALID_TEAM_USERNAMES,
   type TeamAccessLevel,
   type TeamIdentity,
