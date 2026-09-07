@@ -1,7 +1,6 @@
 import {
   WORKSPACE_CLIENTS,
   isWorkspaceClientSlug,
-  type WorkspaceClientSlug,
 } from "@/lib/workspace-clients";
 
 export const PROJECTS_CLIENT_STORAGE_KEY = "understory-projects-client";
@@ -12,7 +11,7 @@ export const projectInputClass =
 export type ProjectClientTheme = "mvp" | "boardwalk" | "red-house";
 
 export function projectClientTheme(
-  client: WorkspaceClientSlug,
+  client: string,
 ): ProjectClientTheme | undefined {
   return client === "mvp" ||
     client === "boardwalk" ||
@@ -21,19 +20,26 @@ export function projectClientTheme(
     : undefined;
 }
 
-export function projectClientInitial(client: WorkspaceClientSlug) {
-  return WORKSPACE_CLIENTS[client].name.trim().charAt(0).toUpperCase();
+export function projectClientInitial(client: string, clientName?: string) {
+  const name = isWorkspaceClientSlug(client)
+    ? WORKSPACE_CLIENTS[client].name
+    : clientName || client;
+  return name.trim().charAt(0).toUpperCase() || "?";
 }
 
-export function readStoredProjectClient(): WorkspaceClientSlug | null {
+export function isProjectClientSlug(value: string | null): value is string {
+  return Boolean(value && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value));
+}
+
+export function readStoredProjectClient(): string | null {
   if (typeof window === "undefined") return null;
   const storedClient = window.sessionStorage.getItem(
     PROJECTS_CLIENT_STORAGE_KEY,
   );
-  return isWorkspaceClientSlug(storedClient) ? storedClient : null;
+  return isProjectClientSlug(storedClient) ? storedClient : null;
 }
 
-export function storeProjectClient(client: WorkspaceClientSlug) {
+export function storeProjectClient(client: string) {
   if (typeof window === "undefined") return;
   window.sessionStorage.setItem(PROJECTS_CLIENT_STORAGE_KEY, client);
 }

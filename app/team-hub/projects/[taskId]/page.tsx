@@ -21,11 +21,6 @@ import {
   projectClientInitial,
   projectInputClass,
 } from "@/lib/project-client-theme";
-import {
-  WORKSPACE_CLIENTS,
-  isWorkspaceClientSlug,
-  type WorkspaceClientSlug,
-} from "@/lib/workspace-clients";
 import { ContentBriefEditor } from "../_components/ContentBriefEditor";
 import { FigJamTaskBoard } from "../_components/FigJamTaskBoard";
 import { useProjectTheme } from "../_components/ProjectThemeProvider";
@@ -71,8 +66,8 @@ export default function DivisionTaskDetailPage() {
   const { setClient: setThemeClient } = useProjectTheme();
   const teamMembers = useTaskTeamMembers();
   const [task, setTask] = useState<DivisionTask | null>(null);
-  const [clientSlug, setClientSlug] =
-    useState<WorkspaceClientSlug | null>(null);
+  const [clientSlug, setClientSlug] = useState<string | null>(null);
+  const [clientName, setClientName] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingStatus, setIsSavingStatus] = useState(false);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
@@ -114,16 +109,12 @@ export default function DivisionTaskDetailPage() {
       const loadedTask = data as DivisionTask;
       const { data: clientRecord, error: clientError } = await supabase
         .from("clients")
-        .select("slug")
+        .select("slug, name")
         .eq("id", loadedTask.client_id)
         .single();
 
       if (!isActive) return;
-      if (
-        clientError ||
-        !clientRecord ||
-        !isWorkspaceClientSlug(clientRecord.slug)
-      ) {
+      if (clientError || !clientRecord || !clientRecord.slug) {
         setError(
           `Could not resolve this task's client: ${
             clientError?.message ?? "Client not found."
@@ -165,6 +156,7 @@ export default function DivisionTaskDetailPage() {
 
       setTask(loadedTask);
       setClientSlug(clientRecord.slug);
+      setClientName(clientRecord.name);
       setThemeClient(clientRecord.slug);
       setIsLoading(false);
     }
@@ -243,7 +235,7 @@ export default function DivisionTaskDetailPage() {
     );
   }
 
-  if (!task || !clientSlug) {
+  if (!task || !clientSlug || !clientName) {
     return (
       <main className="px-5 py-10 sm:px-8 sm:py-14 lg:px-12">
         <div className="mx-auto max-w-5xl rounded-[24px] border border-[#E4B9B9] bg-[#FFF0F0] p-6 text-[#8B3E3E]">
@@ -281,11 +273,11 @@ export default function DivisionTaskDetailPage() {
                   aria-hidden="true"
                   className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-sm font-bold text-[var(--primary-foreground)] shadow-sm"
                 >
-                  {projectClientInitial(clientSlug)}
+                  {projectClientInitial(clientSlug, clientName)}
                 </span>
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--primary)]">
-                    {WORKSPACE_CLIENTS[clientSlug].name} ·{" "}
+                    {clientName} ·{" "}
                     {DIVISION_LABELS[task.division]}
                   </p>
                   <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">

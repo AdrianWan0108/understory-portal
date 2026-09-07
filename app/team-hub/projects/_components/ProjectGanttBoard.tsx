@@ -13,10 +13,7 @@ import {
 } from "@/lib/division-tasks";
 import { supabase } from "@/lib/supabase";
 import { teamNameForUsername } from "@/lib/team-assignments";
-import {
-  isWorkspaceClientSlug,
-  type WorkspaceClientSlug,
-} from "@/lib/workspace-clients";
+import { isWorkspaceClientSlug } from "@/lib/workspace-clients";
 
 type GanttViewMode = "Day" | "Week" | "Month";
 
@@ -77,7 +74,7 @@ const socialTimelineStatuses: TimelineStatus[] = [
   "posted",
 ];
 
-const clientReviewerKeys: Partial<Record<WorkspaceClientSlug, string[]>> = {
+const clientReviewerKeys: Partial<Record<string, string[]>> = {
   mvp: ["MVP_Gary", "MVP_Dorothy"],
   boardwalk: ["Boardwalk_Sarah"],
 };
@@ -162,7 +159,7 @@ function socialItemStatus(post: {
   client_approvals: unknown;
   sent_to_client_at: string | null;
   posted_at: string | null;
-}, clientSlug: WorkspaceClientSlug): TimelineStatus {
+}, clientSlug: string): TimelineStatus {
   if (post.publishing_status === "posted" || post.posted_at) return "posted";
   if (post.publishing_status === "scheduled") return "scheduled";
   if (post.production_status === "not_started") return "planning";
@@ -840,7 +837,7 @@ export function ProjectGanttBoard({
   clientSlug,
   division,
 }: {
-  clientSlug: WorkspaceClientSlug;
+  clientSlug: string;
   division: Division;
 }) {
   const [groups, setGroups] = useState<TaskGroup[] | null>(null);

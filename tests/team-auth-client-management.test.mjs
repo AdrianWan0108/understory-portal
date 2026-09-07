@@ -11,6 +11,7 @@ import {
 import {
   ClientInputError,
   slugifyClientName,
+  validateClientName,
   validateNewClientInput,
 } from "../lib/client-management.ts";
 
@@ -54,4 +55,9 @@ test("new client input rejects unusable names and slugs", () => {
     () => validateNewClientInput({ name: "茶店" }),
     /URL slug/,
   );
+});
+
+test("client names are trimmed and validated before an update", () => {
+  assert.equal(validateClientName("  New client name  "), "New client name");
+  assert.throws(() => validateClientName("A"), ClientInputError);
 });

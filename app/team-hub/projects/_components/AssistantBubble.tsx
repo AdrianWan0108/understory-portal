@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { WORKSPACE_CLIENTS } from "@/lib/workspace-clients";
 import { useProjectTheme } from "./ProjectThemeProvider";
 
 type Agent = "content" | "research" | "project_manager";
@@ -47,6 +46,7 @@ export function AssistantBubble() {
   const { client: clientSlug } = useProjectTheme();
   const [isOpen, setIsOpen] = useState(false);
   const [clientId, setClientId] = useState<string | null>(null);
+  const [clientName, setClientName] = useState("");
   const [agent, setAgent] = useState<Agent>("content");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -64,7 +64,7 @@ export function AssistantBubble() {
     async function resolveClientId() {
       const { data } = await supabase
         .from("clients")
-        .select("id")
+        .select("id, name")
         .eq("slug", clientSlug)
         .maybeSingle();
       if (!isActive) return;
@@ -75,6 +75,7 @@ export function AssistantBubble() {
       }
       clientIdRef.current = nextClientId;
       setClientId(nextClientId);
+      setClientName(data?.name ?? clientSlug);
     }
 
     void resolveClientId();
@@ -150,8 +151,6 @@ export function AssistantBubble() {
       setIsSending(false);
     }
   }
-
-  const clientName = WORKSPACE_CLIENTS[clientSlug]?.name ?? "";
 
   return (
     <>

@@ -10,7 +10,6 @@ import {
   galleryImagePreviewUrl,
 } from "@/lib/gallery-links";
 import { supabase } from "@/lib/supabase";
-import { WORKSPACE_CLIENTS } from "@/lib/workspace-clients";
 import { useProjectTheme } from "../../projects/_components/ProjectThemeProvider";
 
 type GalleryBook = {
@@ -102,6 +101,7 @@ export default function TeamHubGalleryAlbumPage() {
   const { client, isReady } = useProjectTheme();
   const [book, setBook] = useState<GalleryBook | null>(null);
   const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
+  const [clientName, setClientName] = useState(client);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -117,18 +117,19 @@ export default function TeamHubGalleryAlbumPage() {
 
       const { data: clientRecord, error: clientError } = await supabase
         .from("clients")
-        .select("id")
+        .select("id, name")
         .eq("slug", client)
         .maybeSingle();
 
       if (!isActive) return;
       if (clientError || !clientRecord) {
         setError(
-          `Could not load ${WORKSPACE_CLIENTS[client].name}: ${clientError?.message ?? "Client not found."}`,
+          `Could not load ${client}: ${clientError?.message ?? "Client not found."}`,
         );
         setIsLoading(false);
         return;
       }
+      setClientName(clientRecord.name);
 
       const bookResult = await supabase
         .from("gallery_books")
@@ -141,7 +142,7 @@ export default function TeamHubGalleryAlbumPage() {
       if (bookResult.error || !bookResult.data) {
         setError(
           bookResult.error?.message ??
-            `This album is not available for ${WORKSPACE_CLIENTS[client].name}.`,
+            `This album is not available for ${clientRecord.name}.`,
         );
         setIsLoading(false);
         return;
@@ -182,7 +183,7 @@ export default function TeamHubGalleryAlbumPage() {
 
         <header className="mt-8 border-b border-[var(--border)] pb-7">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--primary)]">
-            {WORKSPACE_CLIENTS[client].name} · Gallery album
+            {clientName} · Gallery album
           </p>
           <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[var(--foreground)] sm:text-4xl">
             {book?.title ?? (isLoading ? "Loading album…" : "Album unavailable")}

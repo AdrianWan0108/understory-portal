@@ -28,11 +28,6 @@ import {
   projectInputClass,
 } from "@/lib/project-client-theme";
 import {
-  WORKSPACE_CLIENTS,
-  WORKSPACE_CLIENT_SLUGS,
-  type WorkspaceClientSlug,
-} from "@/lib/workspace-clients";
-import {
   TeamButton,
   TeamModal,
 } from "../_components/TeamHubUi";
@@ -68,6 +63,12 @@ type TeamMember = {
   team_username: string;
   full_name: string;
   avatar_url: string | null;
+};
+
+type ProjectClient = {
+  id: string;
+  name: string;
+  slug: string;
 };
 
 type TemplateOption = {
@@ -181,13 +182,13 @@ function StatusBadge({ status }: { status: DivisionTaskStatus }) {
   );
 }
 
-function ClientMark({ client }: { client: WorkspaceClientSlug }) {
+function ClientMark({ client, name }: { client: string; name: string }) {
   return (
     <span
       aria-hidden="true"
       className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-sm font-bold text-[var(--primary-foreground)] shadow-sm"
     >
-      {projectClientInitial(client)}
+      {projectClientInitial(client, name)}
     </span>
   );
 }
@@ -252,6 +253,8 @@ export default function TeamHubProjectsPage() {
   const isOwner = isIdentityReady && accessLevel === "owner";
   const [division, setDivision] = useState<Division>("social-media");
   const { client, isReady: isClientReady, setClient } = useProjectTheme();
+  const [clients, setClients] = useState<ProjectClient[]>([]);
+  const [areClientsLoading, setAreClientsLoading] = useState(true);
   const [clientId, setClientId] = useState<string | null>(null);
   const [tasks, setTasks] = useState<DivisionTask[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>(
@@ -285,15 +288,51 @@ export default function TeamHubProjectsPage() {
   const [isSavingDeadline, setIsSavingDeadline] = useState(false);
   const [deadlineError, setDeadlineError] = useState<string | null>(null);
 
-  const clientOptions = WORKSPACE_CLIENT_SLUGS.map((slug) => ({
-    value: slug,
-    label: WORKSPACE_CLIENTS[slug].name,
+  const clientOptions = clients.map((option) => ({
+    value: option.slug,
+    label: option.name,
   }));
+  const clientName =
+    clients.find((option) => option.slug === client)?.name ?? client;
   const availableSocialMediaTemplates = socialMediaTemplates.filter(
     (template) =>
       template.id !== "content_calendar" ||
       !tasks.some((task) => task.template_type === "content_calendar"),
   );
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadClients() {
+      setAreClientsLoading(true);
+      const { data, error: clientsError } = await supabase
+        .from("clients")
+        .select("id, name, slug")
+        .order("name", { ascending: true });
+
+      if (!isActive) return;
+      if (clientsError) {
+        setError(`Could not load clients: ${clientsError.message}`);
+        setAreClientsLoading(false);
+        return;
+      }
+
+      const nextClients = (data ?? []) as ProjectClient[];
+      setClients(nextClients);
+      if (
+        nextClients.length > 0 &&
+        !nextClients.some((option) => option.slug === client)
+      ) {
+        setClient(nextClients[0].slug);
+      }
+      setAreClientsLoading(false);
+    }
+
+    void loadClients();
+    return () => {
+      isActive = false;
+    };
+  }, [client, setClient]);
 
   useEffect(() => {
     let isActive = true;
@@ -333,7 +372,7 @@ export default function TeamHubProjectsPage() {
       if (clientError || !clientRecord) {
         setTasks([]);
         setError(
-          `Could not load ${WORKSPACE_CLIENTS[client].name}: ${
+          `Could not load ${clientName}: ${
             clientError?.message ?? "Client not found."
           }`,
         );
@@ -369,9 +408,9 @@ export default function TeamHubProjectsPage() {
     return () => {
       isActive = false;
     };
-  }, [client, division, isClientReady]);
+  }, [client, clientName, division, isClientReady]);
 
-  function selectClient(value: WorkspaceClientSlug) {
+  function selectClient(value: string) {
     setClient(value);
   }
 
@@ -614,15 +653,14 @@ export default function TeamHubProjectsPage() {
               Client
             </p>
             <div className="flex items-center gap-3">
-              <ClientMark client={client} />
+              <ClientMark client={client} name={clientName} />
               <ClientSelect
                 value={client}
-                onChange={(value) =>
-                  selectClient(value as WorkspaceClientSlug)
-                }
+                onChange={selectClient}
                 options={clientOptions}
                 ariaLabel="Select project client"
                 tone="themed"
+                disabled={areClientsLoading || clientOptions.length === 0}
               />
             </div>
           </div>
@@ -665,7 +703,7 @@ export default function TeamHubProjectsPage() {
         <section className="mt-9 border-b border-[var(--border)] pb-9">
           <div className="mb-6">
             <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--primary)]">
-              {WORKSPACE_CLIENTS[client].name} · {DIVISION_LABELS[division]}
+              {clientName} · {DIVISION_LABELS[division]}
             </p>
             <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[var(--foreground)]">
               Item timeline and status
@@ -686,7 +724,7 @@ export default function TeamHubProjectsPage() {
           <div className="flex flex-col gap-4 border-b border-[var(--border)] pb-6 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--primary)]">
-                {WORKSPACE_CLIENTS[client].name} · Division
+                {clientName} · Division
               </p>
               <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[var(--foreground)]">
                 {DIVISION_LABELS[division]}
@@ -878,7 +916,7 @@ export default function TeamHubProjectsPage() {
                 No {DIVISION_LABELS[division].toLowerCase()} tasks yet.
               </p>
               <p className="mt-2 text-xs leading-5 text-[var(--muted-foreground)]">
-                Add the first task for {WORKSPACE_CLIENTS[client].name}.
+                Add the first task for {clientName}.
               </p>
             </div>
           )}
@@ -926,7 +964,7 @@ export default function TeamHubProjectsPage() {
           ).find((template) => template.id === selectedTemplate)?.label ??
           DIVISION_LABELS[division]
         }`}
-        description={`Create this task for ${WORKSPACE_CLIENTS[client].name}.`}
+        description={`Create this task for ${clientName}.`}
         submitLabel="Add task"
         isSaving={isSaving}
         submitDisabled={!title.trim()}

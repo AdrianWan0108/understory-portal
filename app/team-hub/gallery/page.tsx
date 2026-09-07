@@ -8,11 +8,6 @@ import { ClientSelect } from "@/app/_components/ClientSelect";
 import { galleryImagePreviewUrl } from "@/lib/gallery-links";
 import { projectClientInitial } from "@/lib/project-client-theme";
 import { supabase } from "@/lib/supabase";
-import {
-  WORKSPACE_CLIENTS,
-  WORKSPACE_CLIENT_SLUGS,
-  type WorkspaceClientSlug,
-} from "@/lib/workspace-clients";
 import { useProjectTheme } from "../projects/_components/ProjectThemeProvider";
 
 type GalleryBookRow = {
@@ -34,13 +29,19 @@ type GalleryBook = GalleryBookRow & {
   coverLink: string | null;
 };
 
-function ClientMark({ client }: { client: WorkspaceClientSlug }) {
+type GalleryClient = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
+function ClientMark({ client, name }: { client: string; name: string }) {
   return (
     <span
       aria-hidden="true"
       className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-sm font-bold text-[var(--primary-foreground)] shadow-sm"
     >
-      {projectClientInitial(client)}
+      {projectClientInitial(client, name)}
     </span>
   );
 }
@@ -67,13 +68,50 @@ function GalleryIcon() {
 export default function TeamHubGalleryPage() {
   const { client, isReady, setClient } = useProjectTheme();
   const [books, setBooks] = useState<GalleryBook[]>([]);
+  const [clients, setClients] = useState<GalleryClient[]>([]);
+  const [areClientsLoading, setAreClientsLoading] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const clientOptions = WORKSPACE_CLIENT_SLUGS.map((slug) => ({
-    value: slug,
-    label: WORKSPACE_CLIENTS[slug].name,
+  const clientOptions = clients.map((option) => ({
+    value: option.slug,
+    label: option.name,
   }));
+  const clientName =
+    clients.find((option) => option.slug === client)?.name ?? client;
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadClients() {
+      setAreClientsLoading(true);
+      const { data, error: clientsError } = await supabase
+        .from("clients")
+        .select("id, name, slug")
+        .order("name", { ascending: true });
+
+      if (!isActive) return;
+      if (clientsError) {
+        setError(`Could not load clients: ${clientsError.message}`);
+        setAreClientsLoading(false);
+        return;
+      }
+      const nextClients = (data ?? []) as GalleryClient[];
+      setClients(nextClients);
+      if (
+        nextClients.length > 0 &&
+        !nextClients.some((option) => option.slug === client)
+      ) {
+        setClient(nextClients[0].slug);
+      }
+      setAreClientsLoading(false);
+    }
+
+    void loadClients();
+    return () => {
+      isActive = false;
+    };
+  }, [client, setClient]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -93,7 +131,7 @@ export default function TeamHubGalleryPage() {
       if (!isActive) return;
       if (clientError || !clientRecord) {
         setError(
-          `Could not load ${WORKSPACE_CLIENTS[client].name}: ${clientError?.message ?? "Client not found."}`,
+          `Could not load ${clientName}: ${clientError?.message ?? "Client not found."}`,
         );
         setIsLoading(false);
         return;
@@ -154,7 +192,7 @@ export default function TeamHubGalleryPage() {
     return () => {
       isActive = false;
     };
-  }, [client, isReady]);
+  }, [client, clientName, isReady]);
 
   return (
     <main className="px-5 py-10 sm:px-8 sm:py-14 lg:px-12">
@@ -178,15 +216,14 @@ export default function TeamHubGalleryPage() {
               Client
             </p>
             <div className="flex items-center gap-3">
-              <ClientMark client={client} />
+              <ClientMark client={client} name={clientName} />
               <ClientSelect
                 value={client}
-                onChange={(value) =>
-                  setClient(value as WorkspaceClientSlug)
-                }
+                onChange={setClient}
                 options={clientOptions}
                 ariaLabel="Select gallery client"
                 tone="themed"
+                disabled={areClientsLoading || clientOptions.length === 0}
               />
             </div>
           </div>
@@ -205,7 +242,7 @@ export default function TeamHubGalleryPage() {
           <div className="flex items-end justify-between gap-4 border-b border-[var(--border)] pb-5">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.17em] text-[var(--primary)]">
-                {WORKSPACE_CLIENTS[client].name}
+                {clientName}
               </p>
               <h2
                 id="team-gallery-books"

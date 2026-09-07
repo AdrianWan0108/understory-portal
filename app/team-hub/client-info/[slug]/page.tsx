@@ -371,6 +371,7 @@ export default function TeamHubClientInfoDetailPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [isEditing, setIsEditing] = useState(false);
+  const [clientNameDraft, setClientNameDraft] = useState("");
   const [draft, setDraft] = useState<ClientProfileFields>(EMPTY_FIELDS);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -447,14 +448,37 @@ export default function TeamHubClientInfoDetailPage() {
       },
     );
     setDraft(next);
+    setClientNameDraft(client?.name ?? "");
     setSaveError(null);
     setIsEditing(true);
   }
 
   async function saveProfile() {
-    if (!client || isSaving) return;
+    if (!client || !clientNameDraft.trim() || isSaving) return;
     setIsSaving(true);
     setSaveError(null);
+
+    if (clientNameDraft.trim() !== client.name) {
+      try {
+        const response = await fetch("/api/team-hub/clients", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: client.id, name: clientNameDraft }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          setSaveError(body.error ?? "Could not update the client name.");
+          setIsSaving(false);
+          return;
+        }
+        setClient(body.client as ClientRow);
+      } catch {
+        setSaveError("Could not reach the server to update the client name.");
+        setIsSaving(false);
+        return;
+      }
+    }
+
     const payload = Object.fromEntries(
       Object.entries(draft).map(([key, value]) => [key, value.trim() || null]),
     );
@@ -702,6 +726,27 @@ export default function TeamHubClientInfoDetailPage() {
               </p>
             )}
             <div className="space-y-8">
+              <div>
+                <div className="flex items-center gap-2 text-[#7D4698]">
+                  <InfoIcon name="business" className="size-4" />
+                  <h3 className="text-sm font-semibold text-[#341F60]">
+                    Client identity
+                  </h3>
+                </div>
+                <label className="mt-3 block text-xs font-semibold text-[#341F60]">
+                  Client name
+                  <input
+                    autoFocus
+                    value={clientNameDraft}
+                    onChange={(event) => setClientNameDraft(event.target.value)}
+                    placeholder="Client name"
+                    className={`mt-2 ${teamInputClass}`}
+                  />
+                </label>
+                <p className="mt-2 text-xs text-[#8B7895]">
+                  The portal URL slug stays unchanged so existing links keep working.
+                </p>
+              </div>
               {FIELD_GROUPS.map((group) => (
                 <div key={group.title}>
                   <div className="flex items-center gap-2 text-[#7D4698]">
@@ -767,7 +812,7 @@ export default function TeamHubClientInfoDetailPage() {
               </TeamButton>
               <TeamButton
                 type="button"
-                disabled={isSaving}
+                disabled={isSaving || !clientNameDraft.trim()}
                 onClick={() => void saveProfile()}
               >
                 {isSaving ? "Saving…" : "Save client info"}

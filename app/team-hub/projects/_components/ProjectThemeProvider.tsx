@@ -11,19 +11,16 @@ import {
 import { usePathname } from "next/navigation";
 import {
   projectClientTheme,
+  isProjectClientSlug,
   readStoredProjectClient,
   storeProjectClient,
 } from "@/lib/project-client-theme";
 import { supabase } from "@/lib/supabase";
-import {
-  isWorkspaceClientSlug,
-  type WorkspaceClientSlug,
-} from "@/lib/workspace-clients";
 
 type ProjectThemeContextValue = {
-  client: WorkspaceClientSlug;
+  client: string;
   isReady: boolean;
-  setClient: (client: WorkspaceClientSlug) => void;
+  setClient: (client: string) => void;
 };
 
 const ProjectThemeContext =
@@ -42,10 +39,10 @@ export function ProjectThemeProvider({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const [client, setClientState] = useState<WorkspaceClientSlug>("mvp");
+  const [client, setClientState] = useState("mvp");
   const [isReady, setIsReady] = useState(false);
 
-  const setClient = useCallback((nextClient: WorkspaceClientSlug) => {
+  const setClient = useCallback((nextClient: string) => {
     setClientState(nextClient);
     storeProjectClient(nextClient);
   }, []);
@@ -57,7 +54,7 @@ export function ProjectThemeProvider({
       const queryClient = new URLSearchParams(window.location.search).get(
         "client",
       );
-      if (isWorkspaceClientSlug(queryClient)) {
+      if (isProjectClientSlug(queryClient)) {
         setClient(queryClient);
         setIsReady(true);
         return;
@@ -81,7 +78,7 @@ export function ProjectThemeProvider({
 
           if (!isActive) return;
           const resolvedSlug = clientRecord?.slug ?? null;
-          if (isWorkspaceClientSlug(resolvedSlug)) {
+          if (isProjectClientSlug(resolvedSlug)) {
             setClient(resolvedSlug);
             setIsReady(true);
             return;

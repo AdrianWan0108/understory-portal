@@ -1,4 +1,4 @@
-import type { WorkspaceClientSlug } from "@/lib/workspace-clients";
+import { isWorkspaceClientSlug } from "@/lib/workspace-clients";
 
 export const DIVISIONS = [
   "social-media",
@@ -87,9 +87,7 @@ export const EMPTY_FILMING_CARD_DATA: FilmingCardData = {
   source_reference_url: "",
 };
 
-export const FILMING_PARTICIPANTS_BY_CLIENT: Partial<
-  Record<WorkspaceClientSlug, string[]>
-> = {
+export const FILMING_PARTICIPANTS_BY_CLIENT: Partial<Record<string, string[]>> = {
   mvp: ["Dorothy", "Gary"],
 };
 
@@ -201,7 +199,7 @@ export function normalizeFilmingCardData(
 
 export function specializedDivisionHref(
   division: Division,
-  client: WorkspaceClientSlug,
+  client: string,
   taskId?: string,
   templateType?: DivisionTaskTemplate,
 ) {
@@ -213,7 +211,7 @@ export function specializedDivisionHref(
     return `/team-hub/projects/${encodeURIComponent(taskId)}/calendar?calendar=${encodeURIComponent(taskId)}`;
   }
 
-  if (division === "website") {
+  if (division === "website" && isWorkspaceClientSlug(client)) {
     const taskQuery = taskId
       ? `&task=${encodeURIComponent(taskId)}`
       : "";

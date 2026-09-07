@@ -36,3 +36,11 @@ export function validateNewClientInput(value: unknown): NewClientInput {
 
   return { name, slug };
 }
+
+export function validateClientName(value: unknown) {
+  const name = typeof value === "string" ? value.trim() : "";
+  if (name.length < 2 || name.length > 100) {
+    throw new ClientInputError("Client name must be between 2 and 100 characters.");
+  }
+  return name;
+}

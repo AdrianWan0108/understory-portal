@@ -3,9 +3,11 @@ import {
   TEAM_IDENTITIES,
   TEAM_SESSION_COOKIE,
   getTeamIdentityForUsername,
+  getTeamMemberIdentityForUsername,
 } from "@/lib/team-auth";
 import {
   ClientInputError,
+  validateClientName,
   validateNewClientInput,
 } from "@/lib/client-management";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
@@ -73,4 +75,50 @@ export async function POST(request: NextRequest) {
   }
 
   return Response.json({ client: data }, { status: 201 });
+}
+
+export async function PATCH(request: NextRequest) {
+  if (!isTrustedMutationOrigin(request)) {
+    return jsonError("Invalid request origin.", 403);
+  }
+
+  const identity = getTeamMemberIdentityForUsername(
+    request.cookies.get(TEAM_SESSION_COOKIE)?.value,
+  );
+  if (!identity) {
+    return jsonError("Team member access is required to rename a client.", 403);
+  }
+
+  let body: Record<string, unknown>;
+  let name: string;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+    name = validateClientName(body.name);
+  } catch (caught) {
+    return jsonError(
+      caught instanceof ClientInputError
+        ? caught.message
+        : "Invalid request body.",
+      422,
+    );
+  }
+
+  const id = typeof body.id === "string" ? body.id.trim() : "";
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+    return jsonError("A valid client ID is required.", 422);
+  }
+
+  const admin = getSupabaseAdmin();
+  if (!admin) return jsonError("Client storage is not configured.", 503);
+
+  const { data, error } = await admin
+    .from("clients")
+    .update({ name })
+    .eq("id", id)
+    .select("id, name, slug, logo_url")
+    .maybeSingle();
+
+  if (error) return jsonError(error.message, 500);
+  if (!data) return jsonError("Client not found.", 404);
+  return Response.json({ client: data });
 }

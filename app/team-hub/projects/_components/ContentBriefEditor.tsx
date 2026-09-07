@@ -8,7 +8,6 @@ import {
 import { projectInputClass } from "@/lib/project-client-theme";
 import { appendDivisionTaskMention } from "@/lib/project-mentions";
 import { supabase } from "@/lib/supabase";
-import type { WorkspaceClientSlug } from "@/lib/workspace-clients";
 import { TeamButton } from "../../_components/TeamHubUi";
 import { FilmingDetailsEditor } from "./FilmingDetailsEditor";
 import { TaskMentionTextarea } from "./TaskMentionTextarea";
@@ -21,7 +20,7 @@ export function ContentBriefEditor({
   initialFilmingData,
 }: {
   taskId: string;
-  clientSlug: WorkspaceClientSlug;
+  clientSlug: string;
   initialData: unknown;
   initialFilmingData: unknown;
 }) {

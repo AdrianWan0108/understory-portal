@@ -11,7 +11,6 @@ import { projectInputClass } from "@/lib/project-client-theme";
 import { appendDivisionTaskMention } from "@/lib/project-mentions";
 import { resolveInstagramEmbedUrl } from "@/lib/social-content";
 import { supabase } from "@/lib/supabase";
-import type { WorkspaceClientSlug } from "@/lib/workspace-clients";
 import { TeamButton } from "../../_components/TeamHubUi";
 import {
   TaskMentionInput,
@@ -100,7 +99,7 @@ export function FilmingDetailsEditor({
   initialData,
 }: {
   taskId: string;
-  clientSlug: WorkspaceClientSlug;
+  clientSlug: string;
   initialData: unknown;
 }) {
   const teamMembers = useTaskTeamMembers();
