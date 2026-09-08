@@ -5,12 +5,11 @@ import {
   resolveReviewMediaLink,
 } from "../lib/review-media-links.ts";
 
-test("accepts Frame.io short and application share links", () => {
+test("accepts Frame.io short and application links", () => {
   for (const url of [
     "https://f.io/_aBcDeF",
     "https://frame.io/share/abc123",
     "https://app.frame.io/reviews/abc123",
-    "https://next.frame.io/share/abc123",
   ]) {
     assert.equal(isFrameIoUrl(url), true);
     assert.deepEqual(resolveReviewMediaLink(url), {
@@ -20,6 +19,18 @@ test("accepts Frame.io short and application share links", () => {
       previewUrl: null,
     });
   }
+});
+
+test("embeds Frame.io V4 share links in the Reel preview", () => {
+  const url =
+    "https://next.frame.io/share/share-id/view/asset-id";
+
+  assert.deepEqual(resolveReviewMediaLink(url), {
+    provider: "frame-io",
+    providerLabel: "Frame.io",
+    openUrl: url,
+    previewUrl: url,
+  });
 });
 
 test("keeps Google Drive previews and rejects lookalike Frame.io domains", () => {

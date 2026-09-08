@@ -46,6 +46,14 @@ function frameIoUrl(value: string) {
   }
 }
 
+function frameIoPreviewUrl(url: URL) {
+  const hostname = url.hostname.toLowerCase();
+  const isV4Share =
+    hostname === "next.frame.io" && url.pathname.startsWith("/share/");
+
+  return isV4Share ? url.toString() : null;
+}
+
 export function isFrameIoUrl(value: string) {
   return Boolean(frameIoUrl(value));
 }
@@ -67,7 +75,7 @@ export function resolveReviewMediaLink(value: string): ReviewMediaLink | null {
       provider: "frame-io",
       providerLabel: "Frame.io",
       openUrl: frameIo.toString(),
-      previewUrl: null,
+      previewUrl: frameIoPreviewUrl(frameIo),
     };
   }
 
