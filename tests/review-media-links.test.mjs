@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  extractFrameIoV4ShareParts,
+  frameIoPlaybackUrl,
+  frameIoThumbnailUrl,
   isFrameIoUrl,
   resolveReviewMediaLink,
 } from "../lib/review-media-links.ts";
@@ -31,6 +34,39 @@ test("embeds Frame.io V4 share links in the Reel preview", () => {
     openUrl: url,
     previewUrl: url,
   });
+});
+
+test("builds a local thumbnail URL for Frame.io V4 share assets", () => {
+  const url =
+    "https://next.frame.io/share/share-id/view/asset-id?utm_source=portal";
+
+  assert.deepEqual(extractFrameIoV4ShareParts(url), {
+    shareId: "share-id",
+    assetId: "asset-id",
+  });
+  assert.equal(
+    frameIoThumbnailUrl(url),
+    "/api/frame-io/thumbnail?shareId=share-id&assetId=asset-id",
+  );
+  assert.equal(
+    frameIoPlaybackUrl(url),
+    "/api/frame-io/media?shareId=share-id&assetId=asset-id",
+  );
+});
+
+test("does not build thumbnails for legacy or malformed Frame.io links", () => {
+  assert.equal(frameIoThumbnailUrl("https://f.io/_aBcDeF"), null);
+  assert.equal(frameIoPlaybackUrl("https://f.io/_aBcDeF"), null);
+  assert.equal(
+    frameIoThumbnailUrl("https://next.frame.io/share/share-id"),
+    null,
+  );
+  assert.equal(
+    extractFrameIoV4ShareParts(
+      "https://next.frame.io/share/share-id/view/%2Fetc%2Fpasswd",
+    ),
+    null,
+  );
 });
 
 test("keeps Google Drive previews and rejects lookalike Frame.io domains", () => {

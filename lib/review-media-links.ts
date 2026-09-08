@@ -31,6 +31,13 @@ export type ReviewMediaLink = {
   previewUrl: string | null;
 };
 
+export type FrameIoV4ShareParts = {
+  shareId: string;
+  assetId: string;
+};
+
+const FRAME_IO_SHARE_PART_PATTERN = /^[A-Za-z0-9_-]{3,128}$/;
+
 function frameIoUrl(value: string) {
   try {
     const url = new URL(value.trim());
@@ -52,6 +59,42 @@ function frameIoPreviewUrl(url: URL) {
     hostname === "next.frame.io" && url.pathname.startsWith("/share/");
 
   return isV4Share ? url.toString() : null;
+}
+
+export function extractFrameIoV4ShareParts(
+  value: string,
+): FrameIoV4ShareParts | null {
+  const url = frameIoUrl(value);
+  if (!url || url.hostname.toLowerCase() !== "next.frame.io") return null;
+
+  const match = url.pathname.match(/^\/share\/([^/]+)\/view\/([^/]+)\/?$/);
+  if (!match) return null;
+
+  const [, shareId, assetId] = match;
+  if (
+    !FRAME_IO_SHARE_PART_PATTERN.test(shareId) ||
+    !FRAME_IO_SHARE_PART_PATTERN.test(assetId)
+  ) {
+    return null;
+  }
+
+  return { shareId, assetId };
+}
+
+export function frameIoThumbnailUrl(value: string) {
+  const parts = extractFrameIoV4ShareParts(value);
+  if (!parts) return null;
+
+  const query = new URLSearchParams(parts);
+  return `/api/frame-io/thumbnail?${query.toString()}`;
+}
+
+export function frameIoPlaybackUrl(value: string) {
+  const parts = extractFrameIoV4ShareParts(value);
+  if (!parts) return null;
+
+  const query = new URLSearchParams(parts);
+  return `/api/frame-io/media?${query.toString()}`;
 }
 
 export function isFrameIoUrl(value: string) {

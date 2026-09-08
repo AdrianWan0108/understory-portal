@@ -5,6 +5,8 @@ import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { extractGoogleDriveFileId } from "@/lib/google-drive";
 import {
+  frameIoPlaybackUrl,
+  frameIoThumbnailUrl,
   isFrameIoUrl,
   resolveReviewMediaLink,
 } from "@/lib/review-media-links";
@@ -956,7 +958,7 @@ function approvalStateLabel(state: ReturnType<typeof deriveInternalApprovalState
 
 function visualPreviewUrl(value: string | null | undefined) {
   if (!value) return null;
-  if (isFrameIoUrl(value)) return null;
+  if (isFrameIoUrl(value)) return frameIoThumbnailUrl(value);
   const driveFileId = extractGoogleDriveFileId(value);
   if (driveFileId) {
     return `https://drive.google.com/thumbnail?id=${encodeURIComponent(
@@ -990,6 +992,131 @@ function postVisualPreviewUrl(post: ApprovalPost) {
           post.task_slides[0]?.image_url ||
           post.creative_drive_link
       : post.task_slides[0]?.image_url || post.creative_drive_link,
+  );
+}
+
+function FrameIoVideoPlayer({
+  mediaUrl,
+  openUrl,
+  posterUrl,
+  title,
+}: {
+  mediaUrl: string;
+  openUrl: string;
+  posterUrl: string | null;
+  title: string;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [playerError, setPlayerError] = useState(false);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    let cancelled = false;
+    let hlsPlayer: { destroy: () => void } | null = null;
+    let mp4FallbackUrl: string | null = null;
+    let usingMp4 = false;
+
+    const fallBackOrShowError = () => {
+      if (cancelled) return;
+      if (mp4FallbackUrl && !usingMp4) {
+        hlsPlayer?.destroy();
+        hlsPlayer = null;
+        usingMp4 = true;
+        video.src = mp4FallbackUrl;
+        video.load();
+        return;
+      }
+      setPlayerError(true);
+    };
+
+    video.addEventListener("error", fallBackOrShowError);
+
+    const loadVideo = async () => {
+      setPlayerError(false);
+      const response = await fetch(mediaUrl);
+      if (!response.ok) throw new Error("Frame.io media request failed");
+
+      const media = (await response.json()) as {
+        hlsUrl?: string | null;
+        mp4Url?: string | null;
+      };
+      if (cancelled) return;
+      mp4FallbackUrl = media.mp4Url ?? null;
+
+      if (
+        media.hlsUrl &&
+        video.canPlayType("application/vnd.apple.mpegurl")
+      ) {
+        video.src = media.hlsUrl;
+        return;
+      }
+
+      if (media.hlsUrl) {
+        const { default: Hls } = await import("hls.js");
+        if (cancelled) return;
+        if (Hls.isSupported()) {
+          const player = new Hls();
+          player.on(Hls.Events.ERROR, (_event, data) => {
+            if (data.fatal) fallBackOrShowError();
+          });
+          player.loadSource(media.hlsUrl);
+          player.attachMedia(video);
+          hlsPlayer = player;
+          return;
+        }
+      }
+
+      if (media.mp4Url) {
+        usingMp4 = true;
+        video.src = media.mp4Url;
+        return;
+      }
+
+      throw new Error("No supported Frame.io video stream");
+    };
+
+    loadVideo().catch(() => {
+      if (!cancelled) setPlayerError(true);
+    });
+
+    return () => {
+      cancelled = true;
+      hlsPlayer?.destroy();
+      video.removeEventListener("error", fallBackOrShowError);
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [mediaUrl]);
+
+  return (
+    <div className="relative flex aspect-[9/16] items-center justify-center overflow-hidden rounded-2xl bg-black shadow-sm">
+      <video
+        ref={videoRef}
+        aria-label={title}
+        controls
+        controlsList="nodownload"
+        disablePictureInPicture
+        playsInline
+        poster={posterUrl ?? undefined}
+        preload="metadata"
+        className="h-full w-full object-contain"
+      />
+      {playerError && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 p-6 text-center text-white">
+          <p className="text-sm font-semibold">Video preview unavailable</p>
+          <a
+            href={openUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-3 rounded-full border border-white/30 px-4 py-2 text-xs font-semibold"
+          >
+            Open video
+          </a>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1419,6 +1546,10 @@ export function SocialApprovalCalendar({
         openUrl: selectedReelMedia.openUrl,
       }
     : null;
+  const selectedFrameIoPlaybackUrl =
+    selectedReelMedia?.provider === "frame-io"
+      ? frameIoPlaybackUrl(selectedReelMedia.openUrl)
+      : null;
   const selectedSlideItem = selectedPost?.task_slides[selectedSlide];
   const selectedCreativeLink = selectedPost
     ? selectedPost.format === "reel"
@@ -3781,7 +3912,14 @@ export function SocialApprovalCalendar({
             </button>
 
             <div className="relative bg-[var(--muted)] p-4 sm:p-6">
-              {selectedReelVideoUrls ? (
+              {selectedFrameIoPlaybackUrl && selectedReelMedia ? (
+                <FrameIoVideoPlayer
+                  mediaUrl={selectedFrameIoPlaybackUrl}
+                  openUrl={selectedReelMedia.openUrl}
+                  posterUrl={selectedVisualPreviewUrl}
+                  title={`${selectedPost.title} Reel video`}
+                />
+              ) : selectedReelVideoUrls ? (
                 <div className="relative flex aspect-[9/16] items-center justify-center overflow-hidden rounded-2xl bg-black shadow-sm">
                   <iframe
                     src={selectedReelVideoUrls.previewUrl}
