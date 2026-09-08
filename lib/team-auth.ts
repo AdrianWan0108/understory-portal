@@ -112,6 +112,20 @@ export function isValidTeamUsername(
   return getTeamIdentityForUsername(username) !== null;
 }
 
+export function shouldRestrictSocialContentCardsToUser({
+  username,
+  accessLevel,
+}: {
+  username: string;
+  accessLevel: TeamAccessLevel;
+}): boolean {
+  return (
+    accessLevel === "staff" &&
+    username.trim().toLocaleLowerCase() !==
+      TEAM_IDENTITIES.sure.username.toLocaleLowerCase()
+  );
+}
+
 export function isGuestAllowedTeamPath(pathname: string) {
   return (
     pathname === "/team-hub/client-info" ||

@@ -50,7 +50,11 @@ import {
   SOCIAL_CONTENT_IMPORT_EXAMPLE,
 } from "@/lib/social-content-import";
 import { supabase } from "@/lib/supabase";
-import { TEAM_IDENTITIES, TEAM_MEMBER_PROFILES } from "@/lib/team-auth";
+import {
+  shouldRestrictSocialContentCardsToUser,
+  TEAM_IDENTITIES,
+  TEAM_MEMBER_PROFILES,
+} from "@/lib/team-auth";
 import { readTeamSessionProfile } from "@/app/team-hub/_components/TeamIdentity";
 import { isWorkspaceClientSlug } from "@/lib/workspace-clients";
 
@@ -1264,7 +1268,10 @@ export function SocialApprovalCalendar({
 
       if (mode === "internal") {
         const teamProfile = readTeamSessionProfile();
-        if (teamProfile?.accessLevel === "staff") {
+        if (
+          teamProfile &&
+          shouldRestrictSocialContentCardsToUser(teamProfile)
+        ) {
           query = query.or(
             `assignee_usernames.cs.{${teamProfile.username}},mentioned_usernames.cs.{${teamProfile.username}}`,
           );

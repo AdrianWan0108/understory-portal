@@ -5,6 +5,7 @@ import {
   getTeamIdentityForUsername,
   getTeamMemberIdentityForUsername,
   isGuestAllowedTeamPath,
+  shouldRestrictSocialContentCardsToUser,
   TEAM_GUEST_DEFAULT_PATH,
   TEAM_MEMBER_PROFILES,
 } from "../lib/team-auth.ts";
@@ -35,6 +36,30 @@ test("guest routes are constrained to client info and gallery", () => {
   assert.equal(
     getSafeTeamReturnPath("/team-hub/gallery?client=mvp", "guest"),
     "/team-hub/gallery?client=mvp",
+  );
+});
+
+test("Sure can view every social content card while other staff remain restricted", () => {
+  assert.equal(
+    shouldRestrictSocialContentCardsToUser({
+      username: "Understory_Sure",
+      accessLevel: "staff",
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRestrictSocialContentCardsToUser({
+      username: "Understory_Arion",
+      accessLevel: "staff",
+    }),
+    true,
+  );
+  assert.equal(
+    shouldRestrictSocialContentCardsToUser({
+      username: "Understory_Karen",
+      accessLevel: "owner",
+    }),
+    false,
   );
 });
 
