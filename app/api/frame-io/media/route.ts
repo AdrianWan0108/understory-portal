@@ -27,18 +27,17 @@ export async function GET(request: NextRequest) {
 
   try {
     const media = await loadFrameIoAssetMedia(shareId, assetId);
-    if (!media?.hlsUrl && !media?.mp4Url) {
-      return errorResponse("Frame.io video stream was not found", 404);
+    if (!media?.playbackUrl) {
+      return errorResponse("Frame.io video file was not found", 404);
     }
 
-    return Response.json(
-      { hlsUrl: media.hlsUrl, mp4Url: media.mp4Url },
-      {
-        headers: {
-          "Cache-Control": "private, max-age=300",
-        },
+    return new Response(null, {
+      status: 307,
+      headers: {
+        Location: media.playbackUrl,
+        "Cache-Control": "private, max-age=300",
       },
-    );
+    });
   } catch {
     return errorResponse("Frame.io video is unavailable", 502);
   }

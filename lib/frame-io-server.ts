@@ -5,9 +5,11 @@ const FRAME_IO_MEDIA_HOSTS = new Set([
   "assets.frame.io",
   "picture.frame.io",
   "picture2.frame.io",
+  "stream-download.frame.io",
 ]);
 
 type FrameIoTranscode = {
+  downloadUrl?: string | null;
   encodeStatus?: string | null;
   key?: string | null;
   streamUrl?: string | null;
@@ -17,6 +19,10 @@ type FrameIoAsset = {
   thumbnailImageUrl?: { url?: string | null } | null;
   media?: {
     imageTranscodes?: FrameIoTranscode[] | null;
+    original?: {
+      downloadUrl?: string | null;
+      inlineUrl?: string | null;
+    } | null;
     videoTranscodes?: FrameIoTranscode[] | null;
   } | null;
 };
@@ -27,8 +33,7 @@ type FrameIoAssetsResponse = {
 
 export type FrameIoAssetMedia = {
   thumbnailUrl: string | null;
-  hlsUrl: string | null;
-  mp4Url: string | null;
+  playbackUrl: string | null;
 };
 
 const FRAME_IO_ASSET_QUERY = `
@@ -45,10 +50,14 @@ const FRAME_IO_ASSET_QUERY = `
             key
             streamUrl
           }
+          original {
+            downloadUrl
+            inlineUrl
+          }
           videoTranscodes {
+            downloadUrl
             encodeStatus
             key
-            streamUrl
           }
         }
       }
@@ -72,6 +81,7 @@ function isAllowedFrameMediaUrl(value: string) {
 function usableTranscode(
   transcodes: FrameIoTranscode[],
   preferredKeys: string[],
+  urlKey: "downloadUrl" | "streamUrl" = "streamUrl",
 ) {
   for (const key of preferredKeys) {
     const transcode = transcodes.find(
@@ -79,13 +89,11 @@ function usableTranscode(
         candidate.key === key &&
         candidate.encodeStatus !== "failed" &&
         candidate.encodeStatus !== "FAILURE" &&
-        candidate.streamUrl,
+        candidate[urlKey],
     );
-    if (
-      transcode?.streamUrl &&
-      isAllowedFrameMediaUrl(transcode.streamUrl)
-    ) {
-      return transcode.streamUrl;
+    const url = transcode?.[urlKey];
+    if (url && isAllowedFrameMediaUrl(url)) {
+      return url;
     }
   }
 
@@ -134,22 +142,24 @@ export async function loadFrameIoAssetMedia(
           "image_full",
         ]);
   const videoTranscodes = asset.media?.videoTranscodes ?? [];
+  const originalPlaybackUrl =
+    asset.media?.original?.inlineUrl || asset.media?.original?.downloadUrl;
 
   return {
     thumbnailUrl,
-    hlsUrl: usableTranscode(videoTranscodes, [
-      "h264_1080_best",
-      "h264_1080",
-      "h264_720",
-      "h264_540",
-      "h264_360",
-    ]),
-    mp4Url: usableTranscode(videoTranscodes, [
-      "video_h264_1080",
-      "video_h264_720",
-      "video_h264_540",
-      "video_h264_360",
-      "video_h264_180",
-    ]),
+    playbackUrl:
+      originalPlaybackUrl && isAllowedFrameMediaUrl(originalPlaybackUrl)
+        ? originalPlaybackUrl
+        : usableTranscode(
+            videoTranscodes,
+            [
+              "h264_1080_best",
+              "h264_1080",
+              "h264_720",
+              "h264_540",
+              "h264_360",
+            ],
+            "downloadUrl",
+          ),
   };
 }

@@ -1006,94 +1006,11 @@ function FrameIoVideoPlayer({
   posterUrl: string | null;
   title: string;
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
   const [playerError, setPlayerError] = useState(false);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    let cancelled = false;
-    let hlsPlayer: { destroy: () => void } | null = null;
-    let mp4FallbackUrl: string | null = null;
-    let usingMp4 = false;
-
-    const fallBackOrShowError = () => {
-      if (cancelled) return;
-      if (mp4FallbackUrl && !usingMp4) {
-        hlsPlayer?.destroy();
-        hlsPlayer = null;
-        usingMp4 = true;
-        video.src = mp4FallbackUrl;
-        video.load();
-        return;
-      }
-      setPlayerError(true);
-    };
-
-    video.addEventListener("error", fallBackOrShowError);
-
-    const loadVideo = async () => {
-      setPlayerError(false);
-      const response = await fetch(mediaUrl);
-      if (!response.ok) throw new Error("Frame.io media request failed");
-
-      const media = (await response.json()) as {
-        hlsUrl?: string | null;
-        mp4Url?: string | null;
-      };
-      if (cancelled) return;
-      mp4FallbackUrl = media.mp4Url ?? null;
-
-      if (
-        media.hlsUrl &&
-        video.canPlayType("application/vnd.apple.mpegurl")
-      ) {
-        video.src = media.hlsUrl;
-        return;
-      }
-
-      if (media.hlsUrl) {
-        const { default: Hls } = await import("hls.js");
-        if (cancelled) return;
-        if (Hls.isSupported()) {
-          const player = new Hls();
-          player.on(Hls.Events.ERROR, (_event, data) => {
-            if (data.fatal) fallBackOrShowError();
-          });
-          player.loadSource(media.hlsUrl);
-          player.attachMedia(video);
-          hlsPlayer = player;
-          return;
-        }
-      }
-
-      if (media.mp4Url) {
-        usingMp4 = true;
-        video.src = media.mp4Url;
-        return;
-      }
-
-      throw new Error("No supported Frame.io video stream");
-    };
-
-    loadVideo().catch(() => {
-      if (!cancelled) setPlayerError(true);
-    });
-
-    return () => {
-      cancelled = true;
-      hlsPlayer?.destroy();
-      video.removeEventListener("error", fallBackOrShowError);
-      video.removeAttribute("src");
-      video.load();
-    };
-  }, [mediaUrl]);
 
   return (
     <div className="relative flex aspect-[9/16] items-center justify-center overflow-hidden rounded-2xl bg-black shadow-sm">
       <video
-        ref={videoRef}
         aria-label={title}
         controls
         controlsList="nodownload"
@@ -1101,6 +1018,8 @@ function FrameIoVideoPlayer({
         playsInline
         poster={posterUrl ?? undefined}
         preload="metadata"
+        src={mediaUrl}
+        onError={() => setPlayerError(true)}
         className="h-full w-full object-contain"
       />
       {playerError && (

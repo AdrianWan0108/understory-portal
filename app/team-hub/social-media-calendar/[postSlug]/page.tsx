@@ -6,6 +6,7 @@ import {
   socialPostHref,
   socialPostIdFromPathSegment,
   socialPostPathSegment,
+  socialPostTitleSlug,
 } from "@/lib/social-post-links";
 import { supabase } from "@/lib/supabase";
 
@@ -23,14 +24,25 @@ export default async function SocialPostPage({
   const { postSlug } = await params;
   const postId = socialPostIdFromPathSegment(postSlug);
 
-  if (!postId) notFound();
-
-  const { data } = await supabase
-    .from("tasks")
-    .select("id, title, division_task_id")
-    .eq("id", postId)
-    .maybeSingle();
-  const post = data as SocialPostRow | null;
+  let post: SocialPostRow | null = null;
+  if (postId) {
+    const { data } = await supabase
+      .from("tasks")
+      .select("id, title, division_task_id")
+      .eq("id", postId)
+      .maybeSingle();
+    post = data as SocialPostRow | null;
+  } else {
+    const { data } = await supabase
+      .from("tasks")
+      .select("id, title, division_task_id")
+      .not("division_task_id", "is", null)
+      .limit(1000);
+    post =
+      ((data ?? []) as SocialPostRow[]).find(
+        (candidate) => socialPostTitleSlug(candidate.title) === postSlug,
+      ) ?? null;
+  }
 
   if (!post?.division_task_id) notFound();
   if (postSlug !== socialPostPathSegment(post)) {

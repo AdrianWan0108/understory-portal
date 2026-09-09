@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   absoluteSocialPostUrl,
+  legacySocialPostPathSegment,
   socialPostHref,
   socialPostIdFromPathSegment,
   socialPostIdToToken,
-  socialPostPathSegment,
   socialPostTitleSlug,
   socialPostTokenToId,
 } from "../lib/social-post-links.ts";
@@ -20,7 +20,7 @@ test("builds a readable, stable social post URL", () => {
 
   assert.equal(
     href,
-    `/team-hub/social-media-calendar/september-launch-behind-the-scenes--${socialPostIdToToken(POST_ID)}`,
+    "/team-hub/social-media-calendar/september-launch-behind-the-scenes",
   );
   assert.equal(
     absoluteSocialPostUrl("https://portal.example.com", {
@@ -39,18 +39,11 @@ test("round-trips the compact UUID token", () => {
   assert.equal(socialPostTokenToId("not-a-valid-token"), null);
 });
 
-test("keeps URLs unique when two posts have the same title", () => {
-  const first = socialPostHref({ id: POST_ID, title: "Weekly update" });
-  const second = socialPostHref({
-    id: "7cc829ae-5159-4bb0-8309-7b96724b0ffe",
-    title: "Weekly update",
-  });
-
-  assert.notEqual(first, second);
-});
-
 test("resolves an old title slug after the post is renamed", () => {
-  const oldSegment = socialPostPathSegment({ id: POST_ID, title: "Old name" });
+  const oldSegment = legacySocialPostPathSegment({
+    id: POST_ID,
+    title: "Old name",
+  });
 
   assert.equal(socialPostIdFromPathSegment(oldSegment), POST_ID);
   assert.equal(socialPostTitleSlug("Café / 秋季 推廣"), "cafe-秋季-推廣");

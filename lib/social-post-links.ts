@@ -56,6 +56,10 @@ export function socialPostTokenToId(token: string) {
 }
 
 export function socialPostPathSegment(post: SocialPostLinkTarget) {
+  return socialPostTitleSlug(post.title);
+}
+
+export function legacySocialPostPathSegment(post: SocialPostLinkTarget) {
   return `${socialPostTitleSlug(post.title)}--${socialPostIdToToken(post.id)}`;
 }
 
