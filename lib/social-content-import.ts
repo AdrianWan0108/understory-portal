@@ -37,6 +37,8 @@ const EMPTY_REEL_DETAILS: ReelDetails = {
   cta: "",
   videoUrl: "",
   coverUrl: "",
+  coverUrls: {},
+  showInFeed: true,
   footageLinks: [],
   referenceLinks: [],
 };
@@ -343,6 +345,17 @@ export function parseSocialContentImport(
         coverUrl: text(
           field(reel, "coverUrl", "cover_url", "reelCover", "reel_cover"),
         ),
+        coverUrls: Object.fromEntries(
+          Object.entries(
+            asRecord(field(reel, "coverUrls", "cover_urls")) ?? {},
+          ).flatMap(([channel, url]) =>
+            channel.trim() && typeof url === "string"
+              ? [[channel.trim(), url]]
+              : [],
+          ),
+        ),
+        showInFeed:
+          field(reel, "showInFeed", "show_in_feed") === false ? false : true,
         footageLinks: stringList(field(reel, "footageLinks", "footage_links")),
         referenceLinks: stringList(field(reel, "referenceLinks", "reference_links")),
       },
@@ -424,6 +437,8 @@ export const SOCIAL_CONTENT_IMPORT_EXAMPLE = JSON.stringify(
           cta: "Follow for the finished result",
           videoUrl: "",
           coverUrl: "",
+          coverUrls: {},
+          showInFeed: true,
           footageLinks: [],
           referenceLinks: [],
         },

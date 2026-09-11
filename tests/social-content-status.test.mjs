@@ -8,6 +8,8 @@ import {
   earliestSocialPlatformSchedule,
   estimateSocialProductionDeadline,
   normalizeSocialFilmingDetails,
+  normalizeSocialPlatformCaptions,
+  normalizeSocialPlatformScheduleStatuses,
   normalizeSocialPostStatus,
   normalizeSocialPlatformSchedules,
   normalizeSocialProductionStatus,
@@ -19,6 +21,7 @@ import {
   publishingStatusAfterTransition,
   reconcileSocialProductionStatus,
   requiredSocialClientReviewerKeys,
+  shouldShowSocialPostInFeed,
   SOCIAL_PRODUCTION_STATUSES,
   SOCIAL_PRODUCTION_STATUS_LABELS,
   SOCIAL_PUBLISHING_STATUSES,
@@ -29,6 +32,92 @@ import {
   SOCIAL_POST_STATUS_LABELS,
   SOCIAL_POST_FORMATS,
 } from "../lib/social-content.ts";
+
+test("platform captions normalize per channel and preserve old shared captions", () => {
+  assert.deepEqual(
+    normalizeSocialPlatformCaptions({
+      Instagram: "Instagram wording",
+      Bilibili: "Bilibili wording",
+      Invalid: 42,
+    }),
+    {
+      Instagram: "Instagram wording",
+      Bilibili: "Bilibili wording",
+    },
+  );
+  assert.deepEqual(
+    normalizeSocialPlatformCaptions(
+      null,
+      "Instagram, Bilibili",
+      "Legacy shared caption",
+    ),
+    {
+      Instagram: "Legacy shared caption",
+      Bilibili: "Legacy shared caption",
+    },
+  );
+  assert.deepEqual(
+    normalizeReelDetails(
+      { coverUrl: "https://drive.google.com/file/d/legacy-cover/view" },
+      "Instagram, Bilibili",
+    ).coverUrls,
+    {
+      Instagram: "https://drive.google.com/file/d/legacy-cover/view",
+      Bilibili: "https://drive.google.com/file/d/legacy-cover/view",
+    },
+  );
+  assert.deepEqual(
+    normalizeReelDetails({
+      coverUrl: "https://drive.google.com/file/d/legacy-cover/view",
+      coverUrls: {
+        Instagram: "https://drive.google.com/file/d/instagram-cover/view",
+        Bilibili: "https://drive.google.com/file/d/bilibili-cover/view",
+      },
+    }).coverUrls,
+    {
+      Instagram: "https://drive.google.com/file/d/instagram-cover/view",
+      Bilibili: "https://drive.google.com/file/d/bilibili-cover/view",
+    },
+  );
+});
+
+test("Reels can be hidden from Feed without leaving the Reels preview", () => {
+  assert.equal(
+    shouldShowSocialPostInFeed("reel", { showInFeed: true }),
+    true,
+  );
+  assert.equal(
+    shouldShowSocialPostInFeed("reel", { showInFeed: false }),
+    false,
+  );
+  assert.equal(
+    shouldShowSocialPostInFeed("image", { showInFeed: false }),
+    true,
+  );
+  assert.equal(
+    shouldShowSocialPostInFeed("story", { showInFeed: true }),
+    false,
+  );
+});
+
+test("platform schedule statuses are per channel and backfill scheduled cards", () => {
+  assert.deepEqual(
+    normalizeSocialPlatformScheduleStatuses(
+      { Instagram: true, Bilibili: false, Invalid: "yes" },
+      "Instagram, Bilibili",
+      "unscheduled",
+    ),
+    { Instagram: true, Bilibili: false },
+  );
+  assert.deepEqual(
+    normalizeSocialPlatformScheduleStatuses(
+      null,
+      "Instagram, Bilibili",
+      "scheduled",
+    ),
+    { Instagram: true, Bilibili: true },
+  );
+});
 
 test("platform schedules normalize per channel and preserve old shared times", () => {
   const schedules = normalizeSocialPlatformSchedules({
@@ -276,6 +365,8 @@ test("Story interaction and Reel production details normalize safely", () => {
       cta: "",
       videoUrl: "",
       coverUrl: "",
+      coverUrls: {},
+      showInFeed: true,
       footageLinks: [],
       referenceLinks: [],
     },

@@ -11,6 +11,7 @@ import {
 } from "@/lib/social-manual-reminders";
 import {
   normalizeReelDetails,
+  normalizeSocialPlatformCaptions,
   normalizeSocialPlatformSchedules,
   normalizeStoryInteraction,
 } from "@/lib/social-content";
@@ -27,6 +28,7 @@ type DueTask = {
   title: string;
   format: string | null;
   platform: string | null;
+  platform_captions: unknown;
   platform_schedules: unknown;
   purpose: string | null;
   brief: string | null;
@@ -88,6 +90,7 @@ async function sendDueManualPostReminders(request: NextRequest) {
         title,
         format,
         platform,
+        platform_captions,
         platform_schedules,
         purpose,
         brief,
@@ -197,7 +200,7 @@ async function sendDueManualPostReminders(request: NextRequest) {
     const assigneeProfiles = (task.assignee_usernames ?? [])
       .map((username) => profiles.get(username))
       .filter((profile): profile is ProfileRow => Boolean(profile));
-    const reel = normalizeReelDetails(task.reel_details);
+    const reel = normalizeReelDetails(task.reel_details, task.platform);
     const storyInteraction = normalizeStoryInteraction(task.story_interaction);
     const directLink = task.division_task_id
       ? absoluteSocialPostUrl(request.nextUrl.origin, task)
@@ -211,6 +214,11 @@ async function sendDueManualPostReminders(request: NextRequest) {
         task.platform_schedules,
         task.platform,
         task.scheduled_at,
+      ),
+      platformCaptions: normalizeSocialPlatformCaptions(
+        task.platform_captions,
+        task.platform,
+        task.post_caption,
       ),
       scheduledAt: task.scheduled_at,
       assigneeMentions: assigneeProfiles
@@ -230,7 +238,7 @@ async function sendDueManualPostReminders(request: NextRequest) {
       purpose: task.purpose,
       brief: task.brief,
       visualNote: task.visual_note,
-      postCaption: task.format === "carousel" ? null : task.post_caption,
+      postCaption: task.post_caption,
       creativeDriveLink: task.creative_drive_link,
       storyInteraction:
         task.format === "story" ? storyInteraction : null,
@@ -245,6 +253,7 @@ async function sendDueManualPostReminders(request: NextRequest) {
               cta: reel.cta,
               videoUrl: reel.videoUrl,
               coverUrl: reel.coverUrl,
+              coverUrls: reel.coverUrls,
             }
           : null,
       slides: (task.task_slides ?? [])

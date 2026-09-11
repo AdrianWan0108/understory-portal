@@ -18,6 +18,8 @@ test("the ChatGPT template imports Story, Reel, and Carousel production data", (
   assert.equal(result.posts[1].reelDetails.editingFlow.includes("reveal"), true);
   assert.equal(result.posts[1].reelDetails.onScreenText.includes("Before launch"), true);
   assert.equal(result.posts[1].reelDetails.coverUrl, "");
+  assert.deepEqual(result.posts[1].reelDetails.coverUrls, {});
+  assert.equal(result.posts[1].reelDetails.showInFeed, true);
   assert.equal(result.posts[2].slides.length, 3);
 });
 
@@ -43,6 +45,29 @@ test("imports accept fenced JSON and common ChatGPT field aliases", () => {
   assert.equal(result.posts[0].storyInteraction.prompt, "Ask us anything");
   assert.equal(result.posts[0].slides.length, 1);
   assert.equal(result.warnings.length, 1);
+});
+
+test("imports preserve different Reel covers by channel", () => {
+  const result = parseSocialContentImport(`{
+    "posts": [{
+      "title": "Channel covers",
+      "format": "reel",
+      "platforms": ["Instagram", "Bilibili"],
+      "reel": {
+        "coverUrls": {
+          "Instagram": "https://drive.google.com/file/d/instagram-cover/view",
+          "Bilibili": "https://drive.google.com/file/d/bilibili-cover/view"
+        },
+        "showInFeed": false
+      }
+    }]
+  }`);
+
+  assert.deepEqual(result.posts[0].reelDetails.coverUrls, {
+    Instagram: "https://drive.google.com/file/d/instagram-cover/view",
+    Bilibili: "https://drive.google.com/file/d/bilibili-cover/view",
+  });
+  assert.equal(result.posts[0].reelDetails.showInFeed, false);
 });
 
 test("imports stop before writing when a required field is invalid", () => {

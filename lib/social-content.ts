@@ -489,6 +489,8 @@ export type ReelDetails = {
   cta: string;
   videoUrl: string;
   coverUrl: string;
+  coverUrls: Record<string, string>;
+  showInFeed: boolean;
   footageLinks: string[];
   referenceLinks: string[];
 };
@@ -502,11 +504,77 @@ export const EMPTY_REEL_DETAILS: ReelDetails = {
   cta: "",
   videoUrl: "",
   coverUrl: "",
+  coverUrls: {},
+  showInFeed: true,
   footageLinks: [],
   referenceLinks: [],
 };
 
+export function shouldShowSocialPostInFeed(
+  format: string | null | undefined,
+  reelDetails: Pick<ReelDetails, "showInFeed">,
+) {
+  return format !== "story" && (format !== "reel" || reelDetails.showInFeed);
+}
+
 export type SocialPlatformSchedules = Record<string, string>;
+export type SocialPlatformCaptions = Record<string, string>;
+export type SocialPlatformScheduleStatuses = Record<string, boolean>;
+
+function socialChannelsFromStoredValue(platform?: string | null) {
+  const channels = (platform ?? "")
+    .split(/,\s*|\s+\+\s+|\s+&\s+/)
+    .map((channel) => channel.trim())
+    .filter(Boolean);
+  return channels.length > 0 ? Array.from(new Set(channels)) : ["Instagram"];
+}
+
+export function normalizeSocialPlatformCaptions(
+  value: unknown,
+  platform?: string | null,
+  postCaption?: string | null,
+): SocialPlatformCaptions {
+  const normalized: SocialPlatformCaptions = {};
+
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    for (const [rawChannel, rawCaption] of Object.entries(value)) {
+      const channel = rawChannel.trim();
+      if (!channel || typeof rawCaption !== "string") continue;
+      normalized[channel] = rawCaption;
+    }
+  }
+
+  if (Object.keys(normalized).length > 0 || !postCaption) return normalized;
+  for (const channel of socialChannelsFromStoredValue(platform)) {
+    normalized[channel] = postCaption;
+  }
+  return normalized;
+}
+
+export function normalizeSocialPlatformScheduleStatuses(
+  value: unknown,
+  platform?: string | null,
+  publishingStatus?: unknown,
+): SocialPlatformScheduleStatuses {
+  const normalized: SocialPlatformScheduleStatuses = {};
+
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    for (const [rawChannel, rawStatus] of Object.entries(value)) {
+      const channel = rawChannel.trim();
+      if (!channel || typeof rawStatus !== "boolean") continue;
+      normalized[channel] = rawStatus;
+    }
+  }
+
+  const channels = socialChannelsFromStoredValue(platform);
+  const legacyScheduled = publishingStatus === "scheduled";
+  return Object.fromEntries(
+    channels.map((channel) => [
+      channel,
+      normalized[channel] ?? legacyScheduled,
+    ]),
+  );
+}
 
 export function normalizeSocialPlatformSchedules(
   value: unknown,
@@ -530,12 +598,7 @@ export function normalizeSocialPlatformSchedules(
   const fallbackDate = new Date(scheduledAt);
   if (!Number.isFinite(fallbackDate.getTime())) return normalized;
   const fallbackIso = fallbackDate.toISOString();
-  const channels = (platform ?? "")
-    .split(/,\s*|\s+\+\s+|\s+&\s+/)
-    .map((channel) => channel.trim())
-    .filter(Boolean);
-
-  for (const channel of channels.length > 0 ? channels : ["Instagram"]) {
+  for (const channel of socialChannelsFromStoredValue(platform)) {
     normalized[channel] = fallbackIso;
   }
   return normalized;
@@ -852,12 +915,34 @@ export function resolveInstagramEmbedUrl(rawUrl: string) {
   }
 }
 
-export function normalizeReelDetails(value: unknown): ReelDetails {
+export function normalizeReelDetails(
+  value: unknown,
+  platform?: string | null,
+): ReelDetails {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return { ...EMPTY_REEL_DETAILS };
   }
 
   const record = value as Record<string, unknown>;
+  const coverUrl = typeof record.coverUrl === "string" ? record.coverUrl : "";
+  const coverUrls =
+    record.coverUrls &&
+    typeof record.coverUrls === "object" &&
+    !Array.isArray(record.coverUrls)
+      ? Object.fromEntries(
+          Object.entries(record.coverUrls).flatMap(([rawChannel, rawUrl]) => {
+            const channel = rawChannel.trim();
+            return channel && typeof rawUrl === "string"
+              ? [[channel, rawUrl]]
+              : [];
+          }),
+        )
+      : {};
+  if (Object.keys(coverUrls).length === 0 && coverUrl) {
+    for (const channel of socialChannelsFromStoredValue(platform)) {
+      coverUrls[channel] = coverUrl;
+    }
+  }
   return {
     hook: typeof record.hook === "string" ? record.hook : "",
     script: typeof record.script === "string" ? record.script : "",
@@ -868,7 +953,10 @@ export function normalizeReelDetails(value: unknown): ReelDetails {
       typeof record.onScreenText === "string" ? record.onScreenText : "",
     cta: typeof record.cta === "string" ? record.cta : "",
     videoUrl: typeof record.videoUrl === "string" ? record.videoUrl : "",
-    coverUrl: typeof record.coverUrl === "string" ? record.coverUrl : "",
+    coverUrl,
+    coverUrls,
+    showInFeed:
+      typeof record.showInFeed === "boolean" ? record.showInFeed : true,
     footageLinks: Array.isArray(record.footageLinks)
       ? record.footageLinks.filter(
           (link): link is string => typeof link === "string" && link.trim() !== "",

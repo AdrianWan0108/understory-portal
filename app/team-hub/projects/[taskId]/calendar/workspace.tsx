@@ -52,6 +52,7 @@ export function SocialContentCalendarWorkspace({
       }
       currentReviewer={currentReviewer}
       requiredReviewers={REQUIRED_INTERNAL_REVIEWERS}
+      guestSchedulingOnly={accessLevel === "guest"}
       canSendToClient={
         accessLevel === "owner" &&
         (username === "Understory_Karen" || username === "Understory_Adrian")

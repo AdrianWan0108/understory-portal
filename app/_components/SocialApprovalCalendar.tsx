@@ -22,6 +22,8 @@ import {
   legacyStatusForSocialDimensions,
   normalizeReelDetails,
   normalizeSocialFilmingDetails,
+  normalizeSocialPlatformCaptions,
+  normalizeSocialPlatformScheduleStatuses,
   normalizeSocialPostStatus,
   normalizeSocialPlatformSchedules,
   normalizeSocialProductionStatus,
@@ -32,6 +34,7 @@ import {
   publishingStatusAfterTransition,
   reconcileSocialProductionStatus,
   requiredSocialClientReviewerKeys,
+  shouldShowSocialPostInFeed,
   SOCIAL_PRODUCTION_STATUS_LABELS,
   SOCIAL_PRODUCTION_STATUSES,
   SOCIAL_PUBLISHING_STATUS_LABELS,
@@ -46,6 +49,8 @@ import {
   type SocialPublishingStatus,
   type SocialSchedulingMode,
   type SocialPostStatus,
+  type SocialPlatformCaptions,
+  type SocialPlatformScheduleStatuses,
   type SocialPlatformSchedules,
   type SocialWorkflowPhase,
   type StoryInteraction,
@@ -123,6 +128,7 @@ type ApprovalPost = {
   story_interaction: StoryInteraction;
   reel_details: ReelDetails;
   post_caption: string;
+  platform_captions: SocialPlatformCaptions;
   purpose: string | null;
   content_pillar: string | null;
   platform: string | null;
@@ -132,6 +138,7 @@ type ApprovalPost = {
   due_date: string | null;
   scheduled_at: string | null;
   platform_schedules: SocialPlatformSchedules;
+  platform_schedule_statuses: SocialPlatformScheduleStatuses;
   internal_review_submitted_at: string | null;
   internal_approvals: Record<string, ReviewDecision>;
   client_approvals: Record<string, ReviewDecision>;
@@ -161,6 +168,8 @@ type TaskRow = Omit<
   | "status"
   | "production_status"
   | "publishing_status"
+  | "platform_captions"
+  | "platform_schedule_statuses"
   | "platform_schedules"
   | "internal_approvals"
   | "client_approvals"
@@ -175,6 +184,8 @@ type TaskRow = Omit<
   status: unknown;
   production_status: unknown;
   publishing_status: unknown;
+  platform_captions: unknown;
+  platform_schedule_statuses: unknown;
   platform_schedules: unknown;
   internal_approvals: unknown;
   client_approvals: unknown;
@@ -209,6 +220,7 @@ type Props = {
   currentReviewer: ApprovalReviewer | null;
   requiredReviewers: ApprovalReviewer[];
   canSendToClient?: boolean;
+  guestSchedulingOnly?: boolean;
 };
 
 type PostContentDraft = {
@@ -411,10 +423,20 @@ function normalizeHistory(value: unknown): ApprovalHistoryEntry[] {
 
 function mapPost(row: TaskRow): ApprovalPost {
   const clientApprovals = normalizeReviews(row.client_approvals);
+  const platformCaptions = normalizeSocialPlatformCaptions(
+    row.platform_captions,
+    row.platform,
+    row.post_caption,
+  );
   const platformSchedules = normalizeSocialPlatformSchedules(
     row.platform_schedules,
     row.platform,
     row.scheduled_at,
+  );
+  const platformScheduleStatuses = normalizeSocialPlatformScheduleStatuses(
+    row.platform_schedule_statuses,
+    row.platform,
+    row.publishing_status,
   );
   const productionStatus = reconcileSocialProductionStatus(
     normalizeSocialProductionStatus(row.production_status, row.status),
@@ -425,6 +447,8 @@ function mapPost(row: TaskRow): ApprovalPost {
     ...row,
     scheduled_at:
       row.scheduled_at ?? earliestSocialPlatformSchedule(platformSchedules),
+    platform_captions: platformCaptions,
+    platform_schedule_statuses: platformScheduleStatuses,
     status: normalizeSocialPostStatus(row.status),
     production_status: productionStatus,
     publishing_status: normalizeSocialPublishingStatus(
@@ -437,7 +461,7 @@ function mapPost(row: TaskRow): ApprovalPost {
     internal_approvals: normalizeReviews(row.internal_approvals),
     client_approvals: clientApprovals,
     approval_history: normalizeHistory(row.approval_history),
-    reel_details: normalizeReelDetails(row.reel_details),
+    reel_details: normalizeReelDetails(row.reel_details, row.platform),
     story_interaction: normalizeStoryInteraction(row.story_interaction),
     filming_details: normalizeSocialFilmingDetails(
       row.filming_details,
@@ -739,6 +763,14 @@ function formatDate(value: string | null, includeTime = false) {
   }).format(new Date(value));
 }
 
+function formatTime(value: string | null) {
+  if (!value) return "Time not set";
+  return new Intl.DateTimeFormat("en-CA", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 function toDateKey(value: string | null) {
   if (!value) return null;
   const date = new Date(value);
@@ -760,6 +792,72 @@ function platformScheduleDraftsForPost(post: ApprovalPost) {
     socialChannelsFromValue(post.platform).map((channel) => [
       channel,
       toDateTimeInput(post.platform_schedules[channel] ?? null),
+    ]),
+  );
+}
+
+function platformScheduleStatusDraftsForPost(post: ApprovalPost) {
+  return Object.fromEntries(
+    socialChannelsFromValue(post.platform).map((channel) => [
+      channel,
+      post.platform_schedule_statuses[channel] ?? false,
+    ]),
+  );
+}
+
+function serializePlatformScheduleStatusDrafts(
+  platform: string,
+  drafts: Record<string, boolean>,
+): SocialPlatformScheduleStatuses {
+  return Object.fromEntries(
+    socialChannelsFromValue(platform).map((channel) => [
+      channel,
+      drafts[channel] ?? false,
+    ]),
+  );
+}
+
+function platformCaptionDraftsForPost(post: ApprovalPost) {
+  return Object.fromEntries(
+    socialChannelsFromValue(post.platform).map((channel) => [
+      channel,
+      post.platform_captions[channel] ?? "",
+    ]),
+  );
+}
+
+function serializePlatformCaptionDrafts(
+  platform: string,
+  drafts: Record<string, string>,
+): SocialPlatformCaptions {
+  return Object.fromEntries(
+    socialChannelsFromValue(platform).map((channel) => [
+      channel,
+      drafts[channel]?.trim() ?? "",
+    ]),
+  );
+}
+
+function platformCaptionsAtSharedText(
+  platform: string | null | undefined,
+  caption: string | null | undefined,
+) {
+  return Object.fromEntries(
+    socialChannelsFromValue(platform).map((channel) => [
+      channel,
+      caption?.trim() ?? "",
+    ]),
+  );
+}
+
+function serializePlatformReelCoverUrls(
+  platform: string,
+  coverUrls: Record<string, string>,
+) {
+  return Object.fromEntries(
+    socialChannelsFromValue(platform).map((channel) => [
+      channel,
+      coverUrls[channel]?.trim() ?? "",
     ]),
   );
 }
@@ -794,6 +892,7 @@ function platformScheduleEntries(post: ApprovalPost) {
   return socialChannelsFromValue(post.platform).map((channel) => ({
     channel,
     scheduledAt: post.platform_schedules[channel] ?? null,
+    isScheduled: post.platform_schedule_statuses[channel] ?? false,
   }));
 }
 
@@ -1081,10 +1180,20 @@ function isGoogleDriveUrl(value: string) {
   }
 }
 
-function postVisualPreviewUrl(post: ApprovalPost) {
+function postVisualPreviewUrl(
+  post: ApprovalPost,
+  preferredChannel?: string,
+) {
+  const coverChannels = preferredChannel
+    ? [preferredChannel]
+    : socialChannelsFromValue(post.platform);
+  const reelCoverUrl = coverChannels
+    .map((channel) => post.reel_details.coverUrls[channel]?.trim())
+    .find(Boolean);
   return visualPreviewUrl(
     post.format === "reel"
-      ? post.reel_details.coverUrl ||
+      ? reelCoverUrl ||
+          post.reel_details.coverUrl ||
           post.reel_details.videoUrl ||
           post.task_slides[0]?.image_url ||
           post.creative_drive_link
@@ -1146,6 +1255,7 @@ export function SocialApprovalCalendar({
   currentReviewer,
   requiredReviewers,
   canSendToClient = false,
+  guestSchedulingOnly = false,
 }: Props) {
   const [resolvedClientId, setResolvedClientId] = useState<string | null>(null);
   const [resolvedClientName, setResolvedClientName] = useState(
@@ -1158,6 +1268,10 @@ export function SocialApprovalCalendar({
   const [collectionView, setCollectionView] = useState<"active" | "archive">(
     "active",
   );
+  const [socialPreviewMode, setSocialPreviewMode] = useState<"feed" | "reels">(
+    "feed",
+  );
+  const [reelPreviewChannel, setReelPreviewChannel] = useState("Instagram");
   const [calendarFilter, setCalendarFilter] = useState<
     | "all"
     | "needs_work"
@@ -1177,7 +1291,13 @@ export function SocialApprovalCalendar({
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
-  const [captionDraft, setCaptionDraft] = useState("");
+  const [platformCaptionDrafts, setPlatformCaptionDrafts] = useState<
+    Record<string, string>
+  >({});
+  const [captionChannel, setCaptionChannel] = useState("Instagram");
+  const [reelCoverChannel, setReelCoverChannel] = useState("Instagram");
+  const [platformScheduleStatusDrafts, setPlatformScheduleStatusDrafts] =
+    useState<Record<string, boolean>>({});
   const [slideCaptionDrafts, setSlideCaptionDrafts] = useState<
     Record<string, string>
   >({});
@@ -1361,9 +1481,11 @@ export function SocialApprovalCalendar({
             story_interaction,
             reel_details,
             post_caption,
+            platform_captions,
             purpose,
             content_pillar,
             platform,
+            platform_schedule_statuses,
             platform_schedules,
             target_audience,
             cta,
@@ -1470,9 +1592,17 @@ export function SocialApprovalCalendar({
   const selectedDraftChannels = socialChannelsFromValue(
     contentDraft?.platform ?? selectedPost?.platform,
   );
-  const hasCompletePlatformSchedule = selectedDraftChannels.every((channel) =>
-    Boolean(platformScheduleDrafts[channel]?.trim()),
-  );
+  const activeCaptionChannel = selectedDraftChannels.includes(captionChannel)
+    ? captionChannel
+    : selectedDraftChannels[0];
+  const activeReelCoverChannel = selectedDraftChannels.includes(
+    reelCoverChannel,
+  )
+    ? reelCoverChannel
+    : selectedDraftChannels[0];
+  const combinedCaptionDraft = selectedDraftChannels
+    .map((channel) => platformCaptionDrafts[channel] ?? "")
+    .join("\n");
   const selectedAssignees = selectedPost
     ? assignedTeamMembers(selectedPost, teamDirectory)
     : [];
@@ -1500,7 +1630,7 @@ export function SocialApprovalCalendar({
       cta: contentDraft.cta,
       brief: contentDraft.brief,
       visualNote: contentDraft.visualNote,
-      postCaption: captionDraft,
+      postCaption: combinedCaptionDraft,
       reelDetails: contentDraft.reelDetails,
       requiresFilming: contentDraft.requiresFilming,
       filmingDetails: contentDraft.filmingDetails,
@@ -1510,7 +1640,7 @@ export function SocialApprovalCalendar({
       })),
     });
   }, [
-    captionDraft,
+    combinedCaptionDraft,
     contentDraft,
     scheduleDraft,
     selectedPost,
@@ -1587,10 +1717,25 @@ export function SocialApprovalCalendar({
           ? slideImageDrafts[selectedSlideItem.id]
           : selectedSlideItem?.image_url) || selectedPost.creative_drive_link
     : null;
+  const selectedReelDetails =
+    mode === "internal" && contentDraft
+      ? contentDraft.reelDetails
+      : selectedPost?.reel_details;
+  const selectedLegacyReelCoverLink =
+    selectedReelDetails &&
+    Object.keys(selectedReelDetails.coverUrls).length === 0
+      ? selectedReelDetails.coverUrl
+      : null;
   const selectedReelCoverLink =
     selectedPost?.format === "reel"
-      ? selectedPost.reel_details.coverUrl
+      ? selectedReelDetails?.coverUrls[activeReelCoverChannel] ||
+        selectedLegacyReelCoverLink
       : null;
+  const hasAnyReelCover = Boolean(
+    selectedReelDetails &&
+      (selectedReelDetails.coverUrl.trim() ||
+        Object.values(selectedReelDetails.coverUrls).some((url) => url.trim())),
+  );
   const selectedVisualPreviewUrl = visualPreviewUrl(
     selectedReelCoverLink || selectedCreativeLink,
   );
@@ -1635,9 +1780,12 @@ export function SocialApprovalCalendar({
       })),
     });
     const scheduledDateKey = toDateKey(post.scheduled_at);
+    const channels = socialChannelsFromValue(post.platform);
     setSelectedId(post.id);
     setActiveModalPhase(deriveSocialWorkflowPhase(post, reviewerKeys));
-    setCaptionDraft(post.post_caption);
+    setPlatformCaptionDrafts(platformCaptionDraftsForPost(post));
+    setCaptionChannel(channels[0]);
+    setReelCoverChannel(channels[0]);
     setSlideCaptionDrafts(
       Object.fromEntries(
         post.task_slides.map((slide) => [
@@ -1689,6 +1837,9 @@ export function SocialApprovalCalendar({
     );
     setScheduleDraft(toDateTimeInput(post.scheduled_at));
     setPlatformScheduleDrafts(platformScheduleDraftsForPost(post));
+    setPlatformScheduleStatusDrafts(
+      platformScheduleStatusDraftsForPost(post),
+    );
     setSlideReferenceDraft("");
     setCommentDraft("");
     setIsRequestingChanges(false);
@@ -1736,7 +1887,24 @@ export function SocialApprovalCalendar({
       platform,
       platformScheduleDrafts,
     );
+    const channels = socialChannelsFromValue(platform);
     setContentDraft({ ...contentDraft, platform });
+    if (!channels.includes(captionChannel)) setCaptionChannel(channels[0]);
+    if (!channels.includes(reelCoverChannel)) {
+      setReelCoverChannel(channels[0]);
+    }
+    if (!(channel in platformCaptionDrafts)) {
+      setPlatformCaptionDrafts({
+        ...platformCaptionDrafts,
+        [channel]: "",
+      });
+    }
+    if (!(channel in platformScheduleStatusDrafts)) {
+      setPlatformScheduleStatusDrafts({
+        ...platformScheduleStatusDrafts,
+        [channel]: false,
+      });
+    }
     setScheduleDraft(
       toDateTimeInput(earliestSocialPlatformSchedule(schedules)),
     );
@@ -1799,9 +1967,15 @@ export function SocialApprovalCalendar({
   const collectionDate = (post: ApprovalPost) =>
     collectionView === "archive" ? post.posted_at : post.scheduled_at;
 
+  const calendarPostTime = (post: ApprovalPost) =>
+    collectionView === "archive"
+      ? post.posted_at
+      : earliestSocialPlatformSchedule(post.platform_schedules) ??
+        post.scheduled_at;
+
   const postsByDate = new Map<string, ApprovalPost[]>();
   visiblePosts.forEach((post) => {
-    const key = toDateKey(collectionDate(post));
+    const key = toDateKey(calendarPostTime(post));
     if (!key) return;
     postsByDate.set(key, [...(postsByDate.get(key) ?? []), post]);
   });
@@ -1817,12 +1991,52 @@ export function SocialApprovalCalendar({
         new Date(collectionDate(b)!).getTime(),
     );
   const feedPosts = visiblePosts
-    .filter((post) => post.format !== "story" && collectionDate(post))
+    .filter(
+      (post) =>
+        shouldShowSocialPostInFeed(post.format, post.reel_details) &&
+        collectionDate(post),
+    )
     .sort(
       (a, b) =>
         new Date(collectionDate(b)!).getTime() -
         new Date(collectionDate(a)!).getTime(),
     );
+  const reelPosts = visiblePosts
+    .filter((post) => post.format === "reel" && collectionDate(post))
+    .sort(
+      (a, b) =>
+        new Date(collectionDate(b)!).getTime() -
+        new Date(collectionDate(a)!).getTime(),
+    );
+  const reelPreviewChannels = Array.from(
+    new Set(reelPosts.flatMap((post) => socialChannelsFromValue(post.platform))),
+  );
+  const activeReelPreviewChannel = reelPreviewChannels.includes(
+    reelPreviewChannel,
+  )
+    ? reelPreviewChannel
+    : reelPreviewChannels[0] ?? "Instagram";
+  const previewPosts =
+    socialPreviewMode === "reels"
+      ? reelPosts
+          .filter((post) =>
+            socialChannelsFromValue(post.platform).includes(
+              activeReelPreviewChannel,
+            ),
+          )
+          .sort(
+            (left, right) =>
+              new Date(
+                right.platform_schedules[activeReelPreviewChannel] ??
+                  collectionDate(right)!,
+              ).getTime() -
+                new Date(
+                  left.platform_schedules[activeReelPreviewChannel] ??
+                    collectionDate(left)!,
+                ).getTime() ||
+              right.title.localeCompare(left.title, "en-CA"),
+          )
+      : feedPosts;
   const readyUnsent = posts.filter(
     (post) =>
       !post.posted_at &&
@@ -1965,7 +2179,15 @@ export function SocialApprovalCalendar({
     const creativeDriveLink =
       contentDraft.creativeDriveLink.trim() || firstSlideDriveLink || "";
     const acceptsFrameIoCreative = contentDraft.format === "reel";
-    const reelCoverUrl = contentDraft.reelDetails.coverUrl.trim();
+    const reelCoverUrls = serializePlatformReelCoverUrls(
+      contentDraft.platform,
+      contentDraft.reelDetails.coverUrls,
+    );
+    const invalidReelCoverChannel = Object.entries(reelCoverUrls).find(
+      ([, coverUrl]) => coverUrl && !isGoogleDriveUrl(coverUrl),
+    )?.[0];
+    const primaryChannel = socialChannelsFromValue(contentDraft.platform)[0];
+    const reelCoverUrl = reelCoverUrls[primaryChannel] ?? "";
     if (
       creativeDriveLink &&
       !isGoogleDriveUrl(creativeDriveLink) &&
@@ -1981,16 +2203,25 @@ export function SocialApprovalCalendar({
     }
     if (
       contentDraft.format === "reel" &&
-      reelCoverUrl &&
-      !isGoogleDriveUrl(reelCoverUrl)
+      invalidReelCoverChannel
     ) {
       setIsSaving(false);
-      setError("Enter a valid Google Drive link for the Reel cover.");
+      setError(
+        `Enter a valid Google Drive link for the ${invalidReelCoverChannel} Reel cover.`,
+      );
       return false;
     }
     const platformSchedules = serializePlatformScheduleDrafts(
       contentDraft.platform,
       platformScheduleDrafts,
+    );
+    const platformCaptions = serializePlatformCaptionDrafts(
+      contentDraft.platform,
+      platformCaptionDrafts,
+    );
+    const platformScheduleStatuses = serializePlatformScheduleStatusDrafts(
+      contentDraft.platform,
+      platformScheduleStatusDrafts,
     );
     const scheduledAt = earliestSocialPlatformSchedule(platformSchedules);
 
@@ -2056,7 +2287,7 @@ export function SocialApprovalCalendar({
       contentDraft.purpose,
       contentDraft.brief,
       contentDraft.visualNote,
-      captionDraft,
+      ...Object.values(platformCaptions),
       contentDraft.reelDetails.hook,
       contentDraft.reelDetails.script,
       contentDraft.reelDetails.shotList,
@@ -2117,8 +2348,7 @@ export function SocialApprovalCalendar({
       platformSchedulesEqual(post.platform_schedules, platformSchedules)
         ? post.manual_reminder_sent_at
         : null;
-    const postCaption =
-      contentDraft.format === "carousel" ? "" : captionDraft.trim();
+    const postCaption = platformCaptions[primaryChannel] ?? "";
     const legacyStatus = legacyStatusForSocialDimensions(
       productionStatus,
       publishingStatus,
@@ -2131,6 +2361,8 @@ export function SocialApprovalCalendar({
         title: nextPostTitle,
         format: contentDraft.format,
         platform: contentDraft.platform.trim() || null,
+        platform_captions: platformCaptions,
+        platform_schedule_statuses: platformScheduleStatuses,
         platform_schedules: platformSchedules,
         purpose: contentDraft.purpose.trim() || null,
         content_pillar: contentDraft.contentPillar.trim() || null,
@@ -2148,7 +2380,11 @@ export function SocialApprovalCalendar({
         status: legacyStatus,
         reel_details:
           contentDraft.format === "reel"
-            ? { ...contentDraft.reelDetails, coverUrl: reelCoverUrl }
+            ? {
+                ...contentDraft.reelDetails,
+                coverUrl: reelCoverUrl,
+                coverUrls: reelCoverUrls,
+              }
             : null,
         requires_filming: contentDraft.requiresFilming,
         filming_details: contentDraft.filmingDetails,
@@ -2177,6 +2413,8 @@ export function SocialApprovalCalendar({
       title: nextPostTitle,
       format: contentDraft.format,
       platform: contentDraft.platform.trim() || null,
+      platform_captions: platformCaptions,
+      platform_schedule_statuses: platformScheduleStatuses,
       platform_schedules: platformSchedules,
       purpose: contentDraft.purpose.trim() || null,
       content_pillar: contentDraft.contentPillar.trim() || null,
@@ -2195,6 +2433,7 @@ export function SocialApprovalCalendar({
       reel_details: {
         ...contentDraft.reelDetails,
         coverUrl: reelCoverUrl,
+        coverUrls: reelCoverUrls,
       },
       requires_filming: contentDraft.requiresFilming,
       filming_details: contentDraft.filmingDetails,
@@ -2793,49 +3032,68 @@ export function SocialApprovalCalendar({
     setFeedback(`${post.title} was resent to the client for a new review.`);
   }
 
-  async function setScheduledState(post: ApprovalPost, isScheduled: boolean) {
-    const schedulingMode = isScheduled
-      ? (contentDraft?.schedulingMode ?? post.scheduling_mode)
-      : post.scheduling_mode;
+  async function setPlatformScheduledState(
+    post: ApprovalPost,
+    channel: string,
+    isScheduled: boolean,
+  ) {
+    const schedulingMode = guestSchedulingOnly
+      ? "automatic"
+      : (contentDraft?.schedulingMode ?? post.scheduling_mode);
+    const platform = contentDraft?.platform ?? post.platform ?? "Instagram";
+    const channels = socialChannelsFromValue(platform);
     const platformSchedules = contentDraft
       ? serializePlatformScheduleDrafts(
           contentDraft.platform,
           platformScheduleDrafts,
         )
       : post.platform_schedules;
-    const scheduledAt = isScheduled
-      ? earliestSocialPlatformSchedule(platformSchedules) ?? post.scheduled_at
-      : post.scheduled_at;
-    const hasEveryPlatformSchedule = socialChannelsFromValue(
-      contentDraft?.platform ?? post.platform,
-    ).every((channel) => Boolean(platformSchedules[channel]));
+    const scheduledAt =
+      earliestSocialPlatformSchedule(platformSchedules) ?? post.scheduled_at;
+    const currentStatuses = contentDraft
+      ? serializePlatformScheduleStatusDrafts(
+          contentDraft.platform,
+          platformScheduleStatusDrafts,
+        )
+      : post.platform_schedule_statuses;
+    const platformScheduleStatuses = {
+      ...currentStatuses,
+      [channel]: isScheduled,
+    };
+    const everyPlatformScheduled = channels.every(
+      (platformChannel) => platformScheduleStatuses[platformChannel] === true,
+    );
+    const clientApprovalState = deriveClientApprovalState(
+      post.client_approvals,
+      clientReviewerKeys,
+      post.sent_to_client_at,
+    );
+    const canManageSchedule =
+      guestSchedulingOnly || (canSendToClient && Boolean(currentReviewer));
     if (
       mode !== "internal" ||
-      !canSendToClient ||
-      !currentReviewer ||
+      !canManageSchedule ||
+      !channels.includes(channel) ||
       post.posted_at ||
       isSaving ||
-      (isScheduled && !hasEveryPlatformSchedule) ||
+      (isScheduled && !platformSchedules[channel]) ||
       (isScheduled &&
         !canScheduleSocialPost({
           scheduledAt,
           sentToClientAt: post.sent_to_client_at,
-          clientApprovalState: deriveClientApprovalState(
-            post.client_approvals,
-            clientReviewerKeys,
-            post.sent_to_client_at,
-          ),
-        })) ||
-      (!isScheduled && post.publishing_status !== "scheduled")
+          clientApprovalState,
+        }))
     ) {
       return;
     }
 
-    const publishingStatus = isScheduled ? "scheduled" : "unscheduled";
+    const publishingStatus = everyPlatformScheduled
+      ? "scheduled"
+      : "unscheduled";
     const status: SocialPostStatus = legacyStatusForSocialDimensions(
       post.production_status,
       publishingStatus,
-      "approved",
+      clientApprovalState,
     );
     const transitionTimestamp = new Date().toISOString();
     setIsSaving(true);
@@ -2847,6 +3105,7 @@ export function SocialApprovalCalendar({
         publishing_status: publishingStatus,
         scheduling_mode: schedulingMode,
         scheduled_at: scheduledAt,
+        platform_schedule_statuses: platformScheduleStatuses,
         platform_schedules: platformSchedules,
         manual_reminder_sent_at: null,
       })
@@ -2855,7 +3114,7 @@ export function SocialApprovalCalendar({
 
     if (saveError) {
       setError(
-        `Could not ${isScheduled ? "mark this post as scheduled" : "move this post back to client approved"}: ${saveError.message}`,
+        `Could not update the ${channel} scheduling status: ${saveError.message}`,
       );
       return;
     }
@@ -2865,10 +3124,16 @@ export function SocialApprovalCalendar({
       publishing_status: publishingStatus,
       scheduling_mode: schedulingMode,
       scheduled_at: scheduledAt,
+      platform_schedule_statuses: platformScheduleStatuses,
       platform_schedules: platformSchedules,
       manual_reminder_sent_at: null,
     });
-    if (isScheduled) {
+    setPlatformScheduleStatusDrafts(platformScheduleStatuses);
+    if (
+      everyPlatformScheduled &&
+      post.publishing_status !== "scheduled" &&
+      !guestSchedulingOnly
+    ) {
       notifyTransition(
         { ...post, scheduling_mode: schedulingMode, scheduled_at: scheduledAt },
         schedulingMode === "manual" ? "manual_reminder_scheduled" : "scheduled",
@@ -2877,10 +3142,14 @@ export function SocialApprovalCalendar({
     }
     setFeedback(
       isScheduled
-        ? schedulingMode === "manual"
-          ? `${post.title} will be sent to Slack with its creative when it is time to post.`
-          : `${post.title} is queued in the selected publishing platforms and ready to auto-publish.`
-        : `${post.title} moved back to client approved. Its scheduling details can now be changed.`,
+        ? everyPlatformScheduled
+          ? guestSchedulingOnly
+            ? `Every channel for ${post.title} is marked as scheduled.`
+            : schedulingMode === "manual"
+              ? `${post.title} is fully scheduled. Slack will send its creative when it is time to post.`
+              : `${post.title} is queued in every selected publishing platform.`
+          : `${channel} is marked as scheduled. Complete the remaining channels separately.`
+        : `${channel} is marked as not scheduled.`,
     );
   }
 
@@ -2964,6 +3233,8 @@ export function SocialApprovalCalendar({
         brief: "",
         format: "image",
         platform: "Instagram",
+        platform_captions: {},
+        platform_schedule_statuses: {},
         platform_schedules: {},
         post_caption: "",
         status: "not_started",
@@ -3024,6 +3295,11 @@ export function SocialApprovalCalendar({
           post.platform,
           post.scheduledAt,
         ),
+        platform_captions: platformCaptionsAtSharedText(
+          post.platform,
+          post.caption,
+        ),
+        platform_schedule_statuses: {},
         purpose: post.purpose || null,
         content_pillar: post.contentPillar || null,
         target_audience: post.targetAudience || null,
@@ -3142,7 +3418,7 @@ export function SocialApprovalCalendar({
 
   return (
     <main className="min-h-screen px-5 py-10 text-[var(--foreground)] sm:px-8 sm:py-14 lg:px-10">
-      <div className="mx-auto max-w-[1500px]">
+      <div className="mx-auto max-w-[1800px]">
         <header className="flex flex-col gap-6 border-b border-[var(--border)] pb-8 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--primary)]">
@@ -3264,10 +3540,10 @@ export function SocialApprovalCalendar({
           </nav>
         )}
 
-        <div className="mt-10 grid gap-6 2xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] 2xl:items-start">
+        <div className="mt-10 grid gap-6 2xl:grid-cols-[minmax(0,1fr)_minmax(260px,320px)] 2xl:items-start">
           <section
             aria-labelledby="approval-grid-heading"
-            className="2xl:sticky 2xl:top-6 2xl:order-2"
+            className="order-2 w-full max-w-[360px] justify-self-end 2xl:sticky 2xl:top-6 2xl:max-w-[320px]"
           >
             {storyPosts.length > 0 && (
               <section aria-labelledby="story-strip-heading" className="mb-8">
@@ -3378,29 +3654,74 @@ export function SocialApprovalCalendar({
                 </div>
               </section>
             )}
-            <div className="mb-4">
-              <h2
-                id="approval-grid-heading"
-                className={`${fraunces.className} text-2xl font-medium`}
-              >
-                Feed preview
-              </h2>
-              <p className="mt-1 text-xs text-[var(--foreground)]/50">
-                {collectionView === "archive"
-                  ? "Published feed posts with the newest publication time first."
-                  : "Planned feed posts with the newest publish date first. Stories appear above."}
-              </p>
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2
+                  id="approval-grid-heading"
+                  className={`${fraunces.className} text-2xl font-medium`}
+                >
+                  {socialPreviewMode === "reels"
+                    ? "Reels preview"
+                    : "Feed preview"}
+                </h2>
+                <p className="mt-1 text-xs text-[var(--foreground)]/50">
+                  {socialPreviewMode === "reels"
+                    ? "All planned Reels appear here, including Reels hidden from the Feed preview."
+                    : collectionView === "archive"
+                      ? "Published feed posts with the newest publication time first."
+                      : "Planned feed posts with the newest publish date first. Stories appear above."}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {socialPreviewMode === "reels" &&
+                  reelPreviewChannels.length > 0 && (
+                    <select
+                      aria-label="Reels preview channel"
+                      value={activeReelPreviewChannel}
+                      onChange={(event) =>
+                        setReelPreviewChannel(event.target.value)
+                      }
+                      className="h-10 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 text-xs font-semibold"
+                    >
+                      {reelPreviewChannels.map((channel) => (
+                        <option key={channel} value={channel}>
+                          {channel}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                <select
+                  aria-label="Social preview type"
+                  value={socialPreviewMode}
+                  onChange={(event) =>
+                    setSocialPreviewMode(
+                      event.target.value as "feed" | "reels",
+                    )
+                  }
+                  className="h-10 rounded-full border border-[var(--primary)] bg-[var(--card)] px-3 text-xs font-semibold text-[var(--primary)]"
+                >
+                  <option value="feed">Feed preview</option>
+                  <option value="reels">Reels preview</option>
+                </select>
+              </div>
             </div>
-            {feedPosts.length === 0 ? (
+            {previewPosts.length === 0 ? (
               <p className="rounded-[24px] border border-dashed border-[var(--border)] bg-[var(--card)] px-6 py-14 text-center text-sm text-[var(--foreground)]/45">
-                {collectionView === "archive"
-                  ? "No published feed posts are in the Archive yet."
-                  : "Schedule an Image, Carousel, or Reel to see it here in feed order."}
+                {socialPreviewMode === "reels"
+                  ? `No ${activeReelPreviewChannel} Reels are available yet.`
+                  : collectionView === "archive"
+                    ? "No published feed posts are in the Archive yet."
+                    : "Schedule an Image, Carousel, or a Reel shown in Feed to see it here."}
               </p>
             ) : (
               <div className="grid grid-cols-3 gap-0.5 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:gap-px">
-                {feedPosts.map((post) => {
-                  const previewUrl = postVisualPreviewUrl(post);
+                {previewPosts.map((post) => {
+                  const previewUrl = postVisualPreviewUrl(
+                    post,
+                    socialPreviewMode === "reels"
+                      ? activeReelPreviewChannel
+                      : undefined,
+                  );
                   return (
                     <button
                       key={post.id}
@@ -3453,7 +3774,11 @@ export function SocialApprovalCalendar({
                         </svg>
                       )}
                       <SocialChannelBadge
-                        channel={post.platform}
+                        channel={
+                          socialPreviewMode === "reels"
+                            ? activeReelPreviewChannel
+                            : post.platform
+                        }
                         compact
                         className="absolute bottom-1.5 left-1.5 z-10 max-w-[calc(100%-0.75rem)]"
                       />
@@ -3469,7 +3794,7 @@ export function SocialApprovalCalendar({
 
           <section
             aria-labelledby="approval-calendar-heading"
-            className="2xl:order-1"
+            className="order-1 min-w-0"
           >
           <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
             <div>
@@ -3528,7 +3853,7 @@ export function SocialApprovalCalendar({
           </div>
 
           <div className="overflow-x-auto rounded-2xl border border-[var(--border)] bg-[var(--card)]">
-            <div className="min-w-[840px] 2xl:min-w-0">
+            <div className="min-w-[900px] 2xl:min-w-0">
               <div className="grid grid-cols-7 border-b border-[var(--border)] bg-[var(--muted)]">
                 {WEEKDAYS.map((day) => (
                   <div
@@ -3547,7 +3872,12 @@ export function SocialApprovalCalendar({
                       ).padStart(2, "0")}`
                     : null;
                   const dayPosts = dateKey
-                    ? postsByDate.get(dateKey) ?? []
+                    ? [...(postsByDate.get(dateKey) ?? [])].sort(
+                        (left, right) =>
+                          new Date(calendarPostTime(left) ?? 0).getTime() -
+                            new Date(calendarPostTime(right) ?? 0).getTime() ||
+                          left.title.localeCompare(right.title, "en-CA"),
+                      )
                     : [];
                   const isDragTarget =
                     mode === "internal" &&
@@ -3580,7 +3910,7 @@ export function SocialApprovalCalendar({
                         setDraggingPostId(null);
                         if (post) void reschedulePost(post, dateKey);
                       }}
-                      className={`min-h-40 border-b border-r border-[var(--border)] p-2.5 transition ${
+                      className={`min-h-36 border-b border-r border-[var(--border)] p-2 transition ${
                         isDragTarget
                           ? "bg-[var(--primary)]/10 ring-2 ring-inset ring-[var(--primary)]/40"
                           : ""
@@ -3685,7 +4015,7 @@ export function SocialApprovalCalendar({
                               } ${draggingPostId === post.id ? "opacity-40" : ""}`}
                             >
                               <div
-                                className="h-16 w-full bg-[var(--muted)] bg-cover bg-center"
+                                className="h-12 w-full bg-[var(--muted)] bg-cover bg-center 2xl:h-14"
                                 style={
                                   previewUrl
                                     ? {
@@ -3700,16 +4030,11 @@ export function SocialApprovalCalendar({
                                   </div>
                                 )}
                               </div>
-                              <SocialChannelBadge
-                                channel={post.platform}
-                                compact
-                                className="absolute left-1.5 top-1.5 z-10 max-w-[calc(100%-0.75rem)]"
-                              />
                               {post.posted_at && (
                                 <PostedStamp className="absolute right-1.5 top-1.5 z-10" />
                               )}
-                              <div className="p-2.5">
-                                <span className="line-clamp-2 min-h-[2.5em] text-[10px] font-semibold leading-[1.25]">
+                              <div className="p-2">
+                                <span className="line-clamp-2 text-[10px] font-semibold leading-[1.25]">
                                   {post.title}
                                 </span>
                                 <span className="mt-1 flex min-w-0 flex-wrap items-center gap-1 text-[9px] leading-tight text-[var(--foreground)]/45">
@@ -3730,37 +4055,37 @@ export function SocialApprovalCalendar({
                                   )}
                                 </span>
                                 {postingSchedules.length > 0 && (
-                                  <span className="mt-1.5 grid gap-1 border-t border-[var(--border)]/70 pt-1.5">
+                                  <span className="mt-2 grid gap-1.5">
                                     {postingSchedules.map(
-                                      ({ channel, scheduledAt }) => (
+                                      ({ channel, scheduledAt, isScheduled }) => (
                                         <span
                                           key={channel}
-                                          className="flex min-w-0 items-center gap-1 text-[8px] font-medium leading-tight text-[var(--foreground)]/55"
-                                          title={
-                                            channel +
-                                            ": " +
-                                            (scheduledAt
-                                              ? formatDate(scheduledAt, true)
-                                              : "Time not set")
-                                          }
+                                          className="flex min-w-0 items-center gap-1.5 rounded-full border border-[var(--border)] bg-white px-2 py-1 text-[8px] font-semibold leading-tight text-[var(--foreground)] shadow-sm"
+                                          title={`${channel}: ${formatTime(scheduledAt)}`}
                                         >
                                           <SocialChannelIcon
                                             channel={channel}
                                             className={`size-2.5 shrink-0 ${socialChannelColor(channel)}`}
                                           />
-                                          <span className="min-w-0 truncate">
-                                            {channel} ·{" "}
-                                            {scheduledAt
-                                              ? new Intl.DateTimeFormat(
-                                                  "en-CA",
-                                                  {
-                                                    month: "short",
-                                                    day: "numeric",
-                                                    hour: "numeric",
-                                                    minute: "2-digit",
-                                                  },
-                                                ).format(new Date(scheduledAt))
-                                              : "Time not set"}
+                                          <span className="min-w-0 flex-1 truncate">
+                                            {channel}
+                                          </span>
+                                          <span className="shrink-0 font-medium text-[var(--foreground)]/55">
+                                            {formatTime(scheduledAt)}
+                                          </span>
+                                          <span
+                                            className={`ml-auto shrink-0 font-bold ${
+                                              isScheduled
+                                                ? "text-[#267149]"
+                                                : "text-[var(--foreground)]/35"
+                                            }`}
+                                            aria-label={
+                                              isScheduled
+                                                ? `${channel} scheduled`
+                                                : `${channel} not scheduled`
+                                            }
+                                          >
+                                            {isScheduled ? "✓" : "○"}
                                           </span>
                                         </span>
                                       ),
@@ -3781,7 +4106,9 @@ export function SocialApprovalCalendar({
                                   <span aria-hidden="true">·</span>
                                   <span>
                                     {post.publishing_status === "scheduled"
-                                      ? post.scheduling_mode === "manual"
+                                      ? guestSchedulingOnly
+                                        ? "Scheduled"
+                                        : post.scheduling_mode === "manual"
                                         ? "Manual"
                                         : "Automatic"
                                       : SOCIAL_PUBLISHING_STATUS_LABELS[
@@ -4190,8 +4517,25 @@ export function SocialApprovalCalendar({
               {selectedPost.posted_at && (
                 <PostedStamp className="absolute right-8 top-8 z-10 px-4 py-2 text-xs" />
               )}
-              {(selectedCreativeLink || selectedReelCoverLink) && (
+              {(selectedCreativeLink || hasAnyReelCover) && (
                 <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedPost.format === "reel" &&
+                    selectedDraftChannels.length > 1 && (
+                      <select
+                        aria-label="Reel cover channel preview"
+                        value={activeReelCoverChannel}
+                        onChange={(event) =>
+                          setReelCoverChannel(event.target.value)
+                        }
+                        className="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[10px] font-semibold"
+                      >
+                        {selectedDraftChannels.map((channel) => (
+                          <option key={channel} value={channel}>
+                            {channel} cover
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   {selectedCreativeLink && (
                     <a
                       href={selectedCreativeLink}
@@ -4216,7 +4560,7 @@ export function SocialApprovalCalendar({
                       rel="noreferrer"
                       className="inline-flex rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[10px] font-semibold underline underline-offset-2"
                     >
-                      Open Reel cover in Google Drive ↗
+                      Open {activeReelCoverChannel} Reel cover in Google Drive ↗
                     </a>
                   )}
                 </div>
@@ -4715,16 +5059,41 @@ export function SocialApprovalCalendar({
                               />
                             </label>
                             <label className="text-xs font-semibold">
-                              Reel cover (Google Drive link)
+                              Reel cover channel
+                              <select
+                                value={activeReelCoverChannel}
+                                onChange={(event) =>
+                                  setReelCoverChannel(event.target.value)
+                                }
+                                className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                              >
+                                {selectedDraftChannels.map((channel) => (
+                                  <option key={channel} value={channel}>
+                                    {channel}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="text-xs font-semibold">
+                              {activeReelCoverChannel} Reel cover (Google Drive
+                              link)
                               <input
                                 type="url"
-                                value={contentDraft.reelDetails.coverUrl}
+                                value={
+                                  contentDraft.reelDetails.coverUrls[
+                                    activeReelCoverChannel
+                                  ] ?? ""
+                                }
                                 onChange={(event) =>
                                   setContentDraft({
                                     ...contentDraft,
                                     reelDetails: {
                                       ...contentDraft.reelDetails,
-                                      coverUrl: event.target.value,
+                                      coverUrls: {
+                                        ...contentDraft.reelDetails.coverUrls,
+                                        [activeReelCoverChannel]:
+                                          event.target.value,
+                                      },
                                     },
                                   })
                                 }
@@ -4732,9 +5101,34 @@ export function SocialApprovalCalendar({
                                 className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
                               />
                               <span className="mt-2 block text-[11px] font-normal leading-5 text-[var(--foreground)]/50">
-                                Paste the shareable Google Drive link for the
-                                final Reel cover image.
+                                Switch channel above to add a different final
+                                Reel cover for each selected platform.
                               </span>
+                            </label>
+                            <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3">
+                              <span>
+                                <span className="block text-xs font-semibold">
+                                  Show Reel in Feed preview
+                                </span>
+                                <span className="mt-1 block text-[11px] font-normal leading-5 text-[var(--foreground)]/50">
+                                  Turn this off when the Instagram Reel should
+                                  appear in Reels but not on the profile Feed.
+                                </span>
+                              </span>
+                              <input
+                                type="checkbox"
+                                checked={contentDraft.reelDetails.showInFeed}
+                                onChange={(event) =>
+                                  setContentDraft({
+                                    ...contentDraft,
+                                    reelDetails: {
+                                      ...contentDraft.reelDetails,
+                                      showInFeed: event.target.checked,
+                                    },
+                                  })
+                                }
+                                className="size-5 shrink-0 accent-[var(--primary)]"
+                              />
                             </label>
                           </div>
                         )}
@@ -4855,24 +5249,53 @@ export function SocialApprovalCalendar({
                         </div>
                       </section>
                     )}
-                  {contentDraft?.format !== "carousel" && (
-                    <label
-                      className={`text-xs font-semibold ${
+                  {contentDraft && (
+                    <div
+                      className={`grid gap-3 rounded-2xl border border-[var(--border)] p-4 ${
                         activeModalPhase === "creative" ? "" : "hidden"
                       }`}
                     >
-                      Final caption
-                      <textarea
-                        rows={8}
-                        disabled={
-                          Boolean(selectedPost.posted_at) ||
-                          selectedPost.publishing_status === "scheduled"
-                        }
-                        value={captionDraft}
-                        onChange={(event) => setCaptionDraft(event.target.value)}
-                        className="mt-2 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm leading-6"
-                      />
-                    </label>
+                      <label className="text-xs font-semibold">
+                        Caption channel
+                        <select
+                          value={activeCaptionChannel}
+                          onChange={(event) =>
+                            setCaptionChannel(event.target.value)
+                          }
+                          className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
+                        >
+                          {selectedDraftChannels.map((channel) => (
+                            <option key={channel} value={channel}>
+                              {channel}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="text-xs font-semibold">
+                        {activeCaptionChannel} caption
+                        <textarea
+                          rows={8}
+                          disabled={
+                            Boolean(selectedPost.posted_at) ||
+                            selectedPost.publishing_status === "scheduled"
+                          }
+                          value={
+                            platformCaptionDrafts[activeCaptionChannel] ?? ""
+                          }
+                          onChange={(event) =>
+                            setPlatformCaptionDrafts((current) => ({
+                              ...current,
+                              [activeCaptionChannel]: event.target.value,
+                            }))
+                          }
+                          className="mt-2 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm leading-6"
+                        />
+                        <span className="mt-2 block text-[11px] font-normal leading-5 text-[var(--foreground)]/50">
+                          Switch channel above to write a different caption for
+                          each selected platform.
+                        </span>
+                      </label>
+                    </div>
                   )}
                   {contentDraft && (
                     <>
@@ -5065,9 +5488,9 @@ export function SocialApprovalCalendar({
                             {socialChannelsFromValue(
                               contentDraft.platform,
                             ).map((channel) => (
-                              <label
+                              <div
                                 key={channel}
-                                className="grid gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 sm:grid-cols-[minmax(0,0.7fr)_minmax(0,1fr)] sm:items-center"
+                                className="grid gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 sm:grid-cols-[minmax(0,0.6fr)_minmax(0,1fr)_auto] sm:items-center"
                               >
                                 <span className="flex min-w-0 items-center gap-2 text-xs font-semibold">
                                   <SocialChannelIcon
@@ -5081,8 +5504,8 @@ export function SocialApprovalCalendar({
                                   aria-label={`${channel} posting date and time`}
                                   disabled={
                                     Boolean(selectedPost.posted_at) ||
-                                    selectedPost.publishing_status ===
-                                      "scheduled"
+                                    platformScheduleStatusDrafts[channel] ===
+                                      true
                                   }
                                   value={platformScheduleDrafts[channel] ?? ""}
                                   onChange={(event) =>
@@ -5093,105 +5516,113 @@ export function SocialApprovalCalendar({
                                   }
                                   className="h-11 min-w-0 w-full rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 text-sm"
                                 />
-                              </label>
+                                <label className="flex cursor-pointer items-center gap-2 rounded-lg px-1 py-2 text-xs font-semibold text-[#2F6470]">
+                                  <input
+                                    type="checkbox"
+                                    aria-label={`${channel} is scheduled`}
+                                    checked={
+                                      platformScheduleStatusDrafts[channel] ===
+                                      true
+                                    }
+                                    disabled={
+                                      isSaving ||
+                                      Boolean(selectedPost.posted_at) ||
+                                      (!guestSchedulingOnly &&
+                                        !currentReviewer) ||
+                                      (!guestSchedulingOnly &&
+                                        !canSendToClient) ||
+                                      (platformScheduleStatusDrafts[channel] !==
+                                        true &&
+                                        (!hasCompletedClientApproval(
+                                          selectedPost,
+                                        ) ||
+                                          !platformScheduleDrafts[
+                                            channel
+                                          ]?.trim()))
+                                    }
+                                    onChange={(event) =>
+                                      void setPlatformScheduledState(
+                                        selectedPost,
+                                        channel,
+                                        event.target.checked,
+                                      )
+                                    }
+                                    className="size-5 shrink-0 accent-[#2F6470]"
+                                  />
+                                  <span>
+                                    {platformScheduleStatusDrafts[channel]
+                                      ? "Scheduled"
+                                      : "Mark scheduled"}
+                                  </span>
+                                </label>
+                              </div>
                             ))}
                           </div>
+                          {!hasCompletedClientApproval(selectedPost) && (
+                            <p className="mt-2 text-[11px] leading-5 text-[var(--foreground)]/50">
+                              Complete client approval before marking channels
+                              as scheduled.
+                            </p>
+                          )}
                         </fieldset>
-                        <fieldset>
-                          <legend className="text-xs font-semibold">
-                            Publishing method
-                          </legend>
-                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                            {SOCIAL_SCHEDULING_MODES.map((schedulingMode) => (
-                              <label
-                                key={schedulingMode}
-                                className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-xs ${
-                                  contentDraft.schedulingMode === schedulingMode
-                                    ? "border-[var(--primary)] bg-[var(--muted)]"
-                                    : "border-[var(--border)]"
-                                }`}
-                              >
-                                <input
-                                  type="radio"
-                                  name={`scheduling-mode-${selectedPost.id}`}
-                                  value={schedulingMode}
-                                  disabled={
-                                    Boolean(selectedPost.posted_at) ||
-                                    selectedPost.publishing_status === "scheduled"
-                                  }
-                                  checked={
-                                    contentDraft.schedulingMode === schedulingMode
-                                  }
-                                  onChange={() =>
-                                    setContentDraft({
-                                      ...contentDraft,
-                                      schedulingMode,
-                                    })
-                                  }
-                                  className="mt-0.5"
-                                />
-                                <span>
-                                  <span className="block font-semibold">
-                                    {SOCIAL_SCHEDULING_MODE_LABELS[schedulingMode]}
+                        {!guestSchedulingOnly && (
+                          <fieldset>
+                            <legend className="text-xs font-semibold">
+                              Publishing method
+                            </legend>
+                            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                              {SOCIAL_SCHEDULING_MODES.map((schedulingMode) => (
+                                <label
+                                  key={schedulingMode}
+                                  className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-xs ${
+                                    contentDraft.schedulingMode ===
+                                    schedulingMode
+                                      ? "border-[var(--primary)] bg-[var(--muted)]"
+                                      : "border-[var(--border)]"
+                                  }`}
+                                >
+                                  <input
+                                    type="radio"
+                                    name={`scheduling-mode-${selectedPost.id}`}
+                                    value={schedulingMode}
+                                    disabled={
+                                      Boolean(selectedPost.posted_at) ||
+                                      selectedPost.publishing_status ===
+                                        "scheduled"
+                                    }
+                                    checked={
+                                      contentDraft.schedulingMode ===
+                                      schedulingMode
+                                    }
+                                    onChange={() =>
+                                      setContentDraft({
+                                        ...contentDraft,
+                                        schedulingMode,
+                                      })
+                                    }
+                                    className="mt-0.5"
+                                  />
+                                  <span>
+                                    <span className="block font-semibold">
+                                      {
+                                        SOCIAL_SCHEDULING_MODE_LABELS[
+                                          schedulingMode
+                                        ]
+                                      }
+                                    </span>
+                                    <span className="mt-1 block font-normal leading-5 text-[var(--foreground)]/50">
+                                      {schedulingMode === "automatic"
+                                        ? "Queue it in Meta or the publishing platform to auto-publish."
+                                        : "For Stories or other posts that need a person. Slack will send the creative when it is time to post."}
+                                    </span>
                                   </span>
-                                  <span className="mt-1 block font-normal leading-5 text-[var(--foreground)]/50">
-                                    {schedulingMode === "automatic"
-                                      ? "Queue it in Meta or the publishing platform to auto-publish."
-                                      : "For Stories or other posts that need a person. Slack will send the creative when it is time to post."}
-                                  </span>
-                                </span>
-                              </label>
-                            ))}
-                          </div>
-                        </fieldset>
-                        {contentDraft.schedulingMode === "automatic" && (
-                          <div className="rounded-xl border border-[#A9CDD5] bg-[#E8F4F7] p-3">
-                            <label className="flex cursor-pointer items-center justify-between gap-4">
-                              <span>
-                                <span className="block text-sm font-semibold text-[#2F6470]">
-                                  Scheduled in publishing platforms
-                                </span>
-                                <span className="mt-1 block text-[11px] leading-5 text-[#2F6470]/70">
-                                  {selectedPost.publishing_status ===
-                                    "scheduled" &&
-                                  selectedPost.scheduling_mode === "automatic"
-                                    ? "Confirmed — this post is queued for automatic publishing."
-                                    : !hasCompletedClientApproval(selectedPost)
-                                      ? "Complete client approval before confirming the Meta schedule."
-                                      : !hasCompletePlatformSchedule
-                                        ? "Choose a posting time for every selected channel first."
-                                      : "Check this after every channel has been queued in its publishing platform."}
-                                </span>
-                              </span>
-                              <input
-                                type="checkbox"
-                                aria-label="Scheduled in publishing platforms"
-                                checked={
-                                  selectedPost.publishing_status ===
-                                    "scheduled" &&
-                                  selectedPost.scheduling_mode === "automatic"
-                                }
-                                disabled={
-                                  !currentReviewer ||
-                                  isSaving ||
-                                  Boolean(selectedPost.posted_at) ||
-                                  (selectedPost.publishing_status !==
-                                    "scheduled" &&
-                                    (!hasCompletedClientApproval(selectedPost) ||
-                                      !hasCompletePlatformSchedule))
-                                }
-                                onChange={(event) =>
-                                  void setScheduledState(
-                                    selectedPost,
-                                    event.target.checked,
-                                  )
-                                }
-                                className="size-5 shrink-0 accent-[#2F6470]"
-                              />
-                            </label>
-                          </div>
+                                </label>
+                              ))}
+                            </div>
+                          </fieldset>
                         )}
-                        {selectedPost.scheduling_mode === "manual" &&
+                        {!guestSchedulingOnly &&
+                          selectedPost.scheduling_mode === "manual" &&
                           selectedPost.manual_reminder_sent_at && (
                             <p className="rounded-xl bg-[#EAF5ED] px-3 py-2.5 text-xs font-semibold text-[#267149]">
                               Slack reminder sent on {formatDate(
@@ -5520,16 +5951,28 @@ export function SocialApprovalCalendar({
                         </p>
                       </div>
                     )}
-                  {selectedPost.format !== "carousel" && (
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--foreground)]/40">
-                        Caption
-                      </p>
-                      <p className="mt-2 whitespace-pre-line text-sm leading-6 text-[var(--foreground)]/75">
-                        {selectedPost.post_caption}
-                      </p>
-                    </div>
-                  )}
+                  <div>
+                    <label className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--foreground)]/40">
+                      Caption channel
+                      <select
+                        value={activeCaptionChannel}
+                        onChange={(event) =>
+                          setCaptionChannel(event.target.value)
+                        }
+                        className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-normal normal-case tracking-normal text-[var(--foreground)]"
+                      >
+                        {selectedDraftChannels.map((channel) => (
+                          <option key={channel} value={channel}>
+                            {channel}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <p className="mt-3 whitespace-pre-line text-sm leading-6 text-[var(--foreground)]/75">
+                      {selectedPost.platform_captions[activeCaptionChannel] ||
+                        "No caption added for this channel."}
+                    </p>
+                  </div>
                   {selectedPost.format === "story" &&
                     selectedPost.story_interaction.type !== "none" && (
                       <div className="rounded-2xl border border-[var(--primary)]/25 bg-[var(--muted)]/50 p-4">
@@ -5869,49 +6312,27 @@ export function SocialApprovalCalendar({
 
               {mode === "internal" &&
                 canSendToClient &&
-                  activeModalPhase === "scheduling" && (
+                !guestSchedulingOnly &&
+                activeModalPhase === "scheduling" &&
+                contentDraft?.schedulingMode === "manual" && (
                   <div className="mt-6 border-t border-[var(--border)] pt-5">
-                    {contentDraft?.schedulingMode === "automatic" ? null : selectedPost.publishing_status ===
-                      "scheduled" ? (
+                    {selectedPost.publishing_status === "scheduled" ? (
                       <div className="rounded-2xl border border-[#A9CDD5] bg-[#E8F4F7] p-4 text-center">
                         <p className="text-sm font-semibold text-[#2F6470]">
-                          {selectedPost.scheduling_mode === "manual"
-                            ? "Manual Slack reminder scheduled"
-                            : "Queued for automatic publishing"}
+                          Manual Slack reminder scheduled
                         </p>
                         <p className="mt-1 text-xs leading-5 text-[#2F6470]/75">
-                          {selectedPost.scheduling_mode === "manual"
-                            ? `Slack will send the post owner all creative at the first channel time (${formatDate(selectedPost.scheduled_at, true)}) and include every channel schedule.`
-                            : "This post is waiting to auto-publish from Meta or the selected publishing platform."}
+                          Slack will send the post owner all creative at the
+                          first channel time (
+                          {formatDate(selectedPost.scheduled_at, true)}) and
+                          include every channel schedule.
                         </p>
-                        <button
-                          type="button"
-                          disabled={!currentReviewer || isSaving}
-                          onClick={() =>
-                            void setScheduledState(selectedPost, false)
-                          }
-                          className="mt-4 rounded-full border border-[#6FA1AC] bg-white px-4 py-2 text-xs font-semibold text-[#2F6470] disabled:opacity-40"
-                        >
-                          Change scheduling details
-                        </button>
                       </div>
                     ) : hasCompletedClientApproval(selectedPost) ? (
-                      <button
-                        type="button"
-                        disabled={
-                          !currentReviewer ||
-                          !hasCompletePlatformSchedule ||
-                          isSaving
-                        }
-                        onClick={() =>
-                          void setScheduledState(selectedPost, true)
-                        }
-                        className="w-full rounded-full bg-[#2F6470] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#285660] disabled:opacity-40"
-                      >
-                        {isSaving
-                          ? "Saving…"
-                          : "Schedule Slack reminder"}
-                      </button>
+                      <p className="text-center text-xs leading-5 text-[var(--foreground)]/50">
+                        Mark each channel as scheduled above. The Slack reminder
+                        will activate after every selected channel is marked.
+                      </p>
                     ) : (
                       <p className="text-center text-xs leading-5 text-[var(--foreground)]/50">
                         Complete client approval before scheduling this post.

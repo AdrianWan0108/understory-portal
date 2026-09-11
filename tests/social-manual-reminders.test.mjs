@@ -99,15 +99,26 @@ test("a Reel reminder includes its Google Drive cover", () => {
       Instagram: "2026-09-03T16:00:00.000Z",
       Bilibili: "2026-09-03T18:30:00.000Z",
     },
+    platformCaptions: {
+      Instagram: "Tour our studio on Instagram.",
+      Bilibili: "Tour our studio on Bilibili.",
+    },
     reel: {
       videoUrl: "https://drive.google.com/file/d/reel-video/view",
       coverUrl: "https://drive.google.com/file/d/reel-cover/view",
+      coverUrls: {
+        Instagram: "https://drive.google.com/file/d/instagram-cover/view",
+        Bilibili: "https://drive.google.com/file/d/bilibili-cover/view",
+      },
     },
     directLink: "https://portal.example.com/social-media-calendar/studio-tour",
   });
 
   assert.match(message, /Open Reel asset/);
-  assert.match(message, /Reel cover: .*Open Reel cover/);
+  assert.match(message, /Reel cover \(Instagram\): .*Open Instagram Reel cover/);
+  assert.match(message, /Reel cover \(Bilibili\): .*Open Bilibili Reel cover/);
   assert.match(message, /Instagram: .*12:00 p\.m\. ET/i);
   assert.match(message, /Bilibili: .*2:30 p\.m\. ET/i);
+  assert.match(message, /\*Instagram\*\nTour our studio on Instagram\./);
+  assert.match(message, /\*Bilibili\*\nTour our studio on Bilibili\./);
 });
