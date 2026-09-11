@@ -488,6 +488,7 @@ export type ReelDetails = {
   onScreenText: string;
   cta: string;
   videoUrl: string;
+  coverUrl: string;
   footageLinks: string[];
   referenceLinks: string[];
 };
@@ -500,9 +501,58 @@ export const EMPTY_REEL_DETAILS: ReelDetails = {
   onScreenText: "",
   cta: "",
   videoUrl: "",
+  coverUrl: "",
   footageLinks: [],
   referenceLinks: [],
 };
+
+export type SocialPlatformSchedules = Record<string, string>;
+
+export function normalizeSocialPlatformSchedules(
+  value: unknown,
+  platform?: string | null,
+  scheduledAt?: string | null,
+): SocialPlatformSchedules {
+  const normalized: SocialPlatformSchedules = {};
+
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    for (const [rawChannel, rawDate] of Object.entries(value)) {
+      const channel = rawChannel.trim();
+      if (!channel || typeof rawDate !== "string") continue;
+      const timestamp = new Date(rawDate);
+      if (!Number.isFinite(timestamp.getTime())) continue;
+      normalized[channel] = timestamp.toISOString();
+    }
+  }
+
+  if (Object.keys(normalized).length > 0 || !scheduledAt) return normalized;
+
+  const fallbackDate = new Date(scheduledAt);
+  if (!Number.isFinite(fallbackDate.getTime())) return normalized;
+  const fallbackIso = fallbackDate.toISOString();
+  const channels = (platform ?? "")
+    .split(/,\s*|\s+\+\s+|\s+&\s+/)
+    .map((channel) => channel.trim())
+    .filter(Boolean);
+
+  for (const channel of channels.length > 0 ? channels : ["Instagram"]) {
+    normalized[channel] = fallbackIso;
+  }
+  return normalized;
+}
+
+export function earliestSocialPlatformSchedule(
+  schedules: SocialPlatformSchedules,
+) {
+  return (
+    Object.values(schedules)
+      .filter((value) => Number.isFinite(new Date(value).getTime()))
+      .sort(
+        (left, right) =>
+          new Date(left).getTime() - new Date(right).getTime(),
+      )[0] ?? null
+  );
+}
 
 export type SocialFilmingDetails = {
   filmingDate: string;
@@ -818,6 +868,7 @@ export function normalizeReelDetails(value: unknown): ReelDetails {
       typeof record.onScreenText === "string" ? record.onScreenText : "",
     cta: typeof record.cta === "string" ? record.cta : "",
     videoUrl: typeof record.videoUrl === "string" ? record.videoUrl : "",
+    coverUrl: typeof record.coverUrl === "string" ? record.coverUrl : "",
     footageLinks: Array.isArray(record.footageLinks)
       ? record.footageLinks.filter(
           (link): link is string => typeof link === "string" && link.trim() !== "",

@@ -12,6 +12,7 @@ export type ManualPostReminder = {
   title: string;
   format?: string | null;
   platform?: string | null;
+  platformSchedules?: Record<string, string>;
   scheduledAt: string;
   assigneeMentions?: string[];
   assigneeNames?: string[];
@@ -33,6 +34,7 @@ export type ManualPostReminder = {
     onScreenText?: string | null;
     cta?: string | null;
     videoUrl?: string | null;
+    coverUrl?: string | null;
   } | null;
   slides?: ManualReminderSlide[];
   directLink: string;
@@ -73,11 +75,22 @@ export function isManualPostReminderDue(input: {
 }
 
 export function buildManualPostReminderMessage(input: ManualPostReminder) {
-  const planned = new Intl.DateTimeFormat("en-CA", {
+  const postingTimeFormatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Toronto",
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(new Date(input.scheduledAt));
+  });
+  const planned = postingTimeFormatter.format(new Date(input.scheduledAt));
+  const platformScheduleLines = Object.entries(input.platformSchedules ?? {})
+    .filter(([, value]) => Number.isFinite(new Date(value).getTime()))
+    .sort(
+      ([, left], [, right]) =>
+        new Date(left).getTime() - new Date(right).getTime(),
+    )
+    .map(
+      ([channel, value]) =>
+        `• ${clean(channel, 80)}: ${postingTimeFormatter.format(new Date(value))} ET`,
+    );
   const formatAndPlatform = [clean(input.format, 80), clean(input.platform, 80)]
     .filter(Boolean)
     .join(" · ");
@@ -92,6 +105,8 @@ export function buildManualPostReminderMessage(input: ManualPostReminder) {
     `*${clean(input.clientName, 120) ?? "Client"} · ${clean(input.title, 240) ?? "Untitled content"}*`,
     formatAndPlatform ? `Format: ${formatAndPlatform}` : null,
     `Planned: ${planned} ET`,
+    platformScheduleLines.length ? "Channel posting times:" : null,
+    ...platformScheduleLines,
     `Post owner: ${assignees}`,
     "",
     "*Creative to post*",
@@ -123,6 +138,7 @@ export function buildManualPostReminderMessage(input: ManualPostReminder) {
 
   if (input.reel) {
     const videoLink = slackLink(input.reel.videoUrl, "Open Reel asset");
+    const coverLink = slackLink(input.reel.coverUrl, "Open Reel cover");
     lines.push(
       clean(input.reel.hook) ? `Reel hook: ${clean(input.reel.hook)}` : null,
       clean(input.reel.script, 1_200)
@@ -139,6 +155,7 @@ export function buildManualPostReminderMessage(input: ManualPostReminder) {
         : null,
       clean(input.reel.cta) ? `Reel CTA: ${clean(input.reel.cta)}` : null,
       videoLink ? `Reel: ${videoLink}` : null,
+      coverLink ? `Reel cover: ${coverLink}` : null,
     );
   }
 

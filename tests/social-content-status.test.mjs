@@ -5,9 +5,11 @@ import {
   deriveClientApprovalState,
   deriveInternalApprovalState,
   deriveSocialWorkflowPhase,
+  earliestSocialPlatformSchedule,
   estimateSocialProductionDeadline,
   normalizeSocialFilmingDetails,
   normalizeSocialPostStatus,
+  normalizeSocialPlatformSchedules,
   normalizeSocialProductionStatus,
   normalizeSocialPublishingStatus,
   normalizeSocialSchedulingMode,
@@ -27,6 +29,33 @@ import {
   SOCIAL_POST_STATUS_LABELS,
   SOCIAL_POST_FORMATS,
 } from "../lib/social-content.ts";
+
+test("platform schedules normalize per channel and preserve old shared times", () => {
+  const schedules = normalizeSocialPlatformSchedules({
+    Instagram: "2026-09-15T14:00:00.000Z",
+    Bilibili: "2026-09-15T18:30:00.000Z",
+    Invalid: "not-a-date",
+  });
+  assert.deepEqual(schedules, {
+    Instagram: "2026-09-15T14:00:00.000Z",
+    Bilibili: "2026-09-15T18:30:00.000Z",
+  });
+  assert.equal(
+    earliestSocialPlatformSchedule(schedules),
+    "2026-09-15T14:00:00.000Z",
+  );
+  assert.deepEqual(
+    normalizeSocialPlatformSchedules(
+      null,
+      "Instagram, Bilibili",
+      "2026-09-15T14:00:00.000Z",
+    ),
+    {
+      Instagram: "2026-09-15T14:00:00.000Z",
+      Bilibili: "2026-09-15T14:00:00.000Z",
+    },
+  );
+});
 
 test("MVP client approval requires Gary but not Dorothy", () => {
   assert.deepEqual(requiredSocialClientReviewerKeys("mvp"), ["MVP_Gary"]);
@@ -246,6 +275,7 @@ test("Story interaction and Reel production details normalize safely", () => {
       onScreenText: "Watch this",
       cta: "",
       videoUrl: "",
+      coverUrl: "",
       footageLinks: [],
       referenceLinks: [],
     },

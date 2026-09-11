@@ -11,6 +11,7 @@ import {
 } from "@/lib/social-manual-reminders";
 import {
   normalizeReelDetails,
+  normalizeSocialPlatformSchedules,
   normalizeStoryInteraction,
 } from "@/lib/social-content";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
@@ -26,6 +27,7 @@ type DueTask = {
   title: string;
   format: string | null;
   platform: string | null;
+  platform_schedules: unknown;
   purpose: string | null;
   brief: string | null;
   visual_note: string | null;
@@ -86,6 +88,7 @@ async function sendDueManualPostReminders(request: NextRequest) {
         title,
         format,
         platform,
+        platform_schedules,
         purpose,
         brief,
         visual_note,
@@ -204,6 +207,11 @@ async function sendDueManualPostReminders(request: NextRequest) {
       title: task.title,
       format: task.format,
       platform: task.platform,
+      platformSchedules: normalizeSocialPlatformSchedules(
+        task.platform_schedules,
+        task.platform,
+        task.scheduled_at,
+      ),
       scheduledAt: task.scheduled_at,
       assigneeMentions: assigneeProfiles
         .filter((profile) => profile.slack_user_id)
@@ -236,6 +244,7 @@ async function sendDueManualPostReminders(request: NextRequest) {
               onScreenText: reel.onScreenText,
               cta: reel.cta,
               videoUrl: reel.videoUrl,
+              coverUrl: reel.coverUrl,
             }
           : null,
       slides: (task.task_slides ?? [])

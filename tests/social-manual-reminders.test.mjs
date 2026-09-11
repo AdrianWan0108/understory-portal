@@ -88,3 +88,26 @@ test("a carousel reminder uses slide captions without a post caption", () => {
   assert.doesNotMatch(message, /Legacy whole-post caption/);
   assert.match(message, /Meet the green frames/);
 });
+
+test("a Reel reminder includes its Google Drive cover", () => {
+  const message = buildManualPostReminderMessage({
+    clientName: "MVP",
+    title: "Studio tour",
+    format: "Reel",
+    scheduledAt: "2026-09-03T16:00:00.000Z",
+    platformSchedules: {
+      Instagram: "2026-09-03T16:00:00.000Z",
+      Bilibili: "2026-09-03T18:30:00.000Z",
+    },
+    reel: {
+      videoUrl: "https://drive.google.com/file/d/reel-video/view",
+      coverUrl: "https://drive.google.com/file/d/reel-cover/view",
+    },
+    directLink: "https://portal.example.com/social-media-calendar/studio-tour",
+  });
+
+  assert.match(message, /Open Reel asset/);
+  assert.match(message, /Reel cover: .*Open Reel cover/);
+  assert.match(message, /Instagram: .*12:00 p\.m\. ET/i);
+  assert.match(message, /Bilibili: .*2:30 p\.m\. ET/i);
+});

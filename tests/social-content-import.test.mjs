@@ -17,6 +17,7 @@ test("the ChatGPT template imports Story, Reel, and Carousel production data", (
   assert.equal(result.posts[0].schedulingMode, "manual");
   assert.equal(result.posts[1].reelDetails.editingFlow.includes("reveal"), true);
   assert.equal(result.posts[1].reelDetails.onScreenText.includes("Before launch"), true);
+  assert.equal(result.posts[1].reelDetails.coverUrl, "");
   assert.equal(result.posts[2].slides.length, 3);
 });
 

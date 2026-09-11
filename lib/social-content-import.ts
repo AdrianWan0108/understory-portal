@@ -36,6 +36,7 @@ const EMPTY_REEL_DETAILS: ReelDetails = {
   onScreenText: "",
   cta: "",
   videoUrl: "",
+  coverUrl: "",
   footageLinks: [],
   referenceLinks: [],
 };
@@ -339,6 +340,9 @@ export function parseSocialContentImport(
         onScreenText: text(field(reel, "onScreenText", "on_screen_text")),
         cta: text(reel.cta),
         videoUrl: text(field(reel, "videoUrl", "video_url")),
+        coverUrl: text(
+          field(reel, "coverUrl", "cover_url", "reelCover", "reel_cover"),
+        ),
         footageLinks: stringList(field(reel, "footageLinks", "footage_links")),
         referenceLinks: stringList(field(reel, "referenceLinks", "reference_links")),
       },
@@ -419,6 +423,7 @@ export const SOCIAL_CONTENT_IMPORT_EXAMPLE = JSON.stringify(
           onScreenText: "Before launch / The process / Final reveal",
           cta: "Follow for the finished result",
           videoUrl: "",
+          coverUrl: "",
           footageLinks: [],
           referenceLinks: [],
         },
