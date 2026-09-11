@@ -77,13 +77,6 @@ const navigation: Array<{
     guestOnly: true,
   },
   {
-    label: "References",
-    href: "/team-hub/references",
-    icon: "resources",
-    guestAllowed: true,
-    guestOnly: true,
-  },
-  {
     label: "Gallery",
     href: "/team-hub/gallery",
     icon: "gallery",

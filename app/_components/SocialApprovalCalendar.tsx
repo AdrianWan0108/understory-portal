@@ -5041,6 +5041,29 @@ export function SocialApprovalCalendar({
                               />
                             </label>
                             <label className="text-xs font-semibold">
+                              Reference links
+                              <textarea
+                                rows={3}
+                                value={contentDraft.reelDetails.referenceLinks.join(
+                                  "\n",
+                                )}
+                                onChange={(event) =>
+                                  setContentDraft({
+                                    ...contentDraft,
+                                    reelDetails: {
+                                      ...contentDraft.reelDetails,
+                                      referenceLinks: event.target.value
+                                        .split("\n")
+                                        .map((value) => value.trim())
+                                        .filter(Boolean),
+                                    },
+                                  })
+                                }
+                                placeholder="Paste one reference link per line"
+                                className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-normal"
+                              />
+                            </label>
+                            <label className="text-xs font-semibold">
                               Draft / final Reel link (Google Drive or Frame.io)
                               <input
                                 type="url"
