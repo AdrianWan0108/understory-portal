@@ -20,6 +20,7 @@ type NavIcon =
   | "finance"
   | "sales"
   | "projects"
+  | "calendar"
   | "gallery"
   | "clients"
   | "payroll"
@@ -33,6 +34,7 @@ const navigation: Array<{
   icon: NavIcon;
   ownerOnly?: boolean;
   guestAllowed?: boolean;
+  guestOnly?: boolean;
 }> = [
   {
     label: "Dashboard",
@@ -68,16 +70,21 @@ const navigation: Array<{
     icon: "projects",
   },
   {
+    label: "Social media calendar",
+    href: "/team-hub/social-media-calendar",
+    icon: "calendar",
+    guestAllowed: true,
+    guestOnly: true,
+  },
+  {
     label: "Gallery",
     href: "/team-hub/gallery",
     icon: "gallery",
-    guestAllowed: true,
   },
   {
     label: "Client info",
     href: "/team-hub/client-info",
     icon: "clients",
-    guestAllowed: true,
   },
   {
     label: "Payroll",
@@ -134,6 +141,13 @@ function TeamIcon({
       <>
         <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H10l2 2h5.5A2.5 2.5 0 0 1 20 9.5v8A2.5 2.5 0 0 1 17.5 20h-11A2.5 2.5 0 0 1 4 17.5Z" />
         <path d="M4 10h16" />
+      </>
+    ),
+    calendar: (
+      <>
+        <rect x="3" y="5" width="18" height="16" rx="2" />
+        <path d="M7 3v4M17 3v4M3 10h18" />
+        <path d="M7 14h2M11 14h2M15 14h2M7 18h2M11 18h2" />
       </>
     ),
     gallery: (
@@ -276,11 +290,11 @@ function TeamNavigation({
   return (
     <nav aria-label="Team Hub navigation" className="space-y-1.5">
       {navigation
-        .filter(
-          (item) =>
-            accessLevel === "owner" ||
-            (accessLevel === "guest" ? item.guestAllowed : !item.ownerOnly),
-        )
+        .filter((item) => {
+          if (accessLevel === "guest") return item.guestAllowed;
+          if (item.guestOnly) return false;
+          return accessLevel === "owner" || !item.ownerOnly;
+        })
         .map((item) => {
           const isActive =
             pathname === item.href || pathname.startsWith(`${item.href}/`);

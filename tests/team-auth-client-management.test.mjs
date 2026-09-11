@@ -25,17 +25,26 @@ test("guest login is recognized but is not treated as a team member", () => {
   );
 });
 
-test("guest routes are constrained to client info and gallery", () => {
-  assert.equal(isGuestAllowedTeamPath("/team-hub/client-info/acme"), true);
-  assert.equal(isGuestAllowedTeamPath("/team-hub/gallery"), true);
+test("guest routes are constrained to the editable social media calendar", () => {
+  assert.equal(isGuestAllowedTeamPath("/team-hub/social-media-calendar"), true);
+  assert.equal(
+    isGuestAllowedTeamPath("/team-hub/social-media-calendar/launch-post"),
+    true,
+  );
+  assert.equal(isGuestAllowedTeamPath("/team-hub/client-info/acme"), false);
+  assert.equal(isGuestAllowedTeamPath("/team-hub/gallery"), false);
+  assert.equal(isGuestAllowedTeamPath("/team-hub/projects"), false);
   assert.equal(isGuestAllowedTeamPath("/team-hub/payroll"), false);
   assert.equal(
     getSafeTeamReturnPath("/team-hub/payroll", "guest"),
     TEAM_GUEST_DEFAULT_PATH,
   );
   assert.equal(
-    getSafeTeamReturnPath("/team-hub/gallery?client=mvp", "guest"),
-    "/team-hub/gallery?client=mvp",
+    getSafeTeamReturnPath(
+      "/team-hub/social-media-calendar?client=mvp",
+      "guest",
+    ),
+    "/team-hub/social-media-calendar?client=mvp",
   );
 });
 

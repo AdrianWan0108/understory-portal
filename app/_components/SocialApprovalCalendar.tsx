@@ -199,6 +199,7 @@ type Props = {
   clientName?: string | null;
   workspaceId?: string;
   initialPostId?: string;
+  internalCalendarHref?: string;
   currentReviewer: ApprovalReviewer | null;
   requiredReviewers: ApprovalReviewer[];
   canSendToClient?: boolean;
@@ -1045,6 +1046,7 @@ export function SocialApprovalCalendar({
   clientName,
   workspaceId,
   initialPostId,
+  internalCalendarHref,
   currentReviewer,
   requiredReviewers,
   canSendToClient = false,
@@ -1603,7 +1605,8 @@ export function SocialApprovalCalendar({
       window.history.replaceState(
         {},
         "",
-        `/team-hub/projects/${encodeURIComponent(workspaceId)}/calendar`,
+        internalCalendarHref ??
+          `/team-hub/projects/${encodeURIComponent(workspaceId)}/calendar`,
       );
       return;
     }

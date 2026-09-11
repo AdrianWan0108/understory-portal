@@ -12,7 +12,7 @@ export type TeamMemberIdentity = Exclude<TeamIdentity, "guest">;
 export const TEAM_SESSION_COOKIE = "team_session";
 export const TEAM_LOGIN_PATH = "/team-hub/login";
 export const TEAM_DEFAULT_PATH = "/team-hub/dashboard";
-export const TEAM_GUEST_DEFAULT_PATH = "/team-hub/client-info";
+export const TEAM_GUEST_DEFAULT_PATH = "/team-hub/social-media-calendar";
 
 export const TEAM_IDENTITIES = {
   karen: {
@@ -60,7 +60,7 @@ export const TEAM_IDENTITIES = {
   guest: {
     username: "Understory_Guest",
     name: "Guest",
-    title: "View-only guest",
+    title: "Social media editor",
     accessLevel: "guest",
     initials: "G",
   },
@@ -128,10 +128,8 @@ export function shouldRestrictSocialContentCardsToUser({
 
 export function isGuestAllowedTeamPath(pathname: string) {
   return (
-    pathname === "/team-hub/client-info" ||
-    pathname.startsWith("/team-hub/client-info/") ||
-    pathname === "/team-hub/gallery" ||
-    pathname.startsWith("/team-hub/gallery/")
+    pathname === TEAM_GUEST_DEFAULT_PATH ||
+    pathname.startsWith(`${TEAM_GUEST_DEFAULT_PATH}/`)
   );
 }
 

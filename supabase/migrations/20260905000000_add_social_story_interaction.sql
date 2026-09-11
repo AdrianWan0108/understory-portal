@@ -3,7 +3,7 @@
 
 begin;
 
-alter table public.tasks
+alter table public.tasks 
   add column if not exists story_interaction jsonb not null
   default '{"type":"none","prompt":"","options":[]}'::jsonb;
 

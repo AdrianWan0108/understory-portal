@@ -5,6 +5,7 @@ import {
   type ApprovalReviewer,
 } from "@/app/_components/SocialApprovalCalendar";
 import { useTeamIdentity } from "@/app/team-hub/_components/TeamIdentity";
+import { TEAM_GUEST_DEFAULT_PATH } from "@/lib/team-auth";
 
 const INTERNAL_TEAM: ApprovalReviewer[] = [
   {
@@ -28,9 +29,11 @@ const REQUIRED_INTERNAL_REVIEWERS = INTERNAL_TEAM.filter(
 export function SocialContentCalendarWorkspace({
   taskId,
   initialPostId,
+  calendarHref,
 }: {
   taskId: string;
   initialPostId?: string;
+  calendarHref?: string;
 }) {
   const { username, accessLevel, isReady } = useTeamIdentity();
   const currentReviewer =
@@ -43,6 +46,10 @@ export function SocialContentCalendarWorkspace({
       mode="internal"
       workspaceId={taskId}
       initialPostId={initialPostId}
+      internalCalendarHref={
+        calendarHref ??
+        (accessLevel === "guest" ? TEAM_GUEST_DEFAULT_PATH : undefined)
+      }
       currentReviewer={currentReviewer}
       requiredReviewers={REQUIRED_INTERNAL_REVIEWERS}
       canSendToClient={
