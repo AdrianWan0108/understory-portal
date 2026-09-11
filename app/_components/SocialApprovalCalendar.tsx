@@ -3540,10 +3540,10 @@ export function SocialApprovalCalendar({
           </nav>
         )}
 
-        <div className="mt-10 grid gap-6 2xl:grid-cols-[minmax(0,1fr)_minmax(260px,320px)] 2xl:items-start">
+        <div className="mt-10 grid gap-6 2xl:grid-cols-[minmax(0,2fr)_minmax(380px,1fr)] 2xl:items-start">
           <section
             aria-labelledby="approval-grid-heading"
-            className="order-2 w-full max-w-[360px] justify-self-end 2xl:sticky 2xl:top-6 2xl:max-w-[320px]"
+            className="order-2 w-full max-w-[440px] justify-self-end 2xl:sticky 2xl:top-6 2xl:max-w-none"
           >
             {storyPosts.length > 0 && (
               <section aria-labelledby="story-strip-heading" className="mb-8">

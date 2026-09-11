@@ -25,12 +25,13 @@ test("guest login is recognized but is not treated as a team member", () => {
   );
 });
 
-test("guest routes are constrained to the editable social media calendar", () => {
+test("guest routes are constrained to the social calendar and references", () => {
   assert.equal(isGuestAllowedTeamPath("/team-hub/social-media-calendar"), true);
   assert.equal(
     isGuestAllowedTeamPath("/team-hub/social-media-calendar/launch-post"),
     true,
   );
+  assert.equal(isGuestAllowedTeamPath("/team-hub/references"), true);
   assert.equal(isGuestAllowedTeamPath("/team-hub/client-info/acme"), false);
   assert.equal(isGuestAllowedTeamPath("/team-hub/gallery"), false);
   assert.equal(isGuestAllowedTeamPath("/team-hub/projects"), false);
