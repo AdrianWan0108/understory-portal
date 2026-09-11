@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { ClientSelect } from "@/app/_components/ClientSelect";
+import { useEffect, useState } from "react";
 import { SocialContentCalendarWorkspace } from "@/app/team-hub/projects/[taskId]/calendar/workspace";
 import { useProjectTheme } from "@/app/team-hub/projects/_components/ProjectThemeProvider";
-import { TEAM_GUEST_DEFAULT_PATH } from "@/lib/team-auth";
+import {
+  TEAM_GUEST_CLIENT_SLUG,
+  TEAM_GUEST_DEFAULT_PATH,
+} from "@/lib/team-auth";
 import { supabase } from "@/lib/supabase";
 
-type CalendarClient = {
+type GuestClient = {
+  id: string;
   name: string;
   slug: string;
 };
@@ -15,7 +18,6 @@ type CalendarClient = {
 type CalendarRow = {
   id: string;
   client_id: string;
-  clients: CalendarClient | CalendarClient[] | null;
 };
 
 type SocialCalendar = {
@@ -25,13 +27,9 @@ type SocialCalendar = {
   clientSlug: string;
 };
 
-function calendarClient(row: CalendarRow) {
-  return Array.isArray(row.clients) ? row.clients[0] : row.clients;
-}
-
 export function GuestSocialMediaCalendar() {
   const { client, isReady, setClient } = useProjectTheme();
-  const [calendars, setCalendars] = useState<SocialCalendar[]>([]);
+  const [calendar, setCalendar] = useState<SocialCalendar | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,11 +40,33 @@ export function GuestSocialMediaCalendar() {
       setIsLoading(true);
       setError(null);
 
+      const { data: guestClient, error: clientError } = await supabase
+        .from("clients")
+        .select("id, name, slug")
+        .eq("slug", TEAM_GUEST_CLIENT_SLUG)
+        .maybeSingle();
+
+      if (!isActive) return;
+      if (clientError || !guestClient) {
+        setError(
+          `Could not load Unknown Dancecrew: ${
+            clientError?.message ?? "Client not found."
+          }`,
+        );
+        setIsLoading(false);
+        return;
+      }
+
+      const allowedClient = guestClient as GuestClient;
       const { data, error: calendarError } = await supabase
         .from("division_tasks")
-        .select("id, client_id, clients(name, slug)")
+        .select("id, client_id")
+        .eq("client_id", allowedClient.id)
         .eq("division", "social-media")
-        .eq("template_type", "content_calendar");
+        .eq("template_type", "content_calendar")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
 
       if (!isActive) return;
       if (calendarError) {
@@ -55,23 +75,19 @@ export function GuestSocialMediaCalendar() {
         return;
       }
 
-      const nextCalendars = ((data ?? []) as CalendarRow[])
-        .map((row) => {
-          const relatedClient = calendarClient(row);
-          if (!relatedClient?.slug) return null;
-          return {
-            id: row.id,
-            clientId: row.client_id,
-            clientName: relatedClient.name,
-            clientSlug: relatedClient.slug,
-          };
-        })
-        .filter((calendar): calendar is SocialCalendar => Boolean(calendar))
-        .sort((left, right) =>
-          left.clientName.localeCompare(right.clientName, "en-CA"),
-        );
+      if (!data) {
+        setError("Unknown Dancecrew does not have a Social Media Calendar yet.");
+        setIsLoading(false);
+        return;
+      }
 
-      setCalendars(nextCalendars);
+      const calendarRow = data as CalendarRow;
+      setCalendar({
+        id: calendarRow.id,
+        clientId: calendarRow.client_id,
+        clientName: allowedClient.name,
+        clientSlug: allowedClient.slug,
+      });
       setIsLoading(false);
     }
 
@@ -81,32 +97,11 @@ export function GuestSocialMediaCalendar() {
     };
   }, []);
 
-  const selectedCalendar = useMemo(
-    () =>
-      calendars.find((calendar) => calendar.clientSlug === client) ??
-      calendars[0] ??
-      null,
-    [calendars, client],
-  );
-
   useEffect(() => {
-    if (
-      isReady &&
-      selectedCalendar &&
-      selectedCalendar.clientSlug !== client
-    ) {
-      setClient(selectedCalendar.clientSlug);
+    if (isReady && calendar && calendar.clientSlug !== client) {
+      setClient(calendar.clientSlug);
     }
-  }, [client, isReady, selectedCalendar, setClient]);
-
-  function selectCalendar(clientSlug: string) {
-    setClient(clientSlug);
-    const url = new URL(window.location.href);
-    url.pathname = TEAM_GUEST_DEFAULT_PATH;
-    url.search = "";
-    url.searchParams.set("client", clientSlug);
-    window.history.replaceState({}, "", url);
-  }
+  }, [calendar, client, isReady, setClient]);
 
   if (!isReady || isLoading) {
     return (
@@ -116,7 +111,7 @@ export function GuestSocialMediaCalendar() {
     );
   }
 
-  if (error || !selectedCalendar) {
+  if (error || !calendar) {
     return (
       <main className="min-h-screen px-5 py-10 sm:px-8 sm:py-14 lg:px-10">
         <div className="mx-auto max-w-[1500px] rounded-2xl border border-[#E4B9B9] bg-[#FFF0F0] px-5 py-4 text-sm text-[#8B3E3E]">
@@ -126,10 +121,6 @@ export function GuestSocialMediaCalendar() {
     );
   }
 
-  const calendarHref = `${TEAM_GUEST_DEFAULT_PATH}?client=${encodeURIComponent(
-    selectedCalendar.clientSlug,
-  )}`;
-
   return (
     <>
       <div className="border-b border-[var(--border)] bg-[var(--card)] px-5 py-3 sm:px-8 lg:px-10">
@@ -137,22 +128,15 @@ export function GuestSocialMediaCalendar() {
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--primary)]">
             Calendar workspace
           </p>
-          <ClientSelect
-            value={selectedCalendar.clientSlug}
-            onChange={selectCalendar}
-            options={calendars.map((calendar) => ({
-              value: calendar.clientSlug,
-              label: calendar.clientName,
-            }))}
-            ariaLabel="Select social media calendar client"
-            tone="themed"
-          />
+          <p className="text-xs font-semibold text-[var(--foreground)]">
+            {calendar.clientName}
+          </p>
         </div>
       </div>
       <SocialContentCalendarWorkspace
-        key={selectedCalendar.id}
-        taskId={selectedCalendar.id}
-        calendarHref={calendarHref}
+        key={calendar.id}
+        taskId={calendar.id}
+        calendarHref={TEAM_GUEST_DEFAULT_PATH}
       />
     </>
   );

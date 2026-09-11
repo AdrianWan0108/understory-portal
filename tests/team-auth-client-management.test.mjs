@@ -6,6 +6,7 @@ import {
   getTeamMemberIdentityForUsername,
   isGuestAllowedTeamPath,
   shouldRestrictSocialContentCardsToUser,
+  TEAM_GUEST_CLIENT_SLUG,
   TEAM_GUEST_DEFAULT_PATH,
   TEAM_MEMBER_PROFILES,
 } from "../lib/team-auth.ts";
@@ -17,12 +18,14 @@ import {
 } from "../lib/client-management.ts";
 
 test("guest login is recognized but is not treated as a team member", () => {
-  assert.equal(getTeamIdentityForUsername("understory_guest"), "guest");
-  assert.equal(getTeamMemberIdentityForUsername("Understory_Guest"), null);
+  assert.equal(getTeamIdentityForUsername("unknowndancecrew"), "guest");
+  assert.equal(getTeamIdentityForUsername("Understory_Guest"), null);
+  assert.equal(getTeamMemberIdentityForUsername("Unknowndancecrew"), null);
   assert.equal(
-    TEAM_MEMBER_PROFILES.some((profile) => profile.username === "Understory_Guest"),
+    TEAM_MEMBER_PROFILES.some((profile) => profile.username === "Unknowndancecrew"),
     false,
   );
+  assert.equal(TEAM_GUEST_CLIENT_SLUG, "unknown-dancecrew");
 });
 
 test("guest routes are constrained to the editable social media calendar", () => {

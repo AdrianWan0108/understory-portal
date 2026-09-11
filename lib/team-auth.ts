@@ -13,6 +13,7 @@ export const TEAM_SESSION_COOKIE = "team_session";
 export const TEAM_LOGIN_PATH = "/team-hub/login";
 export const TEAM_DEFAULT_PATH = "/team-hub/dashboard";
 export const TEAM_GUEST_DEFAULT_PATH = "/team-hub/social-media-calendar";
+export const TEAM_GUEST_CLIENT_SLUG = "unknown-dancecrew";
 
 export const TEAM_IDENTITIES = {
   karen: {
@@ -58,11 +59,11 @@ export const TEAM_IDENTITIES = {
     initials: "B",
   },
   guest: {
-    username: "Understory_Guest",
-    name: "Guest",
+    username: "Unknowndancecrew",
+    name: "Unknown Dancecrew",
     title: "Social media editor",
     accessLevel: "guest",
-    initials: "G",
+    initials: "U",
   },
 } satisfies Record<
   TeamIdentity,
