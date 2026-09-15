@@ -260,6 +260,7 @@ const SOCIAL_MEDIA_CHANNELS = [
   "Instagram",
   "Facebook",
   "TikTok",
+  "抖音",
   "LinkedIn",
   "YouTube",
   "Bilibili",
@@ -938,7 +939,13 @@ function socialChannelKey(channel: string | null | undefined) {
   const normalized = channel?.trim().toLowerCase() ?? "";
   if (normalized.includes("instagram")) return "instagram";
   if (normalized.includes("facebook")) return "facebook";
-  if (normalized.includes("tiktok")) return "tiktok";
+  if (
+    normalized.includes("tiktok") ||
+    normalized.includes("douyin") ||
+    normalized.includes("抖音")
+  ) {
+    return "tiktok";
+  }
   if (normalized.includes("linkedin")) return "linkedin";
   if (normalized.includes("youtube")) return "youtube";
   if (normalized.includes("bilibili") || normalized.includes("哔哩哔哩")) {

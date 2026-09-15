@@ -16,11 +16,21 @@ jobs:
     steps:
       - name: Trigger due reminders
         env:
-          PORTAL_BASE_URL: ${{ vars.PORTAL_BASE_URL }}
+          PORTAL_BASE_URL: ${{ vars.PORTAL_BASE_URL || vars.PORTALLINK }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          test -n "$PORTAL_BASE_URL"
-          test -n "$CRON_SECRET"
+          if [ -z "$PORTAL_BASE_URL" ]; then
+            echo "::error::Set the PORTAL_BASE_URL repository variable (legacy PORTALLINK is also supported)."
+            exit 1
+          fi
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::Set the CRON_SECRET repository secret."
+            exit 1
+          fi
+          case "$PORTAL_BASE_URL" in
+            http://*|https://*) ;;
+            *) PORTAL_BASE_URL="https://$PORTAL_BASE_URL" ;;
+          esac
           curl --fail-with-body --silent --show-error \
             --retry 2 \
             --max-time 60 \

@@ -90,7 +90,8 @@ settings in GitHub before enabling reminders:
 
 - Actions secret `CRON_SECRET`: the same value configured in Vercel
 - Actions variable `PORTAL_BASE_URL`: the deployed origin, such as
-  `https://understory-portal.vercel.app`
+  `https://understory-portal-wheat.vercel.app` (the legacy variable name
+  `PORTALLINK` is also supported)
 
 The remaining Vercel cron only runs the Slack profile sync once per day, which
 is supported on the Hobby plan.
