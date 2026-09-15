@@ -45,7 +45,6 @@ type SocialTransitionNotification = {
   action:
     | "internal_changes_requested"
     | "sent_to_client"
-    | "publishing_date_changed"
     | "scheduled"
     | "manual_reminder_scheduled"
     | "posted";
@@ -202,7 +201,6 @@ function parseNotification(value: unknown): SlackNotification | null {
     const actions = new Set([
       "internal_changes_requested",
       "sent_to_client",
-      "publishing_date_changed",
       "scheduled",
       "manual_reminder_scheduled",
       "posted",
@@ -398,7 +396,6 @@ export async function POST(request: NextRequest) {
       const labels: Record<SocialTransitionNotification["action"], string> = {
         internal_changes_requested: "Internal changes requested",
         sent_to_client: "Sent to client",
-        publishing_date_changed: "Publishing date changed after client approval",
         scheduled: "Confirmed queued in Meta",
         manual_reminder_scheduled: "Manual post reminder scheduled",
         posted: "Marked as posted",

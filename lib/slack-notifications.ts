@@ -39,7 +39,6 @@ export type SlackNotification =
       action:
         | "internal_changes_requested"
         | "sent_to_client"
-        | "publishing_date_changed"
         | "scheduled"
         | "manual_reminder_scheduled"
         | "posted";

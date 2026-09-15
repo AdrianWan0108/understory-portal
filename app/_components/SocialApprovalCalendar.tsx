@@ -1265,9 +1265,6 @@ export function SocialApprovalCalendar({
     clientSlug ?? null,
   );
   const [posts, setPosts] = useState<ApprovalPost[]>([]);
-  const [collectionView, setCollectionView] = useState<"active" | "archive">(
-    "active",
-  );
   const [socialPreviewMode, setSocialPreviewMode] = useState<"feed" | "reels">(
     "feed",
   );
@@ -1568,9 +1565,14 @@ export function SocialApprovalCalendar({
             initialPostId ? false : "replace",
           );
         }
-        const firstScheduled = loaded.find((post) => post.scheduled_at);
-        if (firstScheduled?.scheduled_at) {
-          const date = new Date(firstScheduled.scheduled_at);
+        const initialCalendarPost =
+          loaded.find((post) => !post.posted_at && post.scheduled_at) ??
+          loaded.findLast((post) => post.scheduled_at || post.posted_at);
+        const initialCalendarDate = initialCalendarPost
+          ? initialCalendarPost.scheduled_at ?? initialCalendarPost.posted_at
+          : null;
+        if (initialCalendarDate) {
+          const date = new Date(initialCalendarDate);
           setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
         }
       }
@@ -1651,12 +1653,7 @@ export function SocialApprovalCalendar({
   const productionDeadlineValue = isProductionDeadlineAutomatic
     ? (productionDeadlineEstimate?.date ?? "")
     : (contentDraft?.dueDate ?? "");
-  const collectionPosts = posts.filter((post) =>
-    collectionView === "archive"
-      ? post.publishing_status === "posted"
-      : post.publishing_status !== "posted",
-  );
-  const visiblePosts = collectionPosts.filter((post) => {
+  const visiblePosts = posts.filter((post) => {
     if (calendarFilter === "all") return true;
     if (calendarFilter === "posted") {
       return post.publishing_status === "posted";
@@ -1686,9 +1683,6 @@ export function SocialApprovalCalendar({
       ) === "pending"
     );
   });
-  const archiveCount = posts.filter(
-    (post) => post.publishing_status === "posted",
-  ).length;
   const selectedReelMedia =
     selectedPost?.format === "reel"
       ? resolveReviewMediaLink(
@@ -1923,28 +1917,6 @@ export function SocialApprovalCalendar({
     );
   }
 
-  function showCollection(nextView: "active" | "archive") {
-    setCollectionView(nextView);
-    setCalendarFilter(nextView === "archive" ? "posted" : "all");
-    closePost();
-    const firstDatedPost = posts.find(
-      (post) =>
-        Boolean(
-          nextView === "archive" ? post.posted_at : post.scheduled_at,
-        ) &&
-        (nextView === "archive" ? Boolean(post.posted_at) : !post.posted_at),
-    );
-    const firstDate = firstDatedPost
-      ? nextView === "archive"
-        ? firstDatedPost.posted_at
-        : firstDatedPost.scheduled_at
-      : null;
-    if (firstDate) {
-      const date = new Date(firstDate);
-      setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
-    }
-  }
-
   function hasCompletedClientApproval(post: ApprovalPost) {
     return (
       approvalStatusForReviewerKeys(
@@ -1965,13 +1937,12 @@ export function SocialApprovalCalendar({
   while (calendarCells.length % 7 !== 0) calendarCells.push(null);
 
   const collectionDate = (post: ApprovalPost) =>
-    collectionView === "archive" ? post.posted_at : post.scheduled_at;
+    post.scheduled_at ?? post.posted_at;
 
   const calendarPostTime = (post: ApprovalPost) =>
-    collectionView === "archive"
-      ? post.posted_at
-      : earliestSocialPlatformSchedule(post.platform_schedules) ??
-        post.scheduled_at;
+    earliestSocialPlatformSchedule(post.platform_schedules) ??
+    post.scheduled_at ??
+    post.posted_at;
 
   const postsByDate = new Map<string, ApprovalPost[]>();
   visiblePosts.forEach((post) => {
@@ -1981,7 +1952,9 @@ export function SocialApprovalCalendar({
   });
 
   const unscheduledPosts = visiblePosts.filter(
-    (post) => !post.scheduled_at || !hasCompletePostPlatformSchedule(post),
+    (post) =>
+      !post.posted_at &&
+      (!post.scheduled_at || !hasCompletePostPlatformSchedule(post)),
   );
   const storyPosts = visiblePosts
     .filter((post) => post.format === "story" && collectionDate(post))
@@ -2059,7 +2032,6 @@ export function SocialApprovalCalendar({
     action:
       | "internal_changes_requested"
       | "sent_to_client"
-      | "publishing_date_changed"
       | "scheduled"
       | "manual_reminder_scheduled"
       | "posted",
@@ -2136,23 +2108,6 @@ export function SocialApprovalCalendar({
         ? { manual_reminder_sent_at: null }
         : {}),
     });
-    if (
-      deriveClientApprovalState(
-        post.client_approvals,
-        clientReviewerKeys,
-        post.sent_to_client_at,
-      ) === "approved" &&
-      !platformSchedulesEqual(
-        post.platform_schedules,
-        nextPlatformSchedules,
-      )
-    ) {
-      notifyTransition(
-        { ...post, scheduled_at: iso },
-        "publishing_date_changed",
-        JSON.stringify(nextPlatformSchedules),
-      );
-    }
     setFeedback(`${post.title} moved to ${formatDate(iso, true)}.`);
   }
 
@@ -2473,21 +2428,6 @@ export function SocialApprovalCalendar({
       const date = new Date(scheduledAt);
       setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
     }
-    if (
-      !shouldMarkPosted &&
-      !platformSchedulesEqual(post.platform_schedules, platformSchedules) &&
-      deriveClientApprovalState(
-        post.client_approvals,
-        clientReviewerKeys,
-        post.sent_to_client_at,
-      ) === "approved"
-    ) {
-      notifyTransition(
-        { ...post, scheduled_at: scheduledAt },
-        "publishing_date_changed",
-        JSON.stringify(platformSchedules),
-      );
-    }
     if (shouldMarkPosted && !post.posted_at && postedAt) {
       notifyTransition(
         { ...post, live_post_url: livePostUrl },
@@ -2497,7 +2437,7 @@ export function SocialApprovalCalendar({
     }
     setFeedback(
       shouldMarkPosted
-        ? `${post.title} saved as posted and moved to the Archive.`
+        ? `${post.title} saved as posted.`
         : post.format === "carousel"
           ? "Planning, creative direction, publishing details, and slides saved."
           : "Planning, production, filming, and publishing details saved.",
@@ -3190,7 +3130,7 @@ export function SocialApprovalCalendar({
 
     if (saveError) {
       setError(
-        `Could not ${isPosted ? "archive" : "restore"} this post: ${saveError.message}`,
+        `Could not mark this post as ${isPosted ? "posted" : "scheduled"}: ${saveError.message}`,
       );
       return;
     }
@@ -3207,7 +3147,7 @@ export function SocialApprovalCalendar({
     }
     setFeedback(
       isPosted
-        ? `${post.title} marked as posted and archived.`
+        ? `${post.title} marked as posted.`
         : `${post.title} restored to the active approval workflow.`,
     );
   }
@@ -3362,7 +3302,6 @@ export function SocialApprovalCalendar({
     setIsImporting(false);
     setIsImportOpen(false);
     setImportDraft("");
-    setCollectionView("active");
     setCalendarFilter("all");
     setFeedback(
       `${importedPosts.length} ${
@@ -3461,30 +3400,6 @@ export function SocialApprovalCalendar({
           )}
         </header>
 
-        <nav
-          aria-label="Social post collection"
-          className="mt-6 inline-flex rounded-full border border-[var(--border)] bg-[var(--muted)] p-1"
-        >
-          {[
-            { key: "active" as const, label: "Active", count: posts.length - archiveCount },
-            { key: "archive" as const, label: "Archive", count: archiveCount },
-          ].map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              aria-pressed={collectionView === item.key}
-              onClick={() => showCollection(item.key)}
-              className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
-                collectionView === item.key
-                  ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm"
-                  : "text-[var(--foreground)]/55 hover:text-[var(--foreground)]"
-              }`}
-            >
-              {item.label} ({item.count})
-            </button>
-          ))}
-        </nav>
-
         {error && (
           <p
             role="alert"
@@ -3519,15 +3434,7 @@ export function SocialApprovalCalendar({
                 key={key}
                 type="button"
                 aria-pressed={calendarFilter === key}
-                onClick={() => {
-                  const nextFilter = key as typeof calendarFilter;
-                  if (nextFilter === "posted") {
-                    showCollection("archive");
-                  } else {
-                    if (collectionView === "archive") showCollection("active");
-                    setCalendarFilter(nextFilter);
-                  }
-                }}
+                onClick={() => setCalendarFilter(key as typeof calendarFilter)}
                 className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                   calendarFilter === key
                     ? "border-[var(--primary)] bg-[var(--muted)] text-[var(--primary)]"
@@ -3667,9 +3574,7 @@ export function SocialApprovalCalendar({
                 <p className="mt-1 text-xs text-[var(--foreground)]/50">
                   {socialPreviewMode === "reels"
                     ? "All planned Reels appear here, including Reels hidden from the Feed preview."
-                    : collectionView === "archive"
-                      ? "Published feed posts with the newest publication time first."
-                      : "Planned feed posts with the newest publish date first. Stories appear above."}
+                    : "Planned and published feed posts, with the newest publish date first. Stories appear above."}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -3709,34 +3614,38 @@ export function SocialApprovalCalendar({
               <p className="rounded-[24px] border border-dashed border-[var(--border)] bg-[var(--card)] px-6 py-14 text-center text-sm text-[var(--foreground)]/45">
                 {socialPreviewMode === "reels"
                   ? `No ${activeReelPreviewChannel} Reels are available yet.`
-                  : collectionView === "archive"
-                    ? "No published feed posts are in the Archive yet."
-                    : "Schedule an Image, Carousel, or a Reel shown in Feed to see it here."}
+                  : "Schedule an Image, Carousel, or a Reel shown in Feed to see it here."}
               </p>
             ) : (
-              <div className="grid grid-cols-3 gap-0.5 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:gap-px">
-                {previewPosts.map((post) => {
-                  const previewUrl = postVisualPreviewUrl(
-                    post,
-                    socialPreviewMode === "reels"
-                      ? activeReelPreviewChannel
-                      : undefined,
-                  );
-                  return (
-                    <button
-                      key={post.id}
-                      type="button"
-                      onClick={() => openPost(post, clientReviewerKeys)}
-                      aria-label={`${post.title} — ${formatDate(collectionDate(post), true)}`}
-                      className="group relative aspect-square bg-[var(--muted)] bg-cover bg-center transition hover:opacity-90"
-                      style={
-                        previewUrl
-                          ? {
-                              backgroundImage: `url("${previewUrl.replaceAll('"', "%22")}")`,
-                            }
-                          : undefined
-                      }
-                    >
+              <div
+                role="region"
+                aria-label={`${socialPreviewMode === "reels" ? "Reels" : "Feed"} preview posts`}
+                tabIndex={0}
+                className="aspect-[3/4] max-h-[calc(100vh-12rem)] overflow-y-auto overscroll-contain rounded-xl border border-[var(--border)] bg-[var(--border)] [scrollbar-gutter:stable]"
+              >
+                <div className="grid grid-cols-3 gap-0.5 sm:gap-px">
+                  {previewPosts.map((post) => {
+                    const previewUrl = postVisualPreviewUrl(
+                      post,
+                      socialPreviewMode === "reels"
+                        ? activeReelPreviewChannel
+                        : undefined,
+                    );
+                    return (
+                      <button
+                        key={post.id}
+                        type="button"
+                        onClick={() => openPost(post, clientReviewerKeys)}
+                        aria-label={`${post.title} — ${formatDate(collectionDate(post), true)}`}
+                        className="group relative aspect-square bg-[var(--muted)] bg-cover bg-center transition hover:opacity-90"
+                        style={
+                          previewUrl
+                            ? {
+                                backgroundImage: `url("${previewUrl.replaceAll('"', "%22")}")`,
+                              }
+                            : undefined
+                        }
+                      >
                       {!previewUrl && (
                         <div className="flex h-full items-center justify-center">
                           <svg
@@ -3785,9 +3694,10 @@ export function SocialApprovalCalendar({
                       {post.posted_at && (
                         <PostedStamp className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 px-3 py-1.5 text-[10px]" />
                       )}
-                    </button>
-                  );
-                })}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </section>
@@ -3806,14 +3716,12 @@ export function SocialApprovalCalendar({
               </h2>
               <p className="mt-1 text-xs text-[var(--foreground)]/50">
                 {mode === "internal"
-                  ? collectionView === "archive"
-                    ? "Open a published post to review its approvals and publication details."
-                    : "Open a post to plan its date, time, caption, and final confirmation."
+                  ? "Open a post to plan its date, time, caption, and final confirmation. Posted content stays on its original publish date."
                   : "Open a post to review the final creative and caption."}
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {collectionView === "active" && mode === "internal" && canSendToClient && (
+              {mode === "internal" && canSendToClient && (
                 <button
                   type="button"
                   disabled={!readyUnsentForMonth.length || isSending}
@@ -4143,7 +4051,7 @@ export function SocialApprovalCalendar({
         </section>
         </div>
 
-        {collectionView === "active" && mode === "internal" && unscheduledPosts.length > 0 && (
+        {mode === "internal" && unscheduledPosts.length > 0 && (
           <section className="mt-8">
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--primary)]">
               Needs scheduling
@@ -4215,18 +4123,14 @@ export function SocialApprovalCalendar({
         {!isLoading && visiblePosts.length === 0 && (
           <section className="mt-8 rounded-[24px] border border-dashed border-[var(--border)] bg-[var(--card)] px-6 py-14 text-center">
             <p className="text-sm font-semibold">
-              {collectionView === "archive"
-                ? "No published posts are in the Archive yet."
-                : mode === "internal"
-                  ? "No posts match this calendar view."
-                  : "No social media approvals yet."}
+              {mode === "internal"
+                ? "No posts match this calendar view."
+                : "No social media approvals yet."}
             </p>
             <p className="mt-1 text-xs text-[var(--foreground)]/45">
-              {collectionView === "archive"
-                ? "Posts move here automatically when posted_at is recorded."
-                : mode === "internal"
-                  ? "Add content or choose another filter to continue."
-                  : `Posts sent for ${resolvedClientName}’s review will appear here.`}
+              {mode === "internal"
+                ? "Add content or choose another filter to continue."
+                : `Posts sent for ${resolvedClientName}’s review will appear here.`}
             </p>
           </section>
         )}
@@ -4617,7 +4521,7 @@ export function SocialApprovalCalendar({
                 {selectedPost.posted_at && mode === "client" ? (
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EAF5ED] px-2.5 py-1 text-[10px] font-semibold text-[#267149]">
                     <span className="size-1.5 rounded-full bg-[#3A9B63]" />
-                    Archived
+                    Posted
                   </span>
                 ) : (
                   <span
@@ -6371,7 +6275,7 @@ export function SocialApprovalCalendar({
                     {selectedPost.posted_at ? (
                       <div className="rounded-2xl border border-[#A8CFB5] bg-[#EAF5ED] p-4 text-center">
                         <p className="text-xs font-semibold text-[#267149]">
-                          Archived as posted by {selectedPost.posted_by ?? "the team"}{" "}
+                          Posted by {selectedPost.posted_by ?? "the team"}{" "}
                           on {formatDate(selectedPost.posted_at, true)}
                         </p>
                         <button
