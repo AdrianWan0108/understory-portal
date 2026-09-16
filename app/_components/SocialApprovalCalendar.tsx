@@ -2017,6 +2017,8 @@ export function SocialApprovalCalendar({
               right.title.localeCompare(left.title, "en-CA"),
           )
       : feedPosts;
+  const previewPostLimit = socialPreviewMode === "reels" ? 9 : 12;
+  const displayedPreviewPosts = previewPosts.slice(0, previewPostLimit);
   const readyUnsent = posts.filter(
     (post) =>
       !post.posted_at &&
@@ -3628,10 +3630,14 @@ export function SocialApprovalCalendar({
                 role="region"
                 aria-label={`${socialPreviewMode === "reels" ? "Reels" : "Feed"} preview posts`}
                 tabIndex={0}
-                className="aspect-[3/4] max-h-[calc(100vh-12rem)] overflow-y-auto overscroll-contain rounded-xl border border-[var(--border)] bg-[var(--border)] [scrollbar-gutter:stable]"
+                className={`overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] ${
+                  socialPreviewMode === "reels"
+                    ? "aspect-[9/16]"
+                    : "aspect-[3/4]"
+                }`}
               >
                 <div className="grid grid-cols-3 gap-0.5 sm:gap-px">
-                  {previewPosts.map((post) => {
+                  {displayedPreviewPosts.map((post) => {
                     const previewUrl = postVisualPreviewUrl(
                       post,
                       socialPreviewMode === "reels"
@@ -3644,7 +3650,11 @@ export function SocialApprovalCalendar({
                         type="button"
                         onClick={() => openPost(post, clientReviewerKeys)}
                         aria-label={`${post.title} — ${formatDate(collectionDate(post), true)}`}
-                        className="group relative aspect-square bg-[var(--muted)] bg-cover bg-center transition hover:opacity-90"
+                        className={`group relative bg-[var(--muted)] bg-cover bg-center transition hover:opacity-90 ${
+                          socialPreviewMode === "reels"
+                            ? "aspect-[9/16]"
+                            : "aspect-square"
+                        }`}
                         style={
                           previewUrl
                             ? {
@@ -4321,7 +4331,8 @@ export function SocialApprovalCalendar({
               ) : (
                 <div
                   className={`relative flex items-center justify-center overflow-hidden rounded-2xl bg-[var(--background)] bg-center shadow-sm ${
-                    selectedPost.format === "story"
+                    selectedPost.format === "story" ||
+                    selectedPost.format === "reel"
                       ? "aspect-[9/16] bg-contain bg-no-repeat"
                       : "aspect-[4/5] bg-cover"
                   }`}
