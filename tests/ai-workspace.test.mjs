@@ -5,6 +5,13 @@ import { createAiTaskSchema, structuredOutputSchema, taskEventSchema } from "../
 import { canReadAiTask, mayTransition, requiresHumanApproval } from "../lib/ai-workspace/policy.ts";
 import { signAiPayload, verifyAiPayload } from "../lib/ai-workspace/signatures.ts";
 import { aiSlackNotification } from "../lib/ai-workspace/slack-message.ts";
+import {
+  AI_WORKSPACE_CALLBACK_PATH,
+  AI_WORKSPACE_PATH,
+  getSafeAiWorkspaceNext,
+  resolveAiWorkspaceActor,
+  startGithubAiWorkspaceOAuth,
+} from "../lib/ai-workspace/auth.ts";
 
 test("versioned structured outputs reject malformed or unversioned content", () => {
   const valid = { schema_version: 1, kind: "content_suggestion", title: "Launch", format: "image", purpose: "Awareness",
@@ -74,4 +81,58 @@ test("migration makes event IDs and task request keys unique and AI tables serve
   assert.match(sql, /create function public\.ai_create_task/);
   assert.match(sql, /create function public\.ai_apply_task_event/);
   assert.match(sql, /create function public\.ai_decide_approval/);
+});
+
+test("GitHub OAuth starts with the fixed AI Workspace callback", async () => {
+  let request;
+  const result = await startGithubAiWorkspaceOAuth(async (input) => {
+    request = input;
+    return { error: null };
+  }, "https://portal.example.com");
+  assert.equal(result.error, null);
+  assert.deepEqual(request, {
+    provider: "github",
+    options: { redirectTo: `https://portal.example.com${AI_WORKSPACE_CALLBACK_PATH}` },
+  });
+});
+
+test("authorized OAuth sessions resolve through the existing AI identity endpoint", async () => {
+  let authorization;
+  const result = await resolveAiWorkspaceActor("access-token", async (path, init) => {
+    authorization = init.headers.Authorization;
+    assert.equal(path, "/api/ai/me");
+    return { ok: true, status: 200, async json() { return { actor: { id: "profile", userId: "user", role: "owner", teamUsername: "adrian", fullName: "Adrian" } }; } };
+  });
+  assert.equal(authorization, "Bearer access-token");
+  assert.equal(result.status, "authorized");
+  assert.equal(result.actor.role, "owner");
+});
+
+test("authenticated sessions without a linked profile are denied", async () => {
+  const result = await resolveAiWorkspaceActor("access-token", async () => ({
+    ok: false, status: 401, async json() { return { error: "Not linked" }; },
+  }));
+  assert.deepEqual(result, { status: "unauthorized" });
+});
+
+test("email password fallback and existing-session checks remain in the workspace", async () => {
+  const workspace = await readFile(new URL("../app/team-hub/ai-workspace/_components/Workspace.tsx", import.meta.url), "utf8");
+  assert.match(workspace, /auth\.signInWithPassword/);
+  assert.match(workspace, /auth\.getSession\(\)/);
+  assert.match(workspace, /Continue with GitHub/);
+  assert.match(workspace, />or</);
+});
+
+test("OAuth callback rejects external and callback-loop next destinations", () => {
+  assert.equal(getSafeAiWorkspaceNext("https://evil.example/steal"), AI_WORKSPACE_PATH);
+  assert.equal(getSafeAiWorkspaceNext("//evil.example/steal"), AI_WORKSPACE_PATH);
+  assert.equal(getSafeAiWorkspaceNext(`${AI_WORKSPACE_CALLBACK_PATH}?next=loop`), AI_WORKSPACE_PATH);
+  assert.equal(getSafeAiWorkspaceNext(`${AI_WORKSPACE_PATH}/tasks/task-1?tab=activity`), `${AI_WORKSPACE_PATH}/tasks/task-1?tab=activity`);
+});
+
+test("AI identity endpoint still verifies the bearer user and linked profile role", async () => {
+  const endpoint = await readFile(new URL("../lib/ai-workspace/server.ts", import.meta.url), "utf8");
+  assert.match(endpoint, /admin\.auth\.getUser\(match\[1\]\)/);
+  assert.match(endpoint, /\.eq\("user_id", auth\.user\.id\)/);
+  assert.match(endpoint, /\["owner", "staff", "contractor"\]\.includes\(profile\.role\)/);
 });

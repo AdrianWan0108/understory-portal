@@ -4,6 +4,12 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { HIGH_RISK_ACTIONS } from "@/lib/ai-workspace/policy";
+import {
+  AI_WORKSPACE_NEXT_STORAGE_KEY,
+  getSafeAiWorkspaceNext,
+  startGithubAiWorkspaceOAuth,
+  UNLINKED_AI_PROFILE_MESSAGE,
+} from "@/lib/ai-workspace/auth";
 
 type Section = "overview" | "agents" | "tasks" | "approvals" | "activity" | "settings" | "detail";
 type Actor = { id: string; role: string; fullName: string };
@@ -59,6 +65,7 @@ export function Workspace({ section, taskId, taskDefaults }: { section: Section;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [githubRedirecting, setGithubRedirecting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(() => typeof navigator !== "undefined" && !navigator.onLine);
   const [error, setError] = useState<string | null>(null);
@@ -100,8 +107,15 @@ export function Workspace({ section, taskId, taskDefaults }: { section: Section;
         api<{ tasks: Task[] }>(`/api/ai/tasks${filter.provider ? `?provider=${encodeURIComponent(filter.provider)}` : ""}`),
       ]);
       setOverview(overviewResult); setAgents(agentResult.agents); setConfigs(agentResult.configs); setOptions(optionResult); setTasks(taskResult.tasks);
-    } catch (caught) { if (caught instanceof ApiError && [401, 403].includes(caught.status)) setActor(null);
-      setError(caught instanceof Error ? caught.message : "Could not load AI Workspace."); }
+    } catch (caught) {
+      if (caught instanceof ApiError && [401, 403].includes(caught.status)) {
+        const { data } = await supabase.auth.getSession();
+        setActor(null);
+        setError(data.session ? UNLINKED_AI_PROFILE_MESSAGE : "Your AI Workspace session expired. Please sign in again.");
+      } else {
+        setError(caught instanceof Error ? caught.message : "Could not load AI Workspace.");
+      }
+    }
     setLoading(false);
   }
 
@@ -117,6 +131,21 @@ export function Workspace({ section, taskId, taskDefaults }: { section: Section;
     setBusy(false);
     if (authError) { setError(authError.message); return; }
     setPassword(""); void refresh();
+  }
+
+  async function signInWithGithub() {
+    setBusy(true); setGithubRedirecting(true); setError(null);
+    const next = getSafeAiWorkspaceNext(`${window.location.pathname}${window.location.search}`);
+    window.sessionStorage.setItem(AI_WORKSPACE_NEXT_STORAGE_KEY, next);
+    const { error: authError } = await startGithubAiWorkspaceOAuth(
+      (input) => supabase.auth.signInWithOAuth(input),
+      window.location.origin,
+    );
+    if (authError) {
+      window.sessionStorage.removeItem(AI_WORKSPACE_NEXT_STORAGE_KEY);
+      setError("GitHub sign-in could not be started. Please try again.");
+      setGithubRedirecting(false); setBusy(false);
+    }
   }
 
   async function createTask(event: React.FormEvent) {
@@ -147,7 +176,7 @@ export function Workspace({ section, taskId, taskDefaults }: { section: Section;
   }
 
   if (!authReady || loading && !actor) return <div className="mx-auto max-w-6xl px-5 py-12 text-sm text-[#6A557A]" role="status">Loading AI Workspace…</div>;
-  if (!actor) return <main className="mx-auto max-w-md px-5 py-12"><Panel title="AI Workspace sign in"><p className="mb-5 text-sm leading-6 text-[#6F5D7D]">Use a Supabase Auth account linked to your Understory profile. The Team Hub username alone cannot open AI work.</p><form onSubmit={signIn} className="space-y-4"><Field title="Email"><input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} /></Field><Field title="Password"><input type="password" required value={password} onChange={(event) => setPassword(event.target.value)} className={inputClass} /></Field><button disabled={busy} className={buttonClass}>Sign in</button></form>{error && <p role="alert" className="mt-4 text-sm text-[#A13B43]">{error}</p>}</Panel></main>;
+  if (!actor) return <main className="mx-auto max-w-md px-5 py-12"><Panel title="AI Workspace sign in"><p className="mb-5 text-sm leading-6 text-[#6F5D7D]">Use a Supabase Auth account linked to your Understory profile. The Team Hub username alone cannot open AI work.</p><button type="button" disabled={busy} className={`${buttonClass} w-full`} onClick={() => void signInWithGithub()}>{githubRedirecting ? "Redirecting to GitHub…" : "Continue with GitHub"}</button><div className="my-5 flex items-center gap-3" aria-hidden="true"><span className="h-px flex-1 bg-[#DED2E5]" /><span className="text-xs font-medium uppercase tracking-[0.16em] text-[#8A7896]">or</span><span className="h-px flex-1 bg-[#DED2E5]" /></div><form onSubmit={signIn} className="space-y-4"><Field title="Email"><input type="email" required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} /></Field><Field title="Password"><input type="password" required autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} className={inputClass} /></Field><button disabled={busy} className={subtleButton}>Sign in with email</button></form>{error && <p role="alert" className="mt-4 text-sm text-[#A13B43]">{error}</p>}</Panel></main>;
 
   const active = section === "detail" ? "tasks" : section;
   const clientName = (id: string | null) => options.clients.find((client) => client.id === id)?.name ?? (id ? "Client" : "Internal");
