@@ -10,6 +10,9 @@ import {
 } from "@/lib/team-auth";
 
 export async function proxy(request: NextRequest) {
+  if (request.nextUrl.pathname === "/team-hub/ai-workspace" || request.nextUrl.pathname.startsWith("/team-hub/ai-workspace/")) {
+    return NextResponse.next();
+  }
   if (request.nextUrl.pathname === TEAM_LOGIN_PATH) {
     return NextResponse.next();
   }

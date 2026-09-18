@@ -17,21 +17,21 @@ const AGENTS: Record<Agent, {
   placeholder: string; prompts: string[]; color: string; pale: string; icon: string;
 }> = {
   content: {
-    label: "Content Specialist", shortLabel: "Content", provider: "ChatGPT",
+    label: "Content Agent", shortLabel: "Content", provider: "OpenAI",
     intro: "Ideas, hooks and captions that remember the brand.",
     placeholder: "Ask for a caption or a fresh idea…",
     prompts: ["Give me 3 campaign angles", "Write an Instagram caption", "Turn this into a stronger hook"],
     color: "#D86F50", pale: "#FFF0E9", icon: "✦",
   },
   research: {
-    label: "Researcher", shortLabel: "Research", provider: "Perplexity",
+    label: "Research Agent", shortLabel: "Research", provider: "Perplexity",
     intro: "Current, source-backed research for smarter strategy.",
     placeholder: "What should we research?",
     prompts: ["Research this week's industry trends", "Find competitor content gaps", "Fact-check this claim"],
     color: "#19766D", pale: "#E7F5F1", icon: "⌕",
   },
   project_manager: {
-    label: "Project Manager", shortLabel: "Projects", provider: "Claude",
+    label: "Operations Agent", shortLabel: "Operations", provider: "Claude",
     intro: "Live project status, priorities and team updates.",
     placeholder: "Ask about projects or next steps…",
     prompts: ["What needs attention today?", "Show blocked client work", "Draft a team status update"],

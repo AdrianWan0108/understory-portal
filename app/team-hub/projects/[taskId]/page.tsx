@@ -17,6 +17,7 @@ import {
   type DivisionTaskTemplate,
 } from "@/lib/division-tasks";
 import { supabase } from "@/lib/supabase";
+import { useTeamIdentity } from "@/app/team-hub/_components/TeamIdentity";
 import {
   projectClientInitial,
   projectInputClass,
@@ -61,6 +62,7 @@ function formatDueDate(value: string) {
 }
 
 export default function DivisionTaskDetailPage() {
+  const { accessLevel } = useTeamIdentity();
   const { taskId } = useParams<{ taskId: string }>();
   const router = useRouter();
   const { setClient: setThemeClient } = useProjectTheme();
@@ -283,6 +285,12 @@ export default function DivisionTaskDetailPage() {
                   <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
                     {task.title}
                   </h1>
+                  {accessLevel === "owner" && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Link href={`/team-hub/ai-workspace/tasks?agent=operations&action=project_review&client=${task.client_id}&project=${task.id}`} className="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-semibold text-[var(--primary)] hover:bg-[var(--muted)]">Ask Operations</Link>
+                      <Link href={`/team-hub/ai-workspace/tasks?agent=research&action=project_research&client=${task.client_id}&project=${task.id}`} className="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-semibold text-[var(--primary)] hover:bg-[var(--muted)]">Start Research</Link>
+                    </div>
+                  )}
                   {(task.start_date || task.due_date) && (
                     <p className="mt-3 inline-flex rounded-full bg-[var(--card)] px-3 py-1.5 text-xs font-semibold text-[var(--primary)] shadow-sm">
                       {task.start_date

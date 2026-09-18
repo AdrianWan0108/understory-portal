@@ -26,7 +26,8 @@ type NavIcon =
   | "payroll"
   | "documents"
   | "resources"
-  | "profile";
+  | "profile"
+  | "ai";
 
 const navigation: Array<{
   label: string;
@@ -68,6 +69,12 @@ const navigation: Array<{
     label: "Projects",
     href: "/team-hub/projects",
     icon: "projects",
+  },
+  {
+    label: "AI Workspace",
+    href: "/team-hub/ai-workspace",
+    icon: "ai",
+    ownerOnly: true,
   },
   {
     label: "Social media calendar",
@@ -141,6 +148,12 @@ function TeamIcon({
       <>
         <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H10l2 2h5.5A2.5 2.5 0 0 1 20 9.5v8A2.5 2.5 0 0 1 17.5 20h-11A2.5 2.5 0 0 1 4 17.5Z" />
         <path d="M4 10h16" />
+      </>
+    ),
+    ai: (
+      <>
+        <circle cx="12" cy="12" r="8" />
+        <path d="M12 7v10M7 12h10M8 8l8 8M16 8l-8 8" />
       </>
     ),
     calendar: (
@@ -327,6 +340,7 @@ function TeamNavigation({
 
 function TeamHubShellContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const isAiWorkspacePath = pathname === "/team-hub/ai-workspace" || pathname.startsWith("/team-hub/ai-workspace/");
   const router = useRouter();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const {
@@ -337,6 +351,7 @@ function TeamHubShellContent({ children }: { children: React.ReactNode }) {
   } = useTeamIdentity();
 
   useEffect(() => {
+    if (isAiWorkspacePath) return;
     if (isReady && (!identity || !accessLevel || isPickerOpen)) {
       const returnTo = `${pathname}${window.location.search}`;
       router.replace(
@@ -352,7 +367,11 @@ function TeamHubShellContent({ children }: { children: React.ReactNode }) {
           : "/team-hub/dashboard",
       );
     }
-  }, [accessLevel, identity, isPickerOpen, isReady, pathname, router]);
+  }, [accessLevel, identity, isPickerOpen, isReady, isAiWorkspacePath, pathname, router]);
+
+  if (isAiWorkspacePath) {
+    return <div className="min-h-screen bg-[#F4EEF8] text-[#28154F]">{children}</div>;
+  }
 
   if (!isReady) {
     return <div className="min-h-screen bg-[#E9E0EF]" />;

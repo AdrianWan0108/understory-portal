@@ -4592,6 +4592,25 @@ export function SocialApprovalCalendar({
                   Copy post link
                 </button>
               )}
+              {mode === "internal" && currentReviewer && (
+                <div className="mt-3 flex flex-wrap gap-1.5" aria-label="AI actions for this content item">
+                  {([
+                    ["Ask Content Agent", "content", "content_advice"],
+                    ["Research Sources", "research", "research_sources"],
+                    ["Generate/Revise Caption", "content", "revise_caption"],
+                    ["Generate Bilingual Variations", "content", "bilingual_variations"],
+                    ["Create Creative Brief", "content", "creative_brief"],
+                    ["Send to Creative Designer", "creative", "design_draft"],
+                    ["Brand QA", "content", "brand_qa"],
+                    ["Analyze Performance", "growth", "performance_analysis"],
+                  ] as const).map(([title, agent, action]) => (
+                    <a key={action} href={`/team-hub/ai-workspace/tasks?agent=${agent}&action=${action}&client=${selectedPost.client_id}&project=${selectedPost.division_task_id ?? ""}&content=${selectedPost.id}`}
+                      className="rounded-full border border-[var(--border)] px-2.5 py-1.5 text-[10px] font-semibold text-[var(--primary)] hover:bg-[var(--muted)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]">
+                      {title}
+                    </a>
+                  ))}
+                </div>
+              )}
               {mode === "internal" && selectedAssignees.length > 0 && (
                 <div className="mt-2 flex items-center gap-2 text-xs text-[var(--foreground)]/50">
                   <AssigneeAvatars

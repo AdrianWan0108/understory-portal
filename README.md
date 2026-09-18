@@ -131,3 +131,7 @@ invoice PDF files. Apply all Supabase migrations before using the workspace.
 
 Generate `TOKEN_ENCRYPTION_KEY` with either `openssl rand -base64 32` or
 `openssl rand -hex 32`. Never commit the generated value.
+
+# AI Workspace
+
+The internal AI Workspace uses a separate verified Supabase Auth gate and an n8n workflow contract. See [AI Workspace integration](docs/ai-workspace.md) for migration, account provisioning, environment variables, and webhook setup.
