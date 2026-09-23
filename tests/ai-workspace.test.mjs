@@ -131,11 +131,13 @@ test("OAuth callback rejects external and callback-loop next destinations", () =
   assert.equal(getSafeAiWorkspaceNext(`${AI_WORKSPACE_PATH}/tasks/task-1?tab=activity`), `${AI_WORKSPACE_PATH}/tasks/task-1?tab=activity`);
 });
 
-test("site URL fallback recovers only pending AI Workspace OAuth results", async () => {
-  const oauthHash = "#access_token=test-token&expires_in=3600";
+test("site URL fallback recovers AI Workspace OAuth results across origins", async () => {
+  const oauthHash = "#access_token=test-token&refresh_token=refresh-token&expires_in=3600";
   assert.equal(getAiWorkspaceOAuthRecoveryPath({ hasPendingAiOAuth: true, search: "", hash: oauthHash }), `${AI_WORKSPACE_CALLBACK_PATH}${oauthHash}`);
-  assert.equal(getAiWorkspaceOAuthRecoveryPath({ hasPendingAiOAuth: true, search: "", hash: "#error=access_denied" }), `${AI_WORKSPACE_CALLBACK_PATH}#error=access_denied`);
-  assert.equal(getAiWorkspaceOAuthRecoveryPath({ hasPendingAiOAuth: false, search: "", hash: oauthHash }), null);
+  assert.equal(getAiWorkspaceOAuthRecoveryPath({ hasPendingAiOAuth: false, search: "", hash: oauthHash }), `${AI_WORKSPACE_CALLBACK_PATH}${oauthHash}`);
+  assert.equal(getAiWorkspaceOAuthRecoveryPath({ hasPendingAiOAuth: false, search: "?error=access_denied&error_description=Denied", hash: "" }), `${AI_WORKSPACE_CALLBACK_PATH}?error=access_denied&error_description=Denied`);
+  assert.equal(getAiWorkspaceOAuthRecoveryPath({ hasPendingAiOAuth: false, search: "", hash: "#access_token=incomplete" }), null);
+  assert.equal(getAiWorkspaceOAuthRecoveryPath({ hasPendingAiOAuth: true, search: "", hash: "#error=access_denied&error_description=Denied" }), `${AI_WORKSPACE_CALLBACK_PATH}#error=access_denied&error_description=Denied`);
   assert.equal(getAiWorkspaceOAuthRecoveryPath({ hasPendingAiOAuth: true, search: "", hash: "" }), null);
 
   const home = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");

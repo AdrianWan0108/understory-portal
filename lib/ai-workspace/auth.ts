@@ -40,14 +40,20 @@ export function getAiWorkspaceOAuthRecoveryPath(input: {
   search: string;
   hash: string;
 }) {
-  if (!input.hasPendingAiOAuth) return null;
-
   const fragment = new URLSearchParams(input.hash.replace(/^#/, ""));
   const query = new URLSearchParams(input.search.replace(/^\?/, ""));
-  const hasOAuthResult =
-    fragment.has("access_token") ||
-    fragment.has("error") ||
-    query.has("error");
+  const hasOAuthSession =
+    fragment.has("access_token") && fragment.has("refresh_token");
+  const hasOAuthError =
+    (fragment.has("error") && fragment.has("error_description")) ||
+    (query.has("error") && query.has("error_description"));
+  const hasOAuthResult = hasOAuthSession || hasOAuthError;
+
+  // Supabase falls back to the configured Site URL when redirectTo is not
+  // allow-listed. That URL can be on a different origin, where the pending
+  // sessionStorage marker is unavailable. A complete Supabase OAuth result is
+  // sufficient to recover the callback safely on that origin.
+  if (!input.hasPendingAiOAuth && !hasOAuthResult) return null;
 
   return hasOAuthResult
     ? `${AI_WORKSPACE_CALLBACK_PATH}${input.search}${input.hash}`
