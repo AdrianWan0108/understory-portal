@@ -8,6 +8,7 @@ import { aiSlackNotification } from "../lib/ai-workspace/slack-message.ts";
 import {
   AI_WORKSPACE_CALLBACK_PATH,
   AI_WORKSPACE_PATH,
+  getAiWorkspaceOAuthRecoveryPath,
   getSafeAiWorkspaceNext,
   resolveAiWorkspaceActor,
   startGithubAiWorkspaceOAuth,
@@ -128,6 +129,18 @@ test("OAuth callback rejects external and callback-loop next destinations", () =
   assert.equal(getSafeAiWorkspaceNext("//evil.example/steal"), AI_WORKSPACE_PATH);
   assert.equal(getSafeAiWorkspaceNext(`${AI_WORKSPACE_CALLBACK_PATH}?next=loop`), AI_WORKSPACE_PATH);
   assert.equal(getSafeAiWorkspaceNext(`${AI_WORKSPACE_PATH}/tasks/task-1?tab=activity`), `${AI_WORKSPACE_PATH}/tasks/task-1?tab=activity`);
+});
+
+test("site URL fallback recovers only pending AI Workspace OAuth results", async () => {
+  const oauthHash = "#access_token=test-token&expires_in=3600";
+  assert.equal(getAiWorkspaceOAuthRecoveryPath({ hasPendingAiOAuth: true, search: "", hash: oauthHash }), `${AI_WORKSPACE_CALLBACK_PATH}${oauthHash}`);
+  assert.equal(getAiWorkspaceOAuthRecoveryPath({ hasPendingAiOAuth: true, search: "", hash: "#error=access_denied" }), `${AI_WORKSPACE_CALLBACK_PATH}#error=access_denied`);
+  assert.equal(getAiWorkspaceOAuthRecoveryPath({ hasPendingAiOAuth: false, search: "", hash: oauthHash }), null);
+  assert.equal(getAiWorkspaceOAuthRecoveryPath({ hasPendingAiOAuth: true, search: "", hash: "" }), null);
+
+  const home = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(home, /sessionStorage\.getItem\(AI_WORKSPACE_NEXT_STORAGE_KEY\)/);
+  assert.match(home, /window\.location\.replace\(recoveryPath \?\? "\/client-portal\/approvals"\)/);
 });
 
 test("AI identity endpoint still verifies the bearer user and linked profile role", async () => {

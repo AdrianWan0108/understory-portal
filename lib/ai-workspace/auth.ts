@@ -35,6 +35,25 @@ export function aiWorkspaceCallbackUrl(origin: string) {
   return new URL(AI_WORKSPACE_CALLBACK_PATH, origin).toString();
 }
 
+export function getAiWorkspaceOAuthRecoveryPath(input: {
+  hasPendingAiOAuth: boolean;
+  search: string;
+  hash: string;
+}) {
+  if (!input.hasPendingAiOAuth) return null;
+
+  const fragment = new URLSearchParams(input.hash.replace(/^#/, ""));
+  const query = new URLSearchParams(input.search.replace(/^\?/, ""));
+  const hasOAuthResult =
+    fragment.has("access_token") ||
+    fragment.has("error") ||
+    query.has("error");
+
+  return hasOAuthResult
+    ? `${AI_WORKSPACE_CALLBACK_PATH}${input.search}${input.hash}`
+    : null;
+}
+
 type OAuthStarter = (input: {
   provider: "github";
   options: { redirectTo: string };
