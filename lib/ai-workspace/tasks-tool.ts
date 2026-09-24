@@ -5,7 +5,7 @@ export const TASKS_TOOL_SELECT = [
   "client_id",
   "division_task_id",
   "title",
-  "description",
+  "brief",
   "status",
   "production_status",
   "publishing_status",

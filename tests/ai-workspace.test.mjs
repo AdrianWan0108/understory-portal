@@ -175,7 +175,7 @@ test("tasks tool authorization rejects run mismatches, disabled tools, and confl
 
 test("tasks tool exposes only the approved operational task fields", () => {
   assert.deepEqual(TASKS_TOOL_SELECT.split(", "), [
-    "id", "client_id", "division_task_id", "title", "description", "status", "production_status", "publishing_status",
+    "id", "client_id", "division_task_id", "title", "brief", "status", "production_status", "publishing_status",
     "due_date", "scheduled_at", "platform", "format", "assignee_usernames", "watcher_usernames", "mentioned_usernames", "created_at",
   ]);
 });
