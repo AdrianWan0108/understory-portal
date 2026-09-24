@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { createAiTaskSchema, structuredOutputSchema, taskEventSchema } from "../lib/ai-workspace/schemas.ts";
+import { createAiTaskSchema, operationsResultSchema, structuredOutputSchema, taskEventSchema } from "../lib/ai-workspace/schemas.ts";
 import { canReadAiTask, mayTransition, requiresHumanApproval } from "../lib/ai-workspace/policy.ts";
 import { signAiPayload, verifyAiPayload } from "../lib/ai-workspace/signatures.ts";
 import { aiSlackNotification } from "../lib/ai-workspace/slack-message.ts";
@@ -34,6 +34,83 @@ test("n8n events require stable IDs and validated output", () => {
   assert.equal(taskEventSchema.safeParse({ ...event, event_id: "nope" }).success, false);
   assert.equal(taskEventSchema.safeParse({ ...event, output: { ...event.output, schema_version: 99 } }).success, false);
   assert.equal(taskEventSchema.safeParse({ ...event, output: { ...event.output, action_type: "unlisted_action" } }).success, false);
+});
+
+test("operations results validate directly and in completed n8n events", () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const output = {
+    schema_version: 1,
+    kind: "operations_result",
+    summary: "The launch plan is feasible with one scheduling dependency.",
+    recommended_actions: [{
+      title: "Confirm the production date",
+      rationale: "The publication sequence depends on asset delivery.",
+      priority: "high",
+      approval_required: false,
+    }],
+    risks: [{ description: "Late assets could compress review time.", severity: "medium" }],
+    questions: ["Who owns the final asset review?"],
+  };
+  const event = {
+    schema_version: 1,
+    event_id: id,
+    task_id: id,
+    run_id: id,
+    correlation_id: id,
+    idempotency_key: "operations-event-1",
+    trigger_source: "webhook",
+    status: "completed",
+    summary: "Operational analysis completed.",
+    output,
+  };
+
+  assert.equal(operationsResultSchema.safeParse(output).success, true);
+  assert.equal(structuredOutputSchema.safeParse(output).success, true);
+  assert.equal(taskEventSchema.safeParse(event).success, true);
+});
+
+test("operations results reject invalid required fields and action values", () => {
+  const valid = {
+    schema_version: 1,
+    kind: "operations_result",
+    summary: "Operations review complete.",
+    recommended_actions: [{ title: "Proceed", rationale: "Dependencies are ready.", priority: "normal", approval_required: false }],
+    risks: [],
+    questions: [],
+  };
+
+  assert.equal(structuredOutputSchema.safeParse({
+    ...valid,
+    recommended_actions: [{ ...valid.recommended_actions[0], priority: "critical" }],
+  }).success, false);
+  const { summary: _summary, ...missingSummary } = valid;
+  assert.equal(structuredOutputSchema.safeParse(missingSummary).success, false);
+  assert.equal(structuredOutputSchema.safeParse({
+    ...valid,
+    recommended_actions: [{ ...valid.recommended_actions[0], approval_required: "false" }],
+  }).success, false);
+});
+
+test("existing structured output kinds continue to validate", () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const outputs = [
+    { schema_version: 1, kind: "project_task", title: "Plan", description: "Plan the launch", owner: null, due_date: null,
+      priority: "normal", source_references: [], scope_risk: null },
+    { schema_version: 1, kind: "content_suggestion", title: "Launch", format: "image", purpose: "Awareness", hook: "Meet us",
+      caption: "Draft", bilingual_variations: [], creative_brief: "Simple image", production_due_date: null, publication_date: null, source_references: [] },
+    { schema_version: 1, kind: "research_result", question: "What changed?", summary: "Demand increased.", findings: [], sources: [],
+      uncertainty: "Limited sample", opportunities: [] },
+    { schema_version: 1, kind: "creative_brief", concept: "Launch", objective: "Build awareness", audience: "Customers", hierarchy: [],
+      asset_requirements: [], accessibility_notes: [], image_prompts: [], figma_file_url: null, figma_frame_url: null, delivery_status: "concept_only" },
+    { schema_version: 1, kind: "analytics_insight", metric_period: { start: "2026-09-01", end: "2026-09-30" }, metric_references: [],
+      interpretation: "Engagement increased.", limitations: [], recommended_actions: [], external_context: [] },
+    { schema_version: 1, kind: "slack_response", task_id: id, channel_id: "channel", thread_ts: null, summary: "Done",
+      portal_deep_link: "/team-hub/ai-workspace/tasks/task-1", status: "completed" },
+    { schema_version: 1, kind: "approval_request", risk_level: "high", action_type: "schedule_content", requested_action: "Schedule content",
+      downstream_action: "Queue approved schedule", output_preview: "Preview" },
+  ];
+
+  for (const output of outputs) assert.equal(structuredOutputSchema.safeParse(output).success, true, output.kind);
 });
 
 test("signed n8n payloads reject tampering, stale timestamps, and wrong secrets", () => {

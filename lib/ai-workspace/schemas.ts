@@ -40,6 +40,15 @@ export const analyticsInsightSchema = z.object({
   recommended_actions: z.array(z.object({ title: z.string(), rationale: z.string(), priority: z.enum(["low", "normal", "high", "urgent"]), approval_required: z.boolean() })),
   external_context: z.array(source),
 });
+export const operationsResultSchema = z.object({
+  schema_version: version, kind: z.literal("operations_result"), summary: z.string().min(1),
+  recommended_actions: z.array(z.object({
+    title: z.string().min(1), rationale: z.string().min(1),
+    priority: z.enum(["low", "normal", "high", "urgent"]), approval_required: z.boolean(),
+  })),
+  risks: z.array(z.object({ description: z.string().min(1), severity: z.enum(["low", "medium", "high"]) })),
+  questions: z.array(z.string().min(1)),
+});
 export const slackAgentResponseSchema = z.object({
   schema_version: version, kind: z.literal("slack_response"), task_id: uuidSchema, channel_id: z.string(), thread_ts: z.string().nullable(),
   summary: z.string().min(1).max(1200), portal_deep_link: z.string().startsWith("/team-hub/ai-workspace/tasks/"),
@@ -55,7 +64,7 @@ export const approvalRequestSchema = z.object({
 
 export const structuredOutputSchema = z.discriminatedUnion("kind", [
   extractedProjectTaskSchema, contentSuggestionSchema, researchResultSchema, creativeBriefSchema,
-  analyticsInsightSchema, slackAgentResponseSchema, approvalRequestSchema,
+  analyticsInsightSchema, operationsResultSchema, slackAgentResponseSchema, approvalRequestSchema,
 ]);
 
 export const createAiTaskSchema = z.object({
