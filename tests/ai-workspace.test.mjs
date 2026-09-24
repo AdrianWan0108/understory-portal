@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { createAiTaskSchema, operationsResultSchema, structuredOutputSchema, taskEventSchema } from "../lib/ai-workspace/schemas.ts";
+import { createAiTaskSchema, operationsResultSchema, structuredOutputSchema, taskEventSchema, tasksToolRequestSchema } from "../lib/ai-workspace/schemas.ts";
 import { canReadAiTask, mayTransition, requiresHumanApproval } from "../lib/ai-workspace/policy.ts";
 import { signAiPayload, verifyAiPayload } from "../lib/ai-workspace/signatures.ts";
 import { aiSlackNotification } from "../lib/ai-workspace/slack-message.ts";
+import {
+  authorizeTasksToolRequest,
+  TASKS_TOOL_SELECT,
+} from "../lib/ai-workspace/tasks-tool.ts";
 import {
   AI_WORKSPACE_CALLBACK_PATH,
   AI_WORKSPACE_PATH,
@@ -123,6 +127,57 @@ test("signed n8n payloads reject tampering, stale timestamps, and wrong secrets"
   assert.equal(verifyAiPayload({ ...input, body: '{"task_id":"two"}' }), false);
   assert.equal(verifyAiPayload({ ...input, secret: "wrong" }), false);
   assert.equal(verifyAiPayload({ ...input, now: 1789593000000 }), false);
+});
+
+test("signed tasks tool requests validate their versioned read filters", () => {
+  const secret = "a-long-shared-secret-with-more-than-32-bytes";
+  const timestamp = "1789592400";
+  const taskId = "00000000-0000-4000-8000-000000000001";
+  const runId = "00000000-0000-4000-8000-000000000002";
+  const body = JSON.stringify({
+    schema_version: 1,
+    task_id: taskId,
+    run_id: runId,
+    filters: { client_id: null, due_before: "2026-09-30" },
+  });
+  const signature = signAiPayload(secret, timestamp, body);
+
+  assert.equal(verifyAiPayload({ secret, timestamp, signature, body, now: 1789592400000 }), true);
+  const parsed = tasksToolRequestSchema.safeParse(JSON.parse(body));
+  assert.equal(parsed.success, true);
+  assert.equal(parsed.data.filters.limit, 50);
+  assert.equal(tasksToolRequestSchema.safeParse({ schema_version: 1, task_id: taskId, run_id: "invalid", filters: {} }).success, false);
+  assert.equal(tasksToolRequestSchema.safeParse({ schema_version: 1, task_id: taskId, run_id: runId, filters: { limit: 101 } }).success, false);
+});
+
+test("tasks tool authorization rejects run mismatches, disabled tools, and conflicting scopes", () => {
+  const taskId = "00000000-0000-4000-8000-000000000001";
+  const otherTaskId = "00000000-0000-4000-8000-000000000002";
+  const clientId = "00000000-0000-4000-8000-000000000003";
+  const otherClientId = "00000000-0000-4000-8000-000000000004";
+  const projectId = "00000000-0000-4000-8000-000000000005";
+  const otherProjectId = "00000000-0000-4000-8000-000000000006";
+  const request = tasksToolRequestSchema.parse({ schema_version: 1, task_id: taskId, run_id: otherTaskId, filters: {} });
+  const task = { id: taskId, assigned_agent: "operations", client_id: clientId, project_id: projectId };
+  const config = { allowed_tools: ["tasks"], permitted_client_ids: [clientId], permitted_project_ids: [projectId] };
+
+  assert.deepEqual(authorizeTasksToolRequest({ request, run: { task_id: otherTaskId }, task, config }), {
+    ok: false,
+    reason: "task_or_run_not_found",
+  });
+  assert.deepEqual(authorizeTasksToolRequest({ request, run: { task_id: taskId }, task,
+    config: { ...config, allowed_tools: ["projects"] } }), { ok: false, reason: "tool_not_allowed" });
+  assert.deepEqual(authorizeTasksToolRequest({ request: { ...request, filters: { ...request.filters, client_id: otherClientId } },
+    run: { task_id: taskId }, task, config }), { ok: false, reason: "client_scope_conflict" });
+  assert.deepEqual(authorizeTasksToolRequest({ request: { ...request, filters: { ...request.filters, project_id: otherProjectId } },
+    run: { task_id: taskId }, task, config }), { ok: false, reason: "project_scope_conflict" });
+});
+
+test("tasks tool exposes only the approved operational task fields", () => {
+  assert.deepEqual(TASKS_TOOL_SELECT.split(", "), [
+    "id", "client_id", "division_task_id", "title", "description", "status", "production_status", "publishing_status",
+    "due_date", "scheduled_at", "platform", "format", "assignee_usernames", "watcher_usernames", "mentioned_usernames", "created_at",
+  ]);
 });
 
 test("task access and transitions enforce owner, staff, contractor, and client boundaries", () => {

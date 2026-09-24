@@ -76,6 +76,18 @@ export const createAiTaskSchema = z.object({
   idempotency_key: z.string().min(16).max(200),
 });
 
+export const tasksToolRequestSchema = z.object({
+  schema_version: version,
+  task_id: uuidSchema,
+  run_id: uuidSchema,
+  filters: z.object({
+    client_id: uuidSchema.nullable().optional(),
+    project_id: uuidSchema.nullable().optional(),
+    due_before: z.iso.date().nullable().optional(),
+    limit: z.number().int().min(1).max(100).default(50),
+  }).strict(),
+}).strict();
+
 export const taskEventSchema = z.object({
   schema_version: version, event_id: uuidSchema, task_id: uuidSchema, run_id: uuidSchema, correlation_id: uuidSchema,
   idempotency_key: z.string().min(16), workflow_execution_id: z.string().max(300).optional(),
@@ -94,3 +106,4 @@ export const approvalDecisionSchema = z.object({ decision: z.enum(["approved", "
 
 export type AiAgentKey = z.infer<typeof agentKeySchema>;
 export type AiTaskStatus = z.infer<typeof taskStatusSchema>;
+export type TasksToolRequest = z.infer<typeof tasksToolRequestSchema>;
