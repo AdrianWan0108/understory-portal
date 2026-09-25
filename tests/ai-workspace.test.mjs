@@ -29,6 +29,7 @@ import {
   PROJECTS_TOOL_VISIBILITY_FILTER,
   projectsToolFilters,
 } from "../lib/ai-workspace/projects-tool.ts";
+import { selectContentHandoff, shouldLookupContentHandoff } from "../lib/ai-workspace/content-handoff.ts";
 import {
   AI_WORKSPACE_CALLBACK_PATH,
   AI_WORKSPACE_PATH,
@@ -202,6 +203,97 @@ test("completed content events persist the content result through the existing e
   assert.match(sql, /structured_output = case when v_output is not null then v_output else structured_output end/);
   assert.match(sql, /output_schema = case when v_output is not null then v_output ->> 'kind' else output_schema end/);
   assert.match(sql, /output_schema text,/);
+});
+
+const handoffIds = {
+  creative: "00000000-0000-4000-8000-000000000021",
+  content: "00000000-0000-4000-8000-000000000022",
+  olderContent: "00000000-0000-4000-8000-000000000023",
+  client: "00000000-0000-4000-8000-000000000024",
+  otherClient: "00000000-0000-4000-8000-000000000025",
+  project: "00000000-0000-4000-8000-000000000026",
+  otherProject: "00000000-0000-4000-8000-000000000027",
+  item: "00000000-0000-4000-8000-000000000028",
+  otherItem: "00000000-0000-4000-8000-000000000029",
+};
+const creativeTask = { id: handoffIds.creative, assigned_agent: "creative", client_id: handoffIds.client, project_id: handoffIds.project, content_item_id: handoffIds.item };
+const contentCandidate = (overrides = {}) => ({
+  id: handoffIds.content, assigned_agent: "content", status: "completed", client_id: handoffIds.client, project_id: handoffIds.project,
+  content_item_id: handoffIds.item, structured_output: contentResult, completed_at: "2026-09-20T10:00:00.000Z", created_at: "2026-09-20T09:00:00.000Z",
+  ...overrides,
+});
+const handoff = (task, candidates) => selectContentHandoff(task, candidates, contentResultSchema);
+
+test("creative tasks receive the completed content result for the same content item", () => {
+  assert.deepEqual(handoff(creativeTask, [contentCandidate()]), {
+    source_task_id: handoffIds.content,
+    completed_at: "2026-09-20T10:00:00.000Z",
+    content_result: contentResult,
+  });
+  const unscoped = { ...creativeTask, client_id: null, project_id: null };
+  assert.equal(handoff(unscoped, [contentCandidate({ client_id: null, project_id: null })]).source_task_id, handoffIds.content);
+});
+
+test("content handoff returns the latest completed content result", () => {
+  const older = contentCandidate({ id: handoffIds.olderContent, completed_at: "2026-09-18T10:00:00.000Z",
+    structured_output: { ...contentResult, hook: "Older hook" } });
+  const newer = contentCandidate({ completed_at: "2026-09-21T10:00:00.000Z" });
+  assert.equal(handoff(creativeTask, [older, newer]).source_task_id, handoffIds.content);
+  assert.equal(handoff(creativeTask, [newer, older]).source_task_id, handoffIds.content);
+
+  // created_at breaks completed_at ties; a missing completed_at sorts last.
+  const tieOlder = contentCandidate({ id: handoffIds.olderContent, created_at: "2026-09-19T09:00:00.000Z" });
+  assert.equal(handoff(creativeTask, [tieOlder, contentCandidate()]).source_task_id, handoffIds.content);
+  const undated = contentCandidate({ completed_at: null, created_at: "2026-09-30T09:00:00.000Z" });
+  assert.equal(handoff(creativeTask, [undated, older]).source_task_id, handoffIds.olderContent);
+});
+
+test("content handoff ignores other content items, scopes, agents, statuses, and the task itself", () => {
+  assert.equal(handoff(creativeTask, [contentCandidate({ content_item_id: handoffIds.otherItem })]), null);
+  assert.equal(handoff(creativeTask, [contentCandidate({ content_item_id: null })]), null);
+  assert.equal(handoff(creativeTask, [contentCandidate({ client_id: handoffIds.otherClient })]), null);
+  assert.equal(handoff(creativeTask, [contentCandidate({ project_id: handoffIds.otherProject })]), null);
+  assert.equal(handoff(creativeTask, [contentCandidate({ client_id: null })]), null);
+  assert.equal(handoff(creativeTask, [contentCandidate({ project_id: null })]), null);
+  assert.equal(handoff({ ...creativeTask, client_id: null }, [contentCandidate()]), null);
+  assert.equal(handoff(creativeTask, [contentCandidate({ assigned_agent: "operations" })]), null);
+  assert.equal(handoff(creativeTask, [contentCandidate({ status: "waiting_for_approval" })]), null);
+  assert.equal(handoff(creativeTask, [contentCandidate({ id: handoffIds.creative })]), null);
+});
+
+test("content handoff is null for wrong-kind or malformed stored output", () => {
+  assert.equal(handoff(creativeTask, [contentCandidate({ structured_output: null })]), null);
+  assert.equal(handoff(creativeTask, [contentCandidate({ structured_output: { ...contentResult, kind: "content_suggestion" } })]), null);
+  assert.equal(handoff(creativeTask, [contentCandidate({ structured_output: { ...contentResult, requires_human_review: false } })]), null);
+  assert.equal(handoff(creativeTask, [contentCandidate({ structured_output: { ...contentResult, hashtags: "#launch" } })]), null);
+  assert.equal(handoff(creativeTask, [contentCandidate({ structured_output: { ...contentResult, injected: "x" } })]), null);
+});
+
+test("content handoff only applies to creative tasks with a content item", () => {
+  assert.equal(shouldLookupContentHandoff(creativeTask), true);
+  assert.equal(shouldLookupContentHandoff({ ...creativeTask, content_item_id: null }), false);
+  assert.equal(handoff({ ...creativeTask, content_item_id: null }, [contentCandidate({ content_item_id: null })]), null);
+  for (const agent of ["content", "operations", "research", "growth"]) {
+    assert.equal(shouldLookupContentHandoff({ ...creativeTask, assigned_agent: agent }), false);
+    assert.equal(handoff({ ...creativeTask, assigned_agent: agent }, [contentCandidate()]), null);
+  }
+});
+
+test("context endpoint keeps its existing fields and adds a scoped content handoff", async () => {
+  const route = await readFile(new URL("../app/api/ai/tasks/[taskId]/context/route.ts", import.meta.url), "utf8");
+  assert.match(route, /body: `GET:\$\{taskId\}:\$\{runId\}`/);
+  assert.match(route, /from\("ai_task_runs"\)\.select\("id, task_id"\)\.eq\("id", runId\)\.eq\("task_id", taskId\)/);
+  assert.match(route, /return Response\.json\(\{ schema_version: 1, task, run_id: runId, client: client\?\.data \?\? null, project: project\?\.data \?\? null,\s*content_item: content\?\.data \?\? null, client_profile: profile\?\.data \?\? null, brand_memories: memories\?\.data \?\? \[\],\s*analytics_report_references: reports\?\.data \?\? \[\], agent_config: config\.data \?\? null,\s*content_handoff: selectContentHandoff\(task, handoff\?\.data \?\? \[\], contentResultSchema\) \}\)/);
+
+  assert.match(route, /shouldLookupContentHandoff\(task\) \? admin\.from\("ai_tasks"\)/);
+  for (const filter of [
+    '.eq("assigned_agent", "content")', '.eq("status", "completed")', '.eq("content_item_id", task.content_item_id)',
+    '.neq("id", task.id)', '.eq("structured_output->>kind", "content_result")',
+    '.order("completed_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(1)',
+    'handoffQuery.eq("client_id", task.client_id) : handoffQuery.is("client_id", null)',
+    'handoffQuery.eq("project_id", task.project_id) : handoffQuery.is("project_id", null)',
+  ]) assert.ok(route.includes(filter), filter);
+  assert.doesNotMatch(route, /\.(insert|update|upsert|delete|rpc)\(/);
 });
 
 test("existing structured output kinds continue to validate", () => {

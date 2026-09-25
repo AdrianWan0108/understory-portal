@@ -1,6 +1,8 @@
 import type { NextRequest } from "next/server";
 import { aiAdmin, aiError } from "@/lib/ai-workspace/server";
 import { verifyAiPayload } from "@/lib/ai-workspace/signatures";
+import { contentResultSchema } from "@/lib/ai-workspace/schemas";
+import { CONTENT_HANDOFF_SELECT, selectContentHandoff, shouldLookupContentHandoff } from "@/lib/ai-workspace/content-handoff";
 
 export const runtime = "nodejs";
 
@@ -16,7 +18,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!run) return aiError("Run not found.", 404);
   const { data: task } = await admin.from("ai_tasks").select("id, assigned_agent, client_id, project_id, content_item_id, title, objective, input_payload, context_references, priority, status, correlation_id").eq("id", taskId).maybeSingle();
   if (!task) return aiError("Task not found.", 404);
-  const [client, project, content, config, profile, memories, reports] = await Promise.all([
+  // Latest completed Content Agent result for the same content item and client/project scope.
+  let handoffQuery = shouldLookupContentHandoff(task) ? admin.from("ai_tasks").select(CONTENT_HANDOFF_SELECT)
+    .eq("assigned_agent", "content").eq("status", "completed").eq("content_item_id", task.content_item_id).neq("id", task.id)
+    .eq("structured_output->>kind", "content_result")
+    .order("completed_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(1) : null;
+  if (handoffQuery) handoffQuery = task.client_id ? handoffQuery.eq("client_id", task.client_id) : handoffQuery.is("client_id", null);
+  if (handoffQuery) handoffQuery = task.project_id ? handoffQuery.eq("project_id", task.project_id) : handoffQuery.is("project_id", null);
+  const [client, project, content, config, profile, memories, reports, handoff] = await Promise.all([
     task.client_id ? admin.from("clients").select("id, name, slug").eq("id", task.client_id).maybeSingle() : null,
     task.project_id ? admin.from("division_tasks").select("id, title, description, status, due_date, client_id").eq("id", task.project_id).maybeSingle() : null,
     task.content_item_id ? admin.from("tasks").select("id, title, description, status, production_status, publishing_status, due_date, scheduled_at, post_caption, platform_captions, platform, format").eq("id", task.content_item_id).maybeSingle() : null,
@@ -24,8 +33,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     task.client_id ? admin.from("client_profiles").select("industry, target_audience, unique_value_prop, competitors, brand_voice, goals, challenges").eq("client_id", task.client_id).maybeSingle() : null,
     task.client_id && ["content", "research", "creative"].includes(task.assigned_agent) ? admin.from("assistant_memories").select("category, content, updated_at").eq("client_id", task.client_id).order("updated_at", { ascending: false }).limit(30) : null,
     task.client_id && task.assigned_agent === "growth" ? admin.from("client_analytics_reports").select("id, title, report_month, google_slides_url, is_published").eq("client_id", task.client_id).order("report_month", { ascending: false }).limit(12) : null,
+    handoffQuery,
   ]);
   return Response.json({ schema_version: 1, task, run_id: runId, client: client?.data ?? null, project: project?.data ?? null,
     content_item: content?.data ?? null, client_profile: profile?.data ?? null, brand_memories: memories?.data ?? [],
-    analytics_report_references: reports?.data ?? [], agent_config: config.data ?? null });
+    analytics_report_references: reports?.data ?? [], agent_config: config.data ?? null,
+    content_handoff: selectContentHandoff(task, handoff?.data ?? [], contentResultSchema) });
 }
