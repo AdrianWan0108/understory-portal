@@ -49,6 +49,18 @@ export const operationsResultSchema = z.object({
   risks: z.array(z.object({ description: z.string().min(1), severity: z.enum(["low", "medium", "high"]) })),
   questions: z.array(z.string().min(1)),
 });
+// Content Agent draft. It is never published, scheduled, or sent; a human must review it.
+export const contentResultSchema = z.object({
+  schema_version: version, kind: z.literal("content_result"),
+  hook: z.string(), caption: z.string(), cta: z.string(), hashtags: z.array(z.string()),
+  cover_headline: z.string(), cover_subheadline: z.string().nullable(), visual_direction: z.string(),
+  reel_cover_brief: z.object({
+    concept: z.string(), subject: z.string().nullable(), composition: z.string(), background: z.string(),
+    text_placement: z.string(), asset_requirements: z.array(z.string()),
+  }).strict(),
+  notes: z.array(z.string()),
+  requires_human_review: z.literal(true),
+}).strict();
 export const slackAgentResponseSchema = z.object({
   schema_version: version, kind: z.literal("slack_response"), task_id: uuidSchema, channel_id: z.string(), thread_ts: z.string().nullable(),
   summary: z.string().min(1).max(1200), portal_deep_link: z.string().startsWith("/team-hub/ai-workspace/tasks/"),
@@ -64,7 +76,7 @@ export const approvalRequestSchema = z.object({
 
 export const structuredOutputSchema = z.discriminatedUnion("kind", [
   extractedProjectTaskSchema, contentSuggestionSchema, researchResultSchema, creativeBriefSchema,
-  analyticsInsightSchema, operationsResultSchema, slackAgentResponseSchema, approvalRequestSchema,
+  analyticsInsightSchema, operationsResultSchema, contentResultSchema, slackAgentResponseSchema, approvalRequestSchema,
 ]);
 
 export const createAiTaskSchema = z.object({
@@ -142,5 +154,6 @@ export const approvalDecisionSchema = z.object({ decision: z.enum(["approved", "
 
 export type AiAgentKey = z.infer<typeof agentKeySchema>;
 export type AiTaskStatus = z.infer<typeof taskStatusSchema>;
+export type ContentResult = z.infer<typeof contentResultSchema>;
 export type TasksToolRequest = z.infer<typeof tasksToolRequestSchema>;
 export type ProjectsToolRequest = z.infer<typeof projectsToolRequestSchema>;

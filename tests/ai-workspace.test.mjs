@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
+  contentResultSchema,
   createAiTaskSchema,
   operationsResultSchema,
   projectsToolDivisionSchema,
@@ -112,6 +113,95 @@ test("operations results reject invalid required fields and action values", () =
     ...valid,
     recommended_actions: [{ ...valid.recommended_actions[0], approval_required: "false" }],
   }).success, false);
+});
+
+const contentResult = {
+  schema_version: 1,
+  kind: "content_result",
+  hook: "Three things we changed before launch day.",
+  caption: "A behind-the-scenes look at our launch prep.",
+  cta: "Save this for your next launch.",
+  hashtags: ["#launch", "#behindthescenes"],
+  cover_headline: "Launch prep, unfiltered",
+  cover_subheadline: null,
+  visual_direction: "Warm natural light, handheld, close crops on hands and tools.",
+  reel_cover_brief: {
+    concept: "Mid-action studio moment",
+    subject: null,
+    composition: "Subject left third, negative space right for text",
+    background: "Soft neutral studio wall",
+    text_placement: "Right third, vertically centred",
+    asset_requirements: ["1080x1920 still", "Brand serif font"],
+  },
+  notes: ["Confirm product naming with the client."],
+  requires_human_review: true,
+};
+const contentEvent = {
+  schema_version: 1,
+  event_id: "00000000-0000-4000-8000-000000000011",
+  task_id: "00000000-0000-4000-8000-000000000012",
+  run_id: "00000000-0000-4000-8000-000000000013",
+  correlation_id: "00000000-0000-4000-8000-000000000014",
+  idempotency_key: "content-event-000001",
+  trigger_source: "webhook",
+  status: "completed",
+  summary: "Content draft generated for review.",
+  output: contentResult,
+};
+
+test("content results validate directly and in completed n8n events", () => {
+  assert.equal(contentResultSchema.safeParse(contentResult).success, true);
+  assert.equal(structuredOutputSchema.safeParse(contentResult).success, true);
+  assert.equal(taskEventSchema.safeParse(contentEvent).success, true);
+  assert.equal(structuredOutputSchema.safeParse({ ...contentResult, cover_subheadline: "Subheadline",
+    reel_cover_brief: { ...contentResult.reel_cover_brief, subject: "Founder" }, hashtags: [], notes: [] }).success, true);
+});
+
+test("content results reject malformed fields, unknown keys, and optional human review", () => {
+  const invalid = (output) => structuredOutputSchema.safeParse(output).success === false
+    && taskEventSchema.safeParse({ ...contentEvent, output }).success === false;
+  const without = (object, key) => Object.fromEntries(Object.entries(object).filter(([name]) => name !== key));
+
+  assert.equal(invalid({ ...contentResult, requires_human_review: false }), true);
+  assert.equal(invalid({ ...contentResult, requires_human_review: "true" }), true);
+  assert.equal(invalid(without(contentResult, "requires_human_review")), true);
+  assert.equal(invalid({ ...contentResult, schema_version: 2 }), true);
+  assert.equal(invalid(without(contentResult, "hook")), true);
+  assert.equal(invalid({ ...contentResult, caption: null }), true);
+  assert.equal(invalid({ ...contentResult, hashtags: "#launch" }), true);
+  assert.equal(invalid({ ...contentResult, hashtags: [1] }), true);
+  assert.equal(invalid({ ...contentResult, cover_subheadline: undefined }), true);
+  assert.equal(invalid({ ...contentResult, notes: null }), true);
+  assert.equal(invalid({ ...contentResult, reel_cover_brief: null }), true);
+  assert.equal(invalid({ ...contentResult, reel_cover_brief: without(contentResult.reel_cover_brief, "subject") }), true);
+  assert.equal(invalid({ ...contentResult, reel_cover_brief: { ...contentResult.reel_cover_brief, asset_requirements: "photo" } }), true);
+  assert.equal(invalid({ ...contentResult, reel_cover_brief: { ...contentResult.reel_cover_brief, extra: "x" } }), true);
+  assert.equal(invalid({ ...contentResult, scheduled_at: "2026-10-01T10:00:00Z" }), true);
+});
+
+test("unknown structured output kinds are rejected", () => {
+  assert.equal(structuredOutputSchema.safeParse({ ...contentResult, kind: "content_results" }).success, false);
+  assert.equal(structuredOutputSchema.safeParse({ ...contentResult, kind: "publish_result" }).success, false);
+  assert.equal(taskEventSchema.safeParse({ ...contentEvent, output: { schema_version: 1, kind: "arbitrary", anything: true } }).success, false);
+  assert.equal(taskEventSchema.safeParse({ ...contentEvent, output: { schema_version: 1 } }).success, false);
+});
+
+test("completed content events persist the content result through the existing event path", async () => {
+  // The route passes the parsed event to ai_apply_task_event unchanged, so parsing must not drop fields.
+  const parsed = taskEventSchema.parse(contentEvent);
+  assert.deepEqual(parsed.output, contentResult);
+
+  const route = await readFile(new URL("../app/api/integrations/n8n/task-events/route.ts", import.meta.url), "utf8");
+  assert.match(route, /taskEventSchema\.safeParse\(payload\)/);
+  assert.match(route, /rpc\("ai_apply_task_event", \{ p_event: event \}\)/);
+
+  // The SQL function stores output verbatim (JSONB) with no kind allow-list.
+  const sql = await readFile(new URL("../supabase/migrations/20260916000000_add_ai_workspace.sql", import.meta.url), "utf8");
+  assert.match(sql, /v_output jsonb := p_event -> 'output';/);
+  assert.match(sql, /jsonb_build_object\('stage', p_event -> 'stage', 'output', v_output,/);
+  assert.match(sql, /structured_output = case when v_output is not null then v_output else structured_output end/);
+  assert.match(sql, /output_schema = case when v_output is not null then v_output ->> 'kind' else output_schema end/);
+  assert.match(sql, /output_schema text,/);
 });
 
 test("existing structured output kinds continue to validate", () => {
