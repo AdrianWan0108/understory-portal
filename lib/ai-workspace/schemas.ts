@@ -136,6 +136,18 @@ export const projectsToolRequestSchema = z.object({
   ),
 }).strict();
 
+// client_assets.file_type stores the uploaded file's MIME type (for example "image/png"); matching is exact.
+export const assetsToolRequestSchema = z.object({
+  schema_version: version,
+  task_id: uuidSchema,
+  run_id: uuidSchema,
+  filters: z.object({
+    client_id: uuidSchema.nullable().optional(),
+    file_type: z.array(z.string().trim().min(1).max(100)).min(1).max(20).optional(),
+    limit: z.number().int().min(1).max(100).default(50),
+  }).strict(),
+}).strict();
+
 export const taskEventSchema = z.object({
   schema_version: version, event_id: uuidSchema, task_id: uuidSchema, run_id: uuidSchema, correlation_id: uuidSchema,
   idempotency_key: z.string().min(16), workflow_execution_id: z.string().max(300).optional(),
@@ -157,3 +169,4 @@ export type AiTaskStatus = z.infer<typeof taskStatusSchema>;
 export type ContentResult = z.infer<typeof contentResultSchema>;
 export type TasksToolRequest = z.infer<typeof tasksToolRequestSchema>;
 export type ProjectsToolRequest = z.infer<typeof projectsToolRequestSchema>;
+export type AssetsToolRequest = z.infer<typeof assetsToolRequestSchema>;

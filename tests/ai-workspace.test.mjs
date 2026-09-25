@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
+  assetsToolRequestSchema,
   contentResultSchema,
   createAiTaskSchema,
   operationsResultSchema,
@@ -30,6 +31,7 @@ import {
   projectsToolFilters,
 } from "../lib/ai-workspace/projects-tool.ts";
 import { selectContentHandoff, shouldLookupContentHandoff } from "../lib/ai-workspace/content-handoff.ts";
+import { ASSETS_TOOL_SELECT, assetsToolFilters, authorizeAssetsToolRequest } from "../lib/ai-workspace/assets-tool.ts";
 import {
   AI_WORKSPACE_CALLBACK_PATH,
   AI_WORKSPACE_PATH,
@@ -623,6 +625,148 @@ test("projects tool reads division_tasks with the approved fields and response c
   assert.match(route, /verifyAiPayload\(\{[\s\S]*N8N_PORTAL_SHARED_SECRET[\s\S]*x-ai-timestamp[\s\S]*x-ai-signature[\s\S]*body: raw/);
   assert.match(route, /\.order\("due_date", \{ ascending: true, nullsFirst: false \}\)\s*\.order\("created_at", \{ ascending: false \}\)/);
   assert.match(route, /schema_version: 1,\s*tool: "projects",\s*count: projects\?\.length \?\? 0,\s*projects: projects \?\? \[\]/);
+});
+
+const assetIds = {
+  task: "00000000-0000-4000-8000-000000000031",
+  otherTask: "00000000-0000-4000-8000-000000000032",
+  run: "00000000-0000-4000-8000-000000000033",
+  client: "00000000-0000-4000-8000-000000000034",
+  otherClient: "00000000-0000-4000-8000-000000000035",
+  thirdClient: "00000000-0000-4000-8000-000000000036",
+  project: "00000000-0000-4000-8000-000000000037",
+  otherProject: "00000000-0000-4000-8000-000000000038",
+};
+const assetsRequest = (filters = {}) => assetsToolRequestSchema.parse({
+  schema_version: 1, task_id: assetIds.task, run_id: assetIds.run, filters,
+});
+const assetsAuthorize = ({ filters = {}, task = {}, config = {}, run = { task_id: assetIds.task } } = {}) =>
+  authorizeAssetsToolRequest({
+    request: assetsRequest(filters),
+    run,
+    task: { id: assetIds.task, assigned_agent: "creative", client_id: assetIds.client, project_id: null, ...task },
+    config: { allowed_tools: ["assets"], permitted_client_ids: [], permitted_project_ids: [], ...config },
+  });
+const assetRows = [
+  { id: "a1", client_id: assetIds.client, file_url: "https://example.test/a1.png", file_name: "a1.png", file_type: "image/png", uploaded_by: "u1", created_at: "2026-09-01T00:00:00Z" },
+  { id: "a2", client_id: assetIds.client, file_url: "https://example.test/a2.jpg", file_name: "a2.jpg", file_type: "image/jpeg", uploaded_by: "u1", created_at: "2026-09-03T00:00:00Z" },
+  { id: "a3", client_id: assetIds.client, file_url: "https://example.test/a3.pdf", file_name: "a3.pdf", file_type: "application/pdf", uploaded_by: "u1", created_at: "2026-09-02T00:00:00Z" },
+  { id: "b1", client_id: assetIds.otherClient, file_url: "https://example.test/b1.png", file_name: "b1.png", file_type: "image/png", uploaded_by: "u2", created_at: "2026-09-04T00:00:00Z" },
+  { id: "c1", client_id: assetIds.thirdClient, file_url: "https://example.test/c1.png", file_name: null, file_type: null, uploaded_by: null, created_at: "2026-09-05T00:00:00Z" },
+];
+// Mirrors the route: fixed filter plan, created_at desc, limit, and the explicit select list.
+const readAssets = (options = {}) => {
+  const authorization = assetsAuthorize(options);
+  assert.equal(authorization.ok, true);
+  const request = assetsRequest(options.filters ?? {});
+  const columns = ASSETS_TOOL_SELECT.split(", ");
+  return assetsToolFilters(authorization, request.filters)
+    .reduce((rows, filter) => rows.filter((row) => filter.op === "eq" ? row[filter.column] === filter.value : filter.values.includes(row[filter.column])), assetRows)
+    .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at))
+    .slice(0, request.filters.limit)
+    .map((row) => Object.fromEntries(columns.map((column) => [column, row[column]])));
+};
+
+test("assets tool requests are signed and validate their read filters", () => {
+  const secret = "a-long-shared-secret-with-more-than-32-bytes";
+  const timestamp = "1789592400";
+  const body = JSON.stringify({ schema_version: 1, task_id: assetIds.task, run_id: assetIds.run, filters: { file_type: ["image/png"] } });
+  const signature = signAiPayload(secret, timestamp, body);
+  const now = 1789592400000;
+
+  assert.equal(verifyAiPayload({ secret, timestamp, signature, body, now }), true);
+  assert.equal(verifyAiPayload({ secret, timestamp, signature: null, body, now }), false);
+  assert.equal(verifyAiPayload({ secret, timestamp: null, signature, body, now }), false);
+  assert.equal(verifyAiPayload({ secret, timestamp, signature: "0".repeat(64), body, now }), false);
+  assert.equal(verifyAiPayload({ secret, timestamp, signature, body: body.replace("image/png", "image/gif"), now }), false);
+  assert.equal(verifyAiPayload({ secret: `${secret}-wrong`, timestamp, signature, body, now }), false);
+
+  const base = { schema_version: 1, task_id: assetIds.task, run_id: assetIds.run };
+  const valid = (filters) => assetsToolRequestSchema.safeParse({ ...base, filters }).success;
+  assert.equal(assetsToolRequestSchema.parse({ ...base, filters: {} }).filters.limit, 50);
+  assert.equal(valid({ client_id: null, limit: 1 }), true);
+  assert.equal(valid({ client_id: assetIds.client, file_type: ["image/png", "image/jpeg"], limit: 100 }), true);
+  assert.equal(valid({ limit: 0 }), false);
+  assert.equal(valid({ limit: 101 }), false);
+  assert.equal(valid({ limit: 2.5 }), false);
+  assert.equal(valid({ file_type: [] }), false);
+  assert.equal(valid({ file_type: [""] }), false);
+  assert.equal(valid({ file_type: "image/png" }), false);
+  assert.equal(valid({ file_type: Array(21).fill("image/png") }), false);
+  assert.equal(valid({ client_id: "not-a-uuid" }), false);
+  assert.equal(valid({ tags: ["logo"] }), false);
+  assert.equal(valid({ uploaded_by: "u1" }), false);
+  assert.equal(assetsToolRequestSchema.safeParse({ ...base, schema_version: 2, filters: {} }).success, false);
+  assert.equal(assetsToolRequestSchema.safeParse({ ...base, run_id: "invalid", filters: {} }).success, false);
+  assert.equal(assetsToolRequestSchema.safeParse({ ...base }).success, false);
+});
+
+test("assets tool authorization enforces run ownership and allowed_tools", () => {
+  assert.deepEqual(assetsAuthorize({ run: { task_id: assetIds.otherTask } }), { ok: false, reason: "task_or_run_not_found" });
+  assert.deepEqual(assetsAuthorize({ run: null }), { ok: false, reason: "task_or_run_not_found" });
+  assert.deepEqual(authorizeAssetsToolRequest({ request: assetsRequest(), run: { task_id: assetIds.task }, task: null,
+    config: { allowed_tools: ["assets"], permitted_client_ids: [], permitted_project_ids: [] } }), { ok: false, reason: "task_or_run_not_found" });
+  assert.deepEqual(assetsAuthorize({ config: { allowed_tools: ["tasks", "projects"] } }), { ok: false, reason: "tool_not_allowed" });
+  assert.deepEqual(assetsAuthorize({ config: { allowed_tools: null } }), { ok: false, reason: "tool_not_allowed" });
+});
+
+test("assets tool enforces task client scope and permitted client ids", () => {
+  const { client, otherClient, thirdClient, project, otherProject } = assetIds;
+  assert.deepEqual(assetsAuthorize(), { ok: true, clientId: client, permittedClientIds: [] });
+  assert.deepEqual(assetsAuthorize({ filters: { client_id: client } }), { ok: true, clientId: client, permittedClientIds: [] });
+  assert.deepEqual(assetsAuthorize({ filters: { client_id: otherClient } }), { ok: false, reason: "client_scope_conflict" });
+
+  assert.deepEqual(assetsAuthorize({ config: { permitted_client_ids: [otherClient] } }), { ok: false, reason: "client_scope_conflict" });
+  assert.deepEqual(assetsAuthorize({ task: { client_id: null }, filters: { client_id: thirdClient }, config: { permitted_client_ids: [client, otherClient] } }),
+    { ok: false, reason: "client_scope_conflict" });
+  assert.deepEqual(assetsAuthorize({ task: { client_id: null }, config: { permitted_client_ids: [client, otherClient] } }),
+    { ok: true, clientId: null, permittedClientIds: [client, otherClient] });
+  assert.deepEqual(assetsAuthorize({ task: { client_id: null }, filters: { client_id: otherClient } }),
+    { ok: true, clientId: otherClient, permittedClientIds: [] });
+
+  // No client from the task, the request, or the agent config: refuse rather than list every client's assets.
+  assert.deepEqual(assetsAuthorize({ task: { client_id: null } }), { ok: false, reason: "client_scope_required" });
+
+  assert.deepEqual(assetsAuthorize({ task: { project_id: otherProject }, config: { permitted_project_ids: [project] } }),
+    { ok: false, reason: "project_scope_conflict" });
+  assert.equal(assetsAuthorize({ task: { project_id: project }, config: { permitted_project_ids: [project] } }).ok, true);
+});
+
+test("assets tool reads only in-scope assets, newest first, with the approved fields", () => {
+  const { client, otherClient } = assetIds;
+  assert.deepEqual(readAssets().map((asset) => asset.id), ["a2", "a3", "a1"]);
+  assert.deepEqual(readAssets()[0], {
+    id: "a2", client_id: client, file_url: "https://example.test/a2.jpg", file_name: "a2.jpg", file_type: "image/jpeg", created_at: "2026-09-03T00:00:00Z",
+  });
+  assert.deepEqual(ASSETS_TOOL_SELECT.split(", "), ["id", "client_id", "file_url", "file_name", "file_type", "created_at"]);
+  assert.equal(ASSETS_TOOL_SELECT.includes("uploaded_by"), false);
+
+  // file_type filtering is an exact match on stored MIME types.
+  assert.deepEqual(readAssets({ filters: { file_type: ["image/png", "image/jpeg"] } }).map((asset) => asset.id), ["a2", "a1"]);
+  assert.deepEqual(readAssets({ filters: { file_type: ["image"] } }), []);
+  assert.deepEqual(readAssets({ filters: { limit: 1 } }).map((asset) => asset.id), ["a2"]);
+
+  // Unrelated clients' assets are excluded, including under permitted_client_ids.
+  assert.equal(readAssets().some((asset) => asset.client_id !== client), false);
+  assert.deepEqual(readAssets({ task: { client_id: null }, config: { permitted_client_ids: [client, otherClient] } }).map((asset) => asset.id),
+    ["b1", "a2", "a3", "a1"]);
+  assert.deepEqual(readAssets({ task: { client_id: null }, filters: { client_id: otherClient }, config: { permitted_client_ids: [client, otherClient] } })
+    .map((asset) => asset.id), ["b1"]);
+  assert.deepEqual(assetsToolFilters(assetsAuthorize({ filters: { file_type: ["image/png"] } }), assetsRequest({ file_type: ["image/png"] }).filters), [
+    { op: "eq", column: "client_id", value: client },
+    { op: "in", column: "file_type", values: ["image/png"] },
+  ]);
+});
+
+test("assets tool route verifies HMAC first and never mutates data", async () => {
+  const route = await readFile(new URL("../app/api/integrations/n8n/tools/assets/route.ts", import.meta.url), "utf8");
+  assert.match(route, /const raw = await request\.text\(\);\s*if \(!verifyAiPayload\(\{[\s\S]*N8N_PORTAL_SHARED_SECRET[\s\S]*x-ai-timestamp[\s\S]*x-ai-signature[\s\S]*body: raw,\s*\}\)\) return aiError\("Invalid integration signature\.", 401\);/);
+  assert.ok(route.indexOf("verifyAiPayload(") < route.indexOf("JSON.parse(raw)"));
+  assert.ok(route.indexOf("verifyAiPayload(") < route.indexOf("aiAdmin()"));
+  assert.match(route, /if \(!run \|\| run\.task_id !== input\.task_id\) return aiError\("Task or run not found\.", 404\);/);
+  assert.match(route, /admin\.from\("client_assets"\)\s*\.select\(ASSETS_TOOL_SELECT\)\s*\.order\("created_at", \{ ascending: false \}\)\s*\.limit\(input\.filters\.limit\)/);
+  assert.doesNotMatch(route, /\.(insert|update|upsert|delete|rpc|remove|upload)\(|\.storage\b/);
+  assert.match(route, /schema_version: 1,\s*tool: "assets",\s*count: assets\?\.length \?\? 0,\s*assets: assets \?\? \[\]/);
 });
 
 test("task access and transitions enforce owner, staff, contractor, and client boundaries", () => {
