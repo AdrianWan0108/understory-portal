@@ -62,7 +62,11 @@ export async function POST(request: NextRequest) {
   else if (authorization.permittedClientIds.length) query = query.in("client_id", authorization.permittedClientIds);
   if (authorization.projectId) query = query.eq("division_task_id", authorization.projectId);
   else if (authorization.permittedProjectIds.length) query = query.in("division_task_id", authorization.permittedProjectIds);
+  if (input.filters.due_after) query = query.gte("due_date", input.filters.due_after);
   if (input.filters.due_before) query = query.lte("due_date", input.filters.due_before);
+  if (input.filters.status?.length) query = query.in("status", input.filters.status);
+  if (input.filters.production_status?.length) query = query.in("production_status", input.filters.production_status);
+  if (input.filters.publishing_status?.length) query = query.in("publishing_status", input.filters.publishing_status);
 
   const { data: tasks, error: tasksError } = await query;
   if (tasksError) return aiError("Could not read tasks.", 500);

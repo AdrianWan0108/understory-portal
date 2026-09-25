@@ -1,7 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { createAiTaskSchema, operationsResultSchema, structuredOutputSchema, taskEventSchema, tasksToolRequestSchema } from "../lib/ai-workspace/schemas.ts";
+import {
+  createAiTaskSchema,
+  operationsResultSchema,
+  structuredOutputSchema,
+  taskEventSchema,
+  tasksToolProductionStatusSchema,
+  tasksToolPublishingStatusSchema,
+  tasksToolRequestSchema,
+  tasksToolTaskStatusSchema,
+} from "../lib/ai-workspace/schemas.ts";
+import { SOCIAL_POST_STATUSES, SOCIAL_PRODUCTION_STATUSES, SOCIAL_PUBLISHING_STATUSES } from "../lib/social-content.ts";
 import { canReadAiTask, mayTransition, requiresHumanApproval } from "../lib/ai-workspace/policy.ts";
 import { signAiPayload, verifyAiPayload } from "../lib/ai-workspace/signatures.ts";
 import { aiSlackNotification } from "../lib/ai-workspace/slack-message.ts";
@@ -150,6 +160,57 @@ test("signed tasks tool requests validate their versioned read filters", () => {
   assert.equal(tasksToolRequestSchema.safeParse({ schema_version: 1, task_id: taskId, run_id: runId, filters: { limit: 101 } }).success, false);
 });
 
+test("tasks tool accepts operational date-range and status filters", () => {
+  const base = {
+    schema_version: 1,
+    task_id: "00000000-0000-4000-8000-000000000001",
+    run_id: "00000000-0000-4000-8000-000000000002",
+  };
+  const valid = (filters) => tasksToolRequestSchema.safeParse({ ...base, filters }).success;
+
+  assert.equal(valid({}), true);
+  assert.equal(valid({ client_id: null, project_id: null, due_before: null, limit: 25 }), true);
+  assert.equal(valid({ due_after: "2026-09-25" }), true);
+  assert.equal(valid({ due_after: null }), true);
+  assert.equal(valid({ due_after: "2026-09-25", due_before: "2026-10-31" }), true);
+  assert.equal(valid({ due_after: "2026-09-25", due_before: "2026-09-25" }), true);
+  assert.equal(valid({ due_after: "2026-11-01", due_before: "2026-10-31" }), false);
+  assert.equal(valid({ due_after: "next week" }), false);
+
+  assert.equal(valid({ status: ["in_progress", "for_review"] }), true);
+  assert.equal(valid({ production_status: ["not_started", "changes_required"] }), true);
+  assert.equal(valid({ publishing_status: ["unscheduled", "scheduled"] }), true);
+  assert.equal(valid({
+    due_after: "2026-09-25",
+    status: ["scheduled"],
+    production_status: ["complete"],
+    publishing_status: ["scheduled"],
+    limit: 100,
+  }), true);
+
+  assert.equal(valid({ status: ["done"] }), false);
+  assert.equal(valid({ status: ["approved"] }), false);
+  assert.equal(valid({ production_status: ["for_review"] }), false);
+  assert.equal(valid({ publishing_status: ["published"] }), false);
+  assert.equal(valid({ status: "in_progress" }), false);
+  assert.equal(valid({ status: [] }), false);
+  assert.equal(valid({ production_status: [] }), false);
+  assert.equal(valid({ publishing_status: [] }), false);
+  assert.equal(valid({ status: Array(21).fill("in_progress") }), false);
+  assert.equal(valid({ status_column: "title" }), false);
+
+  assert.equal(valid({ limit: 0 }), false);
+  assert.equal(valid({ limit: 101 }), false);
+  assert.equal(valid({ limit: 1.5 }), false);
+  assert.equal(tasksToolRequestSchema.parse({ ...base, filters: { status: ["posted"] } }).filters.limit, 50);
+});
+
+test("tasks tool status enums match the canonical public.tasks values", () => {
+  assert.deepEqual(tasksToolTaskStatusSchema.options, [...SOCIAL_POST_STATUSES]);
+  assert.deepEqual(tasksToolProductionStatusSchema.options, [...SOCIAL_PRODUCTION_STATUSES]);
+  assert.deepEqual(tasksToolPublishingStatusSchema.options, [...SOCIAL_PUBLISHING_STATUSES]);
+});
+
 test("tasks tool authorization rejects run mismatches, disabled tools, and conflicting scopes", () => {
   const taskId = "00000000-0000-4000-8000-000000000001";
   const otherTaskId = "00000000-0000-4000-8000-000000000002";
@@ -171,6 +232,20 @@ test("tasks tool authorization rejects run mismatches, disabled tools, and confl
     run: { task_id: taskId }, task, config }), { ok: false, reason: "client_scope_conflict" });
   assert.deepEqual(authorizeTasksToolRequest({ request: { ...request, filters: { ...request.filters, project_id: otherProjectId } },
     run: { task_id: taskId }, task, config }), { ok: false, reason: "project_scope_conflict" });
+
+  const filtered = tasksToolRequestSchema.parse({ schema_version: 1, task_id: taskId, run_id: otherTaskId,
+    filters: { due_after: "2026-09-25", status: ["in_progress"], production_status: ["in_progress"], publishing_status: ["unscheduled"] } });
+  assert.deepEqual(authorizeTasksToolRequest({ request: filtered, run: { task_id: taskId }, task, config }), {
+    ok: true, clientId, projectId, permittedClientIds: [clientId], permittedProjectIds: [projectId],
+  });
+  assert.deepEqual(authorizeTasksToolRequest({ request: { ...filtered, filters: { ...filtered.filters, client_id: otherClientId } },
+    run: { task_id: taskId }, task, config }), { ok: false, reason: "client_scope_conflict" });
+  assert.deepEqual(authorizeTasksToolRequest({ request: { ...filtered, filters: { ...filtered.filters, project_id: otherProjectId } },
+    run: { task_id: taskId }, task, config }), { ok: false, reason: "project_scope_conflict" });
+  assert.deepEqual(authorizeTasksToolRequest({ request: filtered, run: { task_id: taskId },
+    task: { ...task, client_id: null, project_id: null }, config }), {
+    ok: true, clientId: null, projectId: null, permittedClientIds: [clientId], permittedProjectIds: [projectId],
+  });
 });
 
 test("tasks tool exposes only the approved operational task fields", () => {

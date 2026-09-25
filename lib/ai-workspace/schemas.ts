@@ -76,6 +76,13 @@ export const createAiTaskSchema = z.object({
   idempotency_key: z.string().min(16).max(200),
 });
 
+// Mirrors SOCIAL_POST_STATUSES, SOCIAL_PRODUCTION_STATUSES, and SOCIAL_PUBLISHING_STATUSES in
+// lib/social-content.ts (and the public.tasks CHECK constraints); tests assert they stay in sync.
+export const tasksToolTaskStatusSchema = z.enum(["not_started", "in_progress", "for_review", "internal_approved", "external_approved", "scheduled", "changes_requested", "posted"]);
+export const tasksToolProductionStatusSchema = z.enum(["not_started", "in_progress", "ready_for_review", "changes_required", "complete"]);
+export const tasksToolPublishingStatusSchema = z.enum(["unscheduled", "scheduled", "posted"]);
+const statusFilter = <T extends z.ZodEnum>(values: T) => z.array(values).min(1).max(20).optional();
+
 export const tasksToolRequestSchema = z.object({
   schema_version: version,
   task_id: uuidSchema,
@@ -83,9 +90,16 @@ export const tasksToolRequestSchema = z.object({
   filters: z.object({
     client_id: uuidSchema.nullable().optional(),
     project_id: uuidSchema.nullable().optional(),
+    due_after: z.iso.date().nullable().optional(),
     due_before: z.iso.date().nullable().optional(),
+    status: statusFilter(tasksToolTaskStatusSchema),
+    production_status: statusFilter(tasksToolProductionStatusSchema),
+    publishing_status: statusFilter(tasksToolPublishingStatusSchema),
     limit: z.number().int().min(1).max(100).default(50),
-  }).strict(),
+  }).strict().refine(
+    (filters) => !filters.due_after || !filters.due_before || filters.due_after <= filters.due_before,
+    { message: "due_after must not be later than due_before.", path: ["due_after"] },
+  ),
 }).strict();
 
 export const taskEventSchema = z.object({
