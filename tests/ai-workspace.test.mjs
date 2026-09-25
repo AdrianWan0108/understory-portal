@@ -4,6 +4,9 @@ import { readFile } from "node:fs/promises";
 import {
   createAiTaskSchema,
   operationsResultSchema,
+  projectsToolDivisionSchema,
+  projectsToolRequestSchema,
+  projectsToolStatusSchema,
   structuredOutputSchema,
   taskEventSchema,
   tasksToolProductionStatusSchema,
@@ -19,6 +22,12 @@ import {
   authorizeTasksToolRequest,
   TASKS_TOOL_SELECT,
 } from "../lib/ai-workspace/tasks-tool.ts";
+import {
+  authorizeProjectsToolRequest,
+  PROJECTS_TOOL_SELECT,
+  PROJECTS_TOOL_VISIBILITY_FILTER,
+  projectsToolFilters,
+} from "../lib/ai-workspace/projects-tool.ts";
 import {
   AI_WORKSPACE_CALLBACK_PATH,
   AI_WORKSPACE_PATH,
@@ -253,6 +262,185 @@ test("tasks tool exposes only the approved operational task fields", () => {
     "id", "client_id", "division_task_id", "title", "brief", "status", "production_status", "publishing_status",
     "due_date", "scheduled_at", "platform", "format", "assignee_usernames", "watcher_usernames", "mentioned_usernames", "created_at",
   ]);
+});
+
+const projectsIds = {
+  task: "00000000-0000-4000-8000-000000000001",
+  otherTask: "00000000-0000-4000-8000-000000000002",
+  client: "00000000-0000-4000-8000-000000000003",
+  otherClient: "00000000-0000-4000-8000-000000000004",
+  project: "00000000-0000-4000-8000-000000000005",
+  otherProject: "00000000-0000-4000-8000-000000000006",
+  run: "00000000-0000-4000-8000-000000000007",
+};
+const projectsRequest = (filters = {}) => projectsToolRequestSchema.parse({
+  schema_version: 1, task_id: projectsIds.task, run_id: projectsIds.run, filters,
+});
+const projectsAuthorize = ({ filters = {}, task = {}, config = {}, run = { task_id: projectsIds.task } } = {}) =>
+  authorizeProjectsToolRequest({
+    request: projectsRequest(filters),
+    run,
+    task: { id: projectsIds.task, assigned_agent: "operations", client_id: null, project_id: null, ...task },
+    config: { allowed_tools: ["projects"], permitted_client_ids: [], permitted_project_ids: [], ...config },
+  });
+
+test("signed projects tool requests validate their versioned read filters", () => {
+  const secret = "a-long-shared-secret-with-more-than-32-bytes";
+  const timestamp = "1789592400";
+  const body = JSON.stringify({ schema_version: 1, task_id: projectsIds.task, run_id: projectsIds.run, filters: {} });
+  const signature = signAiPayload(secret, timestamp, body);
+
+  assert.equal(verifyAiPayload({ secret, timestamp, signature, body, now: 1789592400000 }), true);
+  const parsed = projectsToolRequestSchema.safeParse(JSON.parse(body));
+  assert.equal(parsed.success, true);
+  assert.equal(parsed.data.filters.limit, 50);
+
+  const base = { schema_version: 1, task_id: projectsIds.task, run_id: projectsIds.run };
+  assert.equal(projectsToolRequestSchema.safeParse({ ...base, schema_version: 2, filters: {} }).success, false);
+  assert.equal(projectsToolRequestSchema.safeParse({ ...base, run_id: "invalid", filters: {} }).success, false);
+  assert.equal(projectsToolRequestSchema.safeParse({ ...base, task_id: "invalid", filters: {} }).success, false);
+  assert.equal(projectsToolRequestSchema.safeParse({ ...base, filters: {}, extra: true }).success, false);
+  assert.equal(projectsToolRequestSchema.safeParse({ ...base, filters: { client_id: "not-a-uuid" } }).success, false);
+});
+
+test("projects tool accepts division, status, and date-range filters", () => {
+  const base = { schema_version: 1, task_id: projectsIds.task, run_id: projectsIds.run };
+  const valid = (filters) => projectsToolRequestSchema.safeParse({ ...base, filters }).success;
+
+  assert.equal(valid({}), true);
+  assert.equal(valid({ client_id: null, project_id: null, due_after: null, due_before: null, limit: 25 }), true);
+  assert.equal(valid({ division: ["social-media", "website"] }), true);
+  assert.equal(valid({ division: ["ads", "branding", "event"] }), true);
+  assert.equal(valid({ status: ["planning", "production"] }), true);
+  assert.equal(valid({ status: ["review", "approved"] }), true);
+  assert.equal(valid({ due_after: "2026-09-25" }), true);
+  assert.equal(valid({ due_before: "2026-10-31" }), true);
+  assert.equal(valid({ due_after: "2026-09-25", due_before: "2026-10-31" }), true);
+  assert.equal(valid({ due_after: "2026-09-25", due_before: "2026-09-25" }), true);
+  assert.equal(valid({ division: ["website"], status: ["production"], due_after: "2026-09-25", limit: 100 }), true);
+
+  assert.equal(valid({ due_after: "2026-11-01", due_before: "2026-10-31" }), false);
+  assert.equal(valid({ due_after: "next week" }), false);
+  assert.equal(valid({ division: ["social"] }), false);
+  assert.equal(valid({ division: ["Website"] }), false);
+  assert.equal(valid({ division: "website" }), false);
+  assert.equal(valid({ status: ["in_progress"] }), false);
+  assert.equal(valid({ status: ["done"] }), false);
+  assert.equal(valid({ division: [] }), false);
+  assert.equal(valid({ status: [] }), false);
+  assert.equal(valid({ division: Array(21).fill("website") }), false);
+  assert.equal(valid({ status: Array(21).fill("planning") }), false);
+  assert.equal(valid({ limit: 0 }), false);
+  assert.equal(valid({ limit: 101 }), false);
+  assert.equal(valid({ limit: 1.5 }), false);
+  assert.equal(valid({ template_type: "internal_approval" }), false);
+  assert.equal(valid({ production_status: ["complete"] }), false);
+  assert.equal(valid({ order: "title" }), false);
+});
+
+test("projects tool enums match the canonical lib/division-tasks.ts values", async () => {
+  // lib/division-tasks.ts imports through the @/ alias, which the node test runner cannot resolve,
+  // so the canonical arrays are read from source.
+  const source = await readFile(new URL("../lib/division-tasks.ts", import.meta.url), "utf8");
+  const canonical = (name) => {
+    const match = source.match(new RegExp(`export const ${name} = \\[([^\\]]*)\\] as const;`));
+    assert.ok(match, `${name} not found in lib/division-tasks.ts`);
+    return [...match[1].matchAll(/"([^"]+)"/g)].map((value) => value[1]);
+  };
+  assert.deepEqual(projectsToolDivisionSchema.options, canonical("DIVISIONS"));
+  assert.deepEqual(projectsToolStatusSchema.options, canonical("DIVISION_TASK_STATUSES"));
+});
+
+test("projects tool authorization rejects run mismatches and disabled tools", () => {
+  assert.deepEqual(projectsAuthorize({ run: { task_id: projectsIds.otherTask } }), { ok: false, reason: "task_or_run_not_found" });
+  assert.deepEqual(projectsAuthorize({ run: null }), { ok: false, reason: "task_or_run_not_found" });
+  assert.deepEqual(authorizeProjectsToolRequest({ request: projectsRequest(), run: { task_id: projectsIds.task }, task: null,
+    config: { allowed_tools: ["projects"], permitted_client_ids: [], permitted_project_ids: [] } }), { ok: false, reason: "task_or_run_not_found" });
+  assert.deepEqual(projectsAuthorize({ config: { allowed_tools: ["tasks"] } }), { ok: false, reason: "tool_not_allowed" });
+  assert.deepEqual(projectsAuthorize({ config: { allowed_tools: null } }), { ok: false, reason: "tool_not_allowed" });
+  assert.deepEqual(authorizeProjectsToolRequest({ request: projectsRequest(), run: { task_id: projectsIds.task },
+    task: { id: projectsIds.task, assigned_agent: "operations", client_id: null, project_id: null }, config: null }),
+  { ok: false, reason: "tool_not_allowed" });
+});
+
+test("projects tool enforces task and agent client/project scopes", () => {
+  const { client, otherClient, project, otherProject } = projectsIds;
+  // Task client/project scope is applied even when the request omits filters.
+  assert.deepEqual(projectsAuthorize({ task: { client_id: client } }),
+    { ok: true, clientId: client, projectId: null, permittedClientIds: [], permittedProjectIds: [] });
+  assert.deepEqual(projectsAuthorize({ task: { project_id: project } }),
+    { ok: true, clientId: null, projectId: project, permittedClientIds: [], permittedProjectIds: [] });
+
+  // Conflicting requested IDs are rejected.
+  assert.deepEqual(projectsAuthorize({ task: { client_id: client }, filters: { client_id: otherClient } }),
+    { ok: false, reason: "client_scope_conflict" });
+  assert.deepEqual(projectsAuthorize({ task: { project_id: project }, filters: { project_id: otherProject } }),
+    { ok: false, reason: "project_scope_conflict" });
+  assert.equal(projectsAuthorize({ task: { client_id: client }, filters: { client_id: client } }).ok, true);
+
+  // Agent permitted scopes.
+  assert.deepEqual(projectsAuthorize({ config: { permitted_client_ids: [client] }, filters: { client_id: otherClient } }),
+    { ok: false, reason: "client_scope_conflict" });
+  assert.deepEqual(projectsAuthorize({ config: { permitted_client_ids: [client] }, task: { client_id: otherClient } }),
+    { ok: false, reason: "client_scope_conflict" });
+  assert.deepEqual(projectsAuthorize({ config: { permitted_project_ids: [project] }, filters: { project_id: otherProject } }),
+    { ok: false, reason: "project_scope_conflict" });
+  assert.deepEqual(projectsAuthorize({ config: { permitted_project_ids: [project] }, task: { project_id: otherProject } }),
+    { ok: false, reason: "project_scope_conflict" });
+  assert.deepEqual(projectsAuthorize({ config: { permitted_client_ids: [client], permitted_project_ids: [project] } }),
+    { ok: true, clientId: null, projectId: null, permittedClientIds: [client], permittedProjectIds: [project] });
+});
+
+test("projects tool query plan applies scope, visibility, and fixed filters only", () => {
+  const { client, project } = projectsIds;
+  const plan = (options) => {
+    const authorization = projectsAuthorize(options);
+    assert.equal(authorization.ok, true);
+    return projectsToolFilters(authorization, projectsRequest(options.filters ?? {}).filters);
+  };
+  const visibility = { op: "or", value: "template_type.is.null,template_type.neq.internal_approval" };
+  assert.equal(PROJECTS_TOOL_VISIBILITY_FILTER, visibility.value);
+
+  // internal_approval records are always excluded, even for an unfiltered request.
+  assert.deepEqual(plan({}), [visibility]);
+
+  assert.deepEqual(plan({ task: { client_id: client } }), [visibility, { op: "eq", column: "client_id", value: client }]);
+  assert.deepEqual(plan({ task: { project_id: project } }), [visibility, { op: "eq", column: "id", value: project }]);
+  assert.deepEqual(plan({ config: { permitted_client_ids: [client], permitted_project_ids: [project] } }), [
+    visibility,
+    { op: "in", column: "client_id", values: [client] },
+    { op: "in", column: "id", values: [project] },
+  ]);
+  assert.deepEqual(plan({ filters: { client_id: client, project_id: project } }), [
+    visibility,
+    { op: "eq", column: "client_id", value: client },
+    { op: "eq", column: "id", value: project },
+  ]);
+  assert.deepEqual(plan({ filters: { division: ["website", "ads"], status: ["review"], due_after: "2026-09-25", due_before: "2026-10-31" } }), [
+    visibility,
+    { op: "in", column: "division", values: ["website", "ads"] },
+    { op: "in", column: "status", values: ["review"] },
+    { op: "gte", column: "due_date", value: "2026-09-25" },
+    { op: "lte", column: "due_date", value: "2026-10-31" },
+  ]);
+});
+
+test("projects tool reads division_tasks with the approved fields and response contract", async () => {
+  assert.deepEqual(PROJECTS_TOOL_SELECT.split(", "), [
+    "id", "client_id", "division", "title", "description", "status", "template_type",
+    "assignee_usernames", "watcher_usernames", "mentioned_usernames", "start_date", "due_date", "created_at",
+  ]);
+  for (const hidden of ["content_brief_data", "research_entries", "filming_card_data", "figjam_embed_url"]) {
+    assert.equal(PROJECTS_TOOL_SELECT.includes(hidden), false);
+  }
+
+  const route = await readFile(new URL("../app/api/integrations/n8n/tools/projects/route.ts", import.meta.url), "utf8");
+  assert.match(route, /admin\.from\("division_tasks"\)/);
+  assert.doesNotMatch(route, /from\("tasks"\)/);
+  assert.doesNotMatch(route, /\.(insert|update|upsert|delete|rpc)\(/);
+  assert.match(route, /verifyAiPayload\(\{[\s\S]*N8N_PORTAL_SHARED_SECRET[\s\S]*x-ai-timestamp[\s\S]*x-ai-signature[\s\S]*body: raw/);
+  assert.match(route, /\.order\("due_date", \{ ascending: true, nullsFirst: false \}\)\s*\.order\("created_at", \{ ascending: false \}\)/);
+  assert.match(route, /schema_version: 1,\s*tool: "projects",\s*count: projects\?\.length \?\? 0,\s*projects: projects \?\? \[\]/);
 });
 
 test("task access and transitions enforce owner, staff, contractor, and client boundaries", () => {

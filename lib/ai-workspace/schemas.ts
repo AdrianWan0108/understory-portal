@@ -102,6 +102,28 @@ export const tasksToolRequestSchema = z.object({
   ),
 }).strict();
 
+// Mirrors DIVISIONS and DIVISION_TASK_STATUSES in lib/division-tasks.ts; tests assert they stay in sync.
+export const projectsToolDivisionSchema = z.enum(["social-media", "website", "ads", "branding", "event"]);
+export const projectsToolStatusSchema = z.enum(["planning", "production", "review", "approved"]);
+
+export const projectsToolRequestSchema = z.object({
+  schema_version: version,
+  task_id: uuidSchema,
+  run_id: uuidSchema,
+  filters: z.object({
+    client_id: uuidSchema.nullable().optional(),
+    project_id: uuidSchema.nullable().optional(),
+    division: statusFilter(projectsToolDivisionSchema),
+    status: statusFilter(projectsToolStatusSchema),
+    due_after: z.iso.date().nullable().optional(),
+    due_before: z.iso.date().nullable().optional(),
+    limit: z.number().int().min(1).max(100).default(50),
+  }).strict().refine(
+    (filters) => !filters.due_after || !filters.due_before || filters.due_after <= filters.due_before,
+    { message: "due_after must not be later than due_before.", path: ["due_after"] },
+  ),
+}).strict();
+
 export const taskEventSchema = z.object({
   schema_version: version, event_id: uuidSchema, task_id: uuidSchema, run_id: uuidSchema, correlation_id: uuidSchema,
   idempotency_key: z.string().min(16), workflow_execution_id: z.string().max(300).optional(),
@@ -121,3 +143,4 @@ export const approvalDecisionSchema = z.object({ decision: z.enum(["approved", "
 export type AiAgentKey = z.infer<typeof agentKeySchema>;
 export type AiTaskStatus = z.infer<typeof taskStatusSchema>;
 export type TasksToolRequest = z.infer<typeof tasksToolRequestSchema>;
+export type ProjectsToolRequest = z.infer<typeof projectsToolRequestSchema>;
