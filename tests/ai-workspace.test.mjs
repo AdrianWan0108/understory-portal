@@ -15,7 +15,9 @@ import {
   tasksToolPublishingStatusSchema,
   tasksToolRequestSchema,
   tasksToolTaskStatusSchema,
+  videoEditBriefSchema,
 } from "../lib/ai-workspace/schemas.ts";
+import { buildClaudeDesktopPrompt } from "../lib/ai-workspace/video-edit-brief.ts";
 import { SOCIAL_POST_STATUSES, SOCIAL_PRODUCTION_STATUSES, SOCIAL_PUBLISHING_STATUSES } from "../lib/social-content.ts";
 import { canReadAiTask, mayTransition, requiresHumanApproval } from "../lib/ai-workspace/policy.ts";
 import { signAiPayload, verifyAiPayload } from "../lib/ai-workspace/signatures.ts";
@@ -871,4 +873,66 @@ test("AI identity endpoint still verifies the bearer user and linked profile rol
   assert.match(endpoint, /admin\.auth\.getUser\(match\[1\]\)/);
   assert.match(endpoint, /\.eq\("user_id", auth\.user\.id\)/);
   assert.match(endpoint, /\["owner", "staff", "contractor"\]\.includes\(profile\.role\)/);
+});
+
+const videoEditBrief = {
+  schema_version: 1,
+  kind: "video_edit_brief",
+  title: "Launch prep in 20 seconds",
+  platform: "Instagram Reels",
+  aspect_ratio: "9:16",
+  target_duration_seconds: 20,
+  hook: "Three things we changed before launch day.",
+  segments: [
+    {
+      order: 2, start_seconds: 3, end_seconds: 12, purpose: "Show the three changes",
+      footage: { source: "to_film", asset_id: null, file_url: null, file_name: null, description: "Close-ups of hands at the workbench" },
+      on_screen_text: "1. New packaging", voiceover: null, transition: "Hard cut on beat", notes: null,
+    },
+    {
+      order: 1, start_seconds: 0, end_seconds: 3, purpose: "Hook",
+      footage: { source: "client_asset", asset_id: "asset-1", file_url: "https://example.com/studio.mp4", file_name: "studio.mp4", description: "Wide studio shot" },
+      on_screen_text: "Launch prep, unfiltered", voiceover: "Three things we changed.", transition: null, notes: null,
+    },
+  ],
+  captions: { burn_in: true, style: "Bold sans, two lines max", language: "English" },
+  audio: { music_direction: "Upbeat acoustic, 100-110 BPM", voiceover_required: true, sound_effects: [] },
+  cover: { headline: "Launch prep, unfiltered", subheadline: null, frame_seconds: 1.5 },
+  export: { resolution: "1080x1920", frame_rate: 30 },
+  footage_gaps: ["Close-ups of the new packaging"],
+  capcut_finishing_notes: ["Colour grade", "Pick the music track"],
+  notes: [],
+  requires_human_review: true,
+};
+
+test("video edit briefs validate directly and in completed n8n events", () => {
+  assert.equal(videoEditBriefSchema.safeParse(videoEditBrief).success, true);
+  assert.equal(structuredOutputSchema.safeParse(videoEditBrief).success, true);
+  assert.equal(taskEventSchema.safeParse({ ...contentEvent, output: videoEditBrief }).success, true);
+});
+
+test("video edit briefs reject unknown keys, bad timing, and optional human review", () => {
+  const invalid = (output) => structuredOutputSchema.safeParse(output).success === false;
+  const segment = videoEditBrief.segments[1];
+  assert.equal(invalid({ ...videoEditBrief, requires_human_review: false }), true);
+  assert.equal(invalid({ ...videoEditBrief, extra: true }), true);
+  assert.equal(invalid({ ...videoEditBrief, aspect_ratio: "21:9" }), true);
+  assert.equal(invalid({ ...videoEditBrief, segments: [] }), true);
+  assert.equal(invalid({ ...videoEditBrief, segments: [{ ...segment, end_seconds: 0.5, start_seconds: 1 }] }), true);
+  assert.equal(invalid({ ...videoEditBrief, segments: [{ ...segment, footage: { ...segment.footage, source: "youtube" } }] }), true);
+  assert.equal(invalid({ ...videoEditBrief, segments: [{ ...segment, footage: { ...segment.footage, file_url: "not a url" } }] }), true);
+});
+
+test("the Claude Desktop prompt lists segments in order with footage, gaps, and CapCut hand-off", () => {
+  const prompt = buildClaudeDesktopPrompt(videoEditBrief, "https://portal.example/team-hub/ai-workspace/tasks/1");
+  assert.match(prompt, /put it into my CapCut/);
+  assert.match(prompt, /Do not publish, upload, or send it anywhere else/);
+  assert.ok(prompt.indexOf("1. 0:00–0:03 · Hook") < prompt.indexOf("2. 0:03–0:12 · Show the three changes"));
+  assert.match(prompt, /Client asset\): Wide studio shot — studio\.mp4: https:\/\/example\.com\/studio\.mp4/);
+  assert.match(prompt, /Still to film\): Close-ups of hands/);
+  assert.match(prompt, /Missing footage[^\n]*\n- Close-ups of the new packaging/);
+  assert.match(prompt, /I will finish these in CapCut\n- Colour grade\n- Pick the music track/);
+  assert.match(prompt, /Cover: Launch prep, unfiltered \(frame at 0:01\.5\)/);
+  assert.match(prompt, /Portal task: https:\/\/portal\.example/);
+  assert.doesNotMatch(prompt, /Notes\n/);
 });
