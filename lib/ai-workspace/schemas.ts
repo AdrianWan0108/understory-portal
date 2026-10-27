@@ -61,6 +61,29 @@ export const contentResultSchema = z.object({
   notes: z.array(z.string()),
   requires_human_review: z.literal(true),
 }).strict();
+// Creative Agent edit plan for a short video. A person cuts the first draft from it in Claude Desktop and
+// finishes it in CapCut; nothing is rendered, uploaded, or published by the workflow.
+const videoFootageSchema = z.object({
+  source: z.enum(["client_asset", "generated", "to_film", "stock_needed"]),
+  asset_id: z.string().nullable(), file_url: z.url().nullable(), file_name: z.string().nullable(), description: z.string().min(1),
+}).strict();
+export const videoEditSegmentSchema = z.object({
+  order: z.number().int().min(1), start_seconds: z.number().min(0), end_seconds: z.number().positive(),
+  purpose: z.string().min(1), footage: videoFootageSchema, on_screen_text: z.string().nullable(), voiceover: z.string().nullable(),
+  transition: z.string().nullable(), notes: z.string().nullable(),
+}).strict().refine((segment) => segment.end_seconds > segment.start_seconds, { message: "end_seconds must be after start_seconds.", path: ["end_seconds"] });
+export const videoEditBriefSchema = z.object({
+  schema_version: version, kind: z.literal("video_edit_brief"),
+  title: z.string().min(1), platform: z.string(), aspect_ratio: z.enum(["9:16", "4:5", "1:1", "16:9"]),
+  target_duration_seconds: z.number().int().min(3).max(600), hook: z.string(),
+  segments: z.array(videoEditSegmentSchema).min(1).max(40),
+  captions: z.object({ burn_in: z.boolean(), style: z.string(), language: z.string() }).strict(),
+  audio: z.object({ music_direction: z.string(), voiceover_required: z.boolean(), sound_effects: z.array(z.string()) }).strict(),
+  cover: z.object({ headline: z.string(), subheadline: z.string().nullable(), frame_seconds: z.number().min(0).nullable() }).strict(),
+  export: z.object({ resolution: z.string().min(1), frame_rate: z.number().int().min(1).max(120) }).strict(),
+  footage_gaps: z.array(z.string()), capcut_finishing_notes: z.array(z.string()), notes: z.array(z.string()),
+  requires_human_review: z.literal(true),
+}).strict();
 export const slackAgentResponseSchema = z.object({
   schema_version: version, kind: z.literal("slack_response"), task_id: uuidSchema, channel_id: z.string(), thread_ts: z.string().nullable(),
   summary: z.string().min(1).max(1200), portal_deep_link: z.string().startsWith("/team-hub/ai-workspace/tasks/"),
@@ -76,7 +99,7 @@ export const approvalRequestSchema = z.object({
 
 export const structuredOutputSchema = z.discriminatedUnion("kind", [
   extractedProjectTaskSchema, contentSuggestionSchema, researchResultSchema, creativeBriefSchema,
-  analyticsInsightSchema, operationsResultSchema, contentResultSchema, slackAgentResponseSchema, approvalRequestSchema,
+  analyticsInsightSchema, operationsResultSchema, contentResultSchema, videoEditBriefSchema, slackAgentResponseSchema, approvalRequestSchema,
 ]);
 
 export const createAiTaskSchema = z.object({
@@ -167,6 +190,7 @@ export const approvalDecisionSchema = z.object({ decision: z.enum(["approved", "
 export type AiAgentKey = z.infer<typeof agentKeySchema>;
 export type AiTaskStatus = z.infer<typeof taskStatusSchema>;
 export type ContentResult = z.infer<typeof contentResultSchema>;
+export type VideoEditBrief = z.infer<typeof videoEditBriefSchema>;
 export type TasksToolRequest = z.infer<typeof tasksToolRequestSchema>;
 export type ProjectsToolRequest = z.infer<typeof projectsToolRequestSchema>;
 export type AssetsToolRequest = z.infer<typeof assetsToolRequestSchema>;
