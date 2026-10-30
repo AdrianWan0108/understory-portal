@@ -1,9 +1,22 @@
 // AI Office: a small always-available window that polls the portal's
 // read-only /api/ai/office snapshot. All network calls happen here in the main
 // process, so the token never reaches page script and CORS does not apply.
-const { app, BrowserWindow, ipcMain, Menu, safeStorage, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu, net, protocol, safeStorage, shell } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
+
+// The window is served from office://app/ rather than file:// so the 3D
+// scene can load three.js as an ES module.
+protocol.registerSchemesAsPrivileged([{ scheme: "office", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+const roots = [["/vendor/three/", path.join(__dirname, "node_modules", "three", "build")], ["/", path.join(__dirname, "renderer")]];
+function serveOffice(request) {
+  const { pathname } = new URL(request.url);
+  const [prefix, root] = roots.find(([candidate]) => pathname.startsWith(candidate));
+  const file = path.join(root, decodeURIComponent(pathname.slice(prefix.length)));
+  if (path.relative(root, file).startsWith("..")) return new Response("Not found", { status: 404 });
+  return net.fetch(pathToFileURL(file).toString());
+}
 
 const configPath = () => path.join(app.getPath("userData"), "office.json");
 
@@ -34,7 +47,7 @@ function createWindow() {
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-navigate", (event) => event.preventDefault());
-  win.loadFile(path.join(__dirname, "renderer", "index.html"));
+  win.loadURL("office://app/index.html");
   buildMenu();
 }
 
@@ -97,6 +110,7 @@ ipcMain.handle("office:open", (_event, link) => {
 });
 
 app.whenReady().then(() => {
+  protocol.handle("office", serveOffice);
   createWindow();
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });

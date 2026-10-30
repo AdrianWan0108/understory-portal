@@ -8,8 +8,8 @@
 </head>
 <body>
   <main class="layout">
-    <section class="floor">
-      <canvas id="office" aria-label="AI office floor"></canvas>
+    <section id="stage" class="floor" aria-label="AI office floor">
+      <div id="tags" class="tags"></div>
       <div id="tooltip" class="tooltip" hidden></div>
     </section>
     <aside class="panel">
@@ -41,6 +41,6 @@
   </div>
 
   <script src="state.js"></script>
-  <script src="office.js"></script>
+  <script type="module" src="office.js"></script>
 </body>
 </html>

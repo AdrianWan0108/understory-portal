@@ -30,5 +30,8 @@
       "output": "dist"
     },
     "publish": null
+  },
+  "dependencies": {
+    "three": "0.186.1"
   }
 }

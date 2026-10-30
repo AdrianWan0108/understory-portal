@@ -1,19 +1,21 @@
 # AI Office (desktop)
 
-A small Mac app that shows the five AI Workspace agents as pixel art staff in an
-office, so you can see at a glance who is working, who is waiting for your
-approval, who is queued, who hit an error and who is free. It refreshes every
+A small Mac app that shows the five AI Workspace agents as staff in an
+isometric 3D office (three.js), so you can see at a glance who is working, who
+is waiting for your approval, who is queued, who hit an error and who is free. It refreshes every
 10 seconds. Click a person, a card or a feed line to open that task in the
 portal.
 
 | On the floor | Meaning |
 | --- | --- |
-| At the desk, typing, screen lit, `...` bubble | Working on a task |
-| At the desk, number bubble | Tasks queued |
-| In the meeting room, `!` bubble | Waiting for your approval or input |
-| At the desk, red `×` bubble | Latest task failed |
-| On the sofa, `z` bubble | Free |
-| Empty desk with a 暫停 sign | Agent paused in AI Workspace Settings |
+| At the desk typing, green screen, 做緊 | Working on a task |
+| At the desk, blue screen, 排隊 N | Tasks queued |
+| In the meeting room, 等你批 | Waiting for your approval or input |
+| At the desk, red screen, 出錯 | Latest task failed |
+| On the sofa or at the counter, 得閒 | Free |
+| Not in the office | Agent paused in AI Workspace Settings |
+
+Agents walk between these places when their state changes.
 
 ## How it gets data
 
