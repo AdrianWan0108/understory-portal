@@ -1,0 +1,34 @@
+{
+  "name": "understory-ai-office",
+  "productName": "AI Office",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pixel art desktop office that shows what each Understory AI agent is doing.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.mjs",
+    "dist:mac": "electron-builder --mac dir --arm64 --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "com.understoryandco.ai-office",
+    "productName": "AI Office",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "identity": null
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "publish": null
+  }
+}
