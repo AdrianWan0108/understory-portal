@@ -46,3 +46,7 @@ public/*.mp4
 public/*.mov
 public/*.m4v
 public/*.m4a
+
+# desktop AI Office
+/desktop/ai-office/node_modules
+/desktop/ai-office/dist

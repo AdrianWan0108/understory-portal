@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-Hant-HK">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+  <title>AI Office</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="layout">
+    <section id="stage" class="floor" aria-label="AI office floor">
+      <div id="tags" class="tags"></div>
+      <div id="tooltip" class="tooltip" hidden></div>
+    </section>
+    <aside class="panel">
+      <header class="panel-head">
+        <div>
+          <p class="eyebrow">UNDERSTORY &amp; CO.</p>
+          <h1>AI Office</h1>
+        </div>
+        <p id="status" class="status"><span class="dot"></span><span id="status-text">連接緊…</span></p>
+      </header>
+      <p id="summary" class="summary"></p>
+      <button id="approvals" class="approvals" type="button" hidden></button>
+      <ul id="agents" class="agents"></ul>
+      <h2>實時動態</h2>
+      <ol id="feed" class="feed"></ol>
+      <button id="settings-button" class="link" type="button">連接設定</button>
+    </aside>
+  </main>
+
+  <div id="settings" class="overlay" hidden>
+    <form id="settings-form" class="card">
+      <h2>連接你嘅 portal</h2>
+      <p>AI Office 用一條只讀 token 去讀 portal 嘅 AI 員工狀態，唔會改任何嘢。</p>
+      <label>Portal 網址<input id="portal-url" type="url" placeholder="https://portal.example.com" required></label>
+      <label>Office token<input id="token" type="password" autocomplete="off" placeholder="AI_OFFICE_TOKEN"></label>
+      <p id="settings-error" class="error" hidden></p>
+      <div class="row"><button type="submit">儲存並連接</button><button id="settings-cancel" class="link" type="button">取消</button></div>
+    </form>
+  </div>
+
+  <script src="state.js"></script>
+  <script type="module" src="office.js"></script>
+</body>
+</html>

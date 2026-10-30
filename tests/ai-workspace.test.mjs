@@ -21,6 +21,7 @@ import { buildClaudeDesktopPrompt } from "../lib/ai-workspace/video-edit-brief.t
 import { SOCIAL_POST_STATUSES, SOCIAL_PRODUCTION_STATUSES, SOCIAL_PUBLISHING_STATUSES } from "../lib/social-content.ts";
 import { canReadAiTask, mayTransition, requiresHumanApproval } from "../lib/ai-workspace/policy.ts";
 import { signAiPayload, verifyAiPayload } from "../lib/ai-workspace/signatures.ts";
+import { verifyOfficeToken } from "../lib/ai-workspace/office-token.ts";
 import { aiSlackNotification } from "../lib/ai-workspace/slack-message.ts";
 import {
   authorizeTasksToolRequest,
@@ -935,4 +936,15 @@ test("the Claude Desktop prompt lists segments in order with footage, gaps, and 
   assert.match(prompt, /Cover: Launch prep, unfiltered \(frame at 0:01\.5\)/);
   assert.match(prompt, /Portal task: https:\/\/portal\.example/);
   assert.doesNotMatch(prompt, /Notes\n/);
+});
+
+test("the desktop office token must be long and match exactly", () => {
+  const secret = "o".repeat(40);
+  assert.equal(verifyOfficeToken(secret, `Bearer ${secret}`), true);
+  assert.equal(verifyOfficeToken(secret, `bearer ${secret}`), true);
+  assert.equal(verifyOfficeToken(secret, `Bearer ${secret}x`), false);
+  assert.equal(verifyOfficeToken(secret, secret), false);
+  assert.equal(verifyOfficeToken(secret, null), false);
+  assert.equal(verifyOfficeToken("short", "Bearer short"), false);
+  assert.equal(verifyOfficeToken("", "Bearer "), false);
 });

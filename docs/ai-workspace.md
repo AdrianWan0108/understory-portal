@@ -62,3 +62,7 @@ For failed tasks, `POST /api/ai/tasks/{taskId}/retry` creates a new run and send
 Creative output is stored as an internal draft in `ai_tasks` and the one-to-one `ai_content_designs` record for an existing social post. Only a `worker` provider event marked `worker_delivered` can store generated Figma links. Owners can attach a Figma file manually from the task detail. There is no direct social publishing, Google Ads mutation, client messaging, browser automation, or Figma creation node in the portal.
 
 Content item actions in the existing calendar open a prelinked AI task request. Production due date and publication date remain separate in the output schema and existing post. Human promotion through the current content and client review workflow is still required.
+
+## Desktop AI Office
+
+`GET /api/ai/office` is a read-only status snapshot for the desktop app in `desktop/ai-office`. It authenticates with `Authorization: Bearer <AI_OFFICE_TOKEN>`, a separate environment variable of at least 32 characters; with no token set the endpoint always returns 401. It returns agent names and enabled flags, the latest 150 task titles, statuses, stages and deep links, the latest 40 event summaries, and the task IDs of pending approvals. It never returns objectives, inputs, outputs, client data, usage, costs or approval content. See `desktop/ai-office/README.md` for installation.

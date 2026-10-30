@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The desktop AI Office is a separate Electron app with its own package.
+    "desktop/**",
   ]),
 ]);
 
