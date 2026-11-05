@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { aiActor, aiAdmin, aiError, sameOrigin } from "@/lib/ai-workspace/server";
 import { signAiPayload } from "@/lib/ai-workspace/signatures";
+import { isStaleTask } from "@/lib/ai-workspace/stale";
 
 export const runtime = "nodejs";
 const retrySchema = z.object({ idempotency_key: z.string().min(16).max(200) });
@@ -15,9 +16,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!parsed.success) return aiError("Invalid retry request.", 400);
   const { taskId } = await params;
   const admin = aiAdmin();
-  const { data: task } = await admin.from("ai_tasks").select("id, status, current_stage, correlation_id, assigned_agent, portal_deep_link, context_references").eq("id", taskId).maybeSingle();
+  const { data: task } = await admin.from("ai_tasks").select("id, status, current_stage, correlation_id, assigned_agent, portal_deep_link, context_references, requested_at, updated_at").eq("id", taskId).maybeSingle();
   if (!task) return aiError("Task not found.", 404);
-  if (task.status !== "failed") return aiError("Only failed tasks can be retried.", 409);
+  if (task.status !== "failed" && !isStaleTask(task)) return aiError("Only failed or stuck tasks can be retried.", 409);
   const base = process.env.N8N_WEBHOOK_BASE_URL;
   const secret = process.env.N8N_PORTAL_SHARED_SECRET;
   if (!base || !secret || secret.length < 32) return aiError("n8n is not configured.", 409);
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       input_references: task.context_references });
     if (runError) return aiError("Could not create retry run.", 500);
   }
-  await admin.from("ai_tasks").update({ status: "queued", error_details: null, updated_at: new Date().toISOString() }).eq("id", taskId).eq("status", "failed");
+  await admin.from("ai_tasks").update({ status: "queued", error_details: null, updated_at: new Date().toISOString() }).eq("id", taskId).eq("status", task.status);
   if (!existing) await admin.from("ai_task_events").insert({ task_id: taskId, run_id: runId, event_key: `${parsed.data.idempotency_key}:retry`, kind: "retry",
     summary: `Retry requested from ${task.current_stage ?? "dispatch"}.`, actor_profile_id: actor.id, correlation_id: task.correlation_id });
   try {

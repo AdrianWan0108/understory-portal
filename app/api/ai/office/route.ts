@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { aiAdmin, aiError } from "@/lib/ai-workspace/server";
 import { verifyOfficeToken } from "@/lib/ai-workspace/office-token";
+import { isStaleTask } from "@/lib/ai-workspace/stale";
 
 export const runtime = "nodejs";
 
@@ -12,7 +13,7 @@ export async function GET(request: NextRequest) {
   const [agents, configs, tasks, events, approvals] = await Promise.all([
     admin.from("ai_agents").select("key, name, responsibility, visual_key").order("name"),
     admin.from("ai_agent_configs").select("agent_key, enabled"),
-    admin.from("ai_tasks").select("id, assigned_agent, title, status, priority, current_stage, requested_at, started_at, completed_at, portal_deep_link").order("requested_at", { ascending: false }).limit(150),
+    admin.from("ai_tasks").select("id, assigned_agent, title, status, priority, current_stage, requested_at, started_at, completed_at, updated_at, portal_deep_link").order("requested_at", { ascending: false }).limit(150),
     admin.from("ai_task_events").select("id, task_id, kind, summary, created_at").order("created_at", { ascending: false }).limit(40),
     admin.from("ai_approvals").select("id, task_id").eq("status", "pending"),
   ]);
@@ -23,7 +24,9 @@ export async function GET(request: NextRequest) {
     generated_at: new Date().toISOString(),
     portal_origin: request.nextUrl.origin,
     agents: (agents.data ?? []).map((agent) => ({ ...agent, enabled: enabled.get(agent.key) ?? true })),
-    tasks: tasks.data ?? [],
+    // A stuck task is reported as failed, so the office shows it as an error
+    // instead of someone working forever. The installed app needs no update.
+    tasks: (tasks.data ?? []).map((task) => isStaleTask(task) ? { ...task, status: "failed", current_stage: "stuck_no_progress" } : task),
     events: events.data ?? [],
     pending_approvals: (approvals.data ?? []).map((approval) => approval.task_id),
   }, { headers: { "Cache-Control": "no-store" } });
