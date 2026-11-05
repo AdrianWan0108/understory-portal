@@ -22,6 +22,7 @@ import { SOCIAL_POST_STATUSES, SOCIAL_PRODUCTION_STATUSES, SOCIAL_PUBLISHING_STA
 import { canReadAiTask, mayTransition, requiresHumanApproval } from "../lib/ai-workspace/policy.ts";
 import { signAiPayload, verifyAiPayload } from "../lib/ai-workspace/signatures.ts";
 import { verifyOfficeToken } from "../lib/ai-workspace/office-token.ts";
+import { isStaleTask } from "../lib/ai-workspace/stale.ts";
 import { aiSlackNotification } from "../lib/ai-workspace/slack-message.ts";
 import {
   authorizeTasksToolRequest,
@@ -947,4 +948,14 @@ test("the desktop office token must be long and match exactly", () => {
   assert.equal(verifyOfficeToken(secret, null), false);
   assert.equal(verifyOfficeToken("short", "Bearer short"), false);
   assert.equal(verifyOfficeToken("", "Bearer "), false);
+});
+
+test("queued or running tasks with no update for 30 minutes count as stuck", () => {
+  const now = Date.parse("2026-11-05T08:00:00Z");
+  assert.equal(isStaleTask({ status: "running", updated_at: "2026-11-05T07:29:00Z" }, now), true);
+  assert.equal(isStaleTask({ status: "queued", updated_at: null, requested_at: "2026-09-20T00:00:00Z" }, now), true);
+  assert.equal(isStaleTask({ status: "running", updated_at: "2026-11-05T07:45:00Z" }, now), false);
+  assert.equal(isStaleTask({ status: "waiting_for_approval", updated_at: "2026-09-20T00:00:00Z" }, now), false);
+  assert.equal(isStaleTask({ status: "completed", updated_at: "2026-09-20T00:00:00Z" }, now), false);
+  assert.equal(isStaleTask({ status: "running" }, now), false);
 });
