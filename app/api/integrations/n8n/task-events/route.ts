@@ -1,8 +1,10 @@
 import type { NextRequest } from "next/server";
 import { aiAdmin, aiError } from "@/lib/ai-workspace/server";
-import { taskEventSchema } from "@/lib/ai-workspace/schemas";
+import { taskEventSchema, type EventBrief } from "@/lib/ai-workspace/schemas";
 import { verifyAiPayload } from "@/lib/ai-workspace/signatures";
 import { HIGH_RISK_ACTIONS, requiresHumanApproval } from "@/lib/ai-workspace/policy";
+import { eventBriefSlackMessage } from "@/lib/ai-workspace/slack-message";
+import { sendSlackMessage, type SlackWebhookTarget } from "@/lib/slack";
 
 export const runtime = "nodejs";
 
@@ -42,5 +44,21 @@ export async function POST(request: NextRequest) {
     if (error.message.includes("requires output")) return aiError("Completed runs require a versioned output or approval request.", 400);
     return aiError("Could not record task event.", 500);
   }
+  if (data?.accepted && event.status === "completed" && event.output?.kind === "event_brief") {
+    await postEventBrief(event.output, request.nextUrl.origin);
+  }
   return Response.json(data);
+}
+
+// The Event Planner's brief goes to the plan's Slack channel once, when the
+// event is first accepted. A Slack failure never fails the event itself.
+async function postEventBrief(brief: EventBrief, origin: string) {
+  try {
+    const { data: plan } = await aiAdmin().from("event_plans").select("slack_target").eq("id", brief.plan_id).maybeSingle();
+    if (!plan?.slack_target) return;
+    const base = process.env.FRONTEND_URL?.replace(/\/$/, "") || origin;
+    await sendSlackMessage(plan.slack_target as SlackWebhookTarget, eventBriefSlackMessage({ ...brief, url: `${base}/team-hub/ai-workspace/events` }));
+  } catch {
+    // Slack is a convenience copy; the brief is already stored on the task.
+  }
 }

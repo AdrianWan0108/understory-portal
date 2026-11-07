@@ -46,7 +46,7 @@ h2 { margin: 8px 0 0; font-size: 14px; }
 .feed small { display: block; color: var(--muted); }
 .link { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--accent); text-decoration: underline; }
 .overlay { position: fixed; inset: 0; display: grid; place-items: center; background: rgb(16 19 24 / .6); }
-.overlay[hidden], .tooltip[hidden], .approvals[hidden], .error[hidden] { display: none; }
+#events-title[hidden], .overlay[hidden], .tooltip[hidden], .approvals[hidden], .error[hidden] { display: none; }
 .card { display: grid; gap: 12px; width: min(440px, 92vw); padding: 22px; border-radius: 14px; background: var(--panel); box-shadow: 0 18px 50px rgb(0 0 0 / .35); }
 .card h2 { margin: 0; font-size: 17px; }
 .card p { margin: 0; color: var(--muted); }
@@ -58,3 +58,17 @@ h2 { margin: 8px 0 0; font-size: 14px; }
 .error { color: #c0392b !important; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
 .no-3d { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: #c9d1db; }
+.events { display: grid; gap: 8px; }
+.event-card { display: grid; gap: 4px; width: 100%; padding: 12px; border: 1px solid #ecd3dc; border-radius: 10px; background: #fff8fa; color: inherit; text-align: left; }
+.event-card:hover { border-color: #b8476b; }
+.event-top { display: flex; justify-content: space-between; gap: 8px; }
+.event-countdown { color: #b8476b; font-weight: 700; white-space: nowrap; }
+.event-bar { display: block; height: 6px; overflow: hidden; border-radius: 3px; background: #f1e3e8; }
+.event-bar i { display: block; height: 100%; background: #b8476b; }
+.event-section { margin-top: 6px; font-size: 11px; font-weight: 700; }
+.event-section.blocked { color: #c0392b; }
+.event-section.overdue { color: #b5651d; }
+.event-section.due_soon { color: #2f55a4; }
+.event-section.waiting { color: #8a6d12; }
+.event-line { display: grid; gap: 1px; padding-left: 8px; border-left: 2px solid #f1e3e8; }
+.event-line small, .event-more { color: var(--muted); font-size: 11px; }

@@ -1,6 +1,6 @@
 # AI Office (desktop)
 
-A small Mac app that shows the five AI Workspace agents as staff in an
+A small Mac app that shows the six AI Workspace agents (including the Event Planner) as staff in an
 isometric 3D office (three.js), so you can see at a glance who is working, who
 is waiting for your approval, who is queued, who hit an error and who is free. It refreshes every
 10 seconds. Click a person, a card or a feed line to open that task in the
@@ -16,6 +16,11 @@ portal.
 | Not in the office | Agent paused in AI Workspace Settings |
 
 Agents walk between these places when their state changes.
+
+The side panel also shows each active event plan from AI Workspace → Events:
+the countdown, progress, what is blocked, overdue, due in the next 3 days or
+waiting on someone, and each person's open items. Click a card to open the
+event board. The next event's countdown is on the meeting room wall.
 
 ## How it gets data
 

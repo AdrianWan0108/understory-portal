@@ -39,3 +39,20 @@ test("an empty snapshot gives no desks", () => {
   assert.deepEqual(deriveAgents({}), []);
   assert.equal(ago("2026-10-30T11:30:00Z", Date.parse("2026-10-30T12:00:00Z")), "30 分鐘前");
 });
+
+test("event boards show the countdown, progress and only non-empty sections", () => {
+  const { deriveEventBoards } = createRequire(import.meta.url)("../renderer/state.js");
+  const item = (title, extra = {}) => ({ id: title, title, owner: "Karen", due_date: "2026-11-09", status: "todo", blocker: null, waiting_on: null, ...extra });
+  const [board] = deriveEventBoards({ event_boards: [{
+    plan_id: "p", title: "Anniversary", stage: "before", days_to_start: 16, progress: { done: 2, total: 27, percent: 7 },
+    blocked: [item("Mindbody", { status: "blocked", blocker: "Needs Gary" })], overdue: [], due_soon: [item("Call Giacomo")],
+    waiting: [item("Gary decides", { owner: "Gary", waiting_on: "Gary" })],
+    owners: [{ owner: "Karen", open: 18, next: [item("Call Giacomo")] }],
+  }] });
+  assert.equal(board.countdown, "仲有 16 日");
+  assert.equal(board.percent, 7);
+  assert.deepEqual(board.sections.map((section) => section.key), ["blocked", "due_soon", "waiting"]);
+  assert.deepEqual(board.sections[0].items[0], ["Mindbody", "11/9 · Karen · Needs Gary"]);
+  assert.deepEqual(board.owners[0], { owner: "Karen", open: 18, next: "Call Giacomo" });
+  assert.equal(deriveEventBoards({}).length, 0, "older portals without event boards show nothing");
+});

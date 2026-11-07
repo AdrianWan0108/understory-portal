@@ -3,7 +3,7 @@
 // when they have nothing to do. Name tags and bubbles are HTML on top.
 import * as THREE from "./vendor/three/three.module.js";
 
-const { STATES, deriveAgents, ago, label } = window.OfficeState;
+const { STATES, deriveAgents, deriveEventBoards, ago, label } = window.OfficeState;
 const POLL_MS = 10000;
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const host = document.getElementById("stage");
@@ -189,6 +189,7 @@ const looks = {
   research: { shirt: "#f2f2f2", pants: "#3f5b73", hair: "#1f1b24", skin: "#f4d3b5", prop: "glasses" },
   creative: { shirt: "#e0913f", pants: "#2f3a4a", hair: "#3b2a4a", skin: "#c98e66", prop: "beret" },
   growth: { shirt: "#2f6f4f", pants: "#2a2d36", hair: "#8a5a2b", skin: "#f0c29c", prop: "tie" },
+  events: { shirt: "#b8476b", pants: "#2f3a4a", hair: "#2a1a14", skin: "#efc6a2", prop: "headset" },
 };
 const spareLooks = [{ shirt: "#5c7bd6", pants: "#2a2d36", hair: "#3a2a1e", skin: "#e9be98", prop: "" }, { shirt: "#8e5aa8", pants: "#2a2d36", hair: "#151018", skin: "#d6a07a", prop: "" }];
 
@@ -408,6 +409,41 @@ function renderPanel() {
     return item;
   }) : [el("li", "", "未有 activity。")]));
 }
+// Countdown whiteboard on the meeting room wall for the next event.
+let eventWall = null;
+let eventWallText = "";
+function updateEventWall(board) {
+  const text = board ? `${board.title.slice(0, 22)} · ${board.countdown}` : "";
+  if (text === eventWallText) return;
+  eventWallText = text;
+  if (eventWall) { scene.remove(eventWall); eventWall.material.map?.dispose(); eventWall.material.dispose(); eventWall.geometry.dispose(); eventWall = null; }
+  if (!text) return;
+  eventWall = textPanel(text, 4.2, 0.55, "#b8476b", "rgba(255,255,255,0.92)");
+  eventWall.position.set(8, 2.6, ROOM.minZ + 0.03); scene.add(eventWall);
+}
+function renderEventBoards() {
+  const boards = deriveEventBoards(snapshot);
+  const container = document.getElementById("events");
+  document.getElementById("events-title").hidden = !boards.length;
+  updateEventWall(boards[0]);
+  container.replaceChildren(...boards.map((board) => {
+    const card = el("button", "event-card"); card.type = "button";
+    card.addEventListener("click", () => void window.office.open("/team-hub/ai-workspace/events"));
+    const top = el("span", "event-top"); top.append(el("strong", "", board.title), el("span", "event-countdown", board.countdown));
+    const bar = el("span", "event-bar"); const fill = el("i"); fill.style.width = `${board.percent}%`; bar.append(fill);
+    card.append(top, bar, el("span", "agent-meta", `${board.progressText} · ${board.percent}%`));
+    for (const section of board.sections) {
+      card.append(el("span", `event-section ${section.key}`, section.title));
+      for (const [title, meta] of section.items.slice(0, 4)) { const line = el("span", "event-line"); line.append(el("span", "", title), el("small", "", meta)); card.append(line); }
+      if (section.items.length > 4) card.append(el("small", "event-more", `仲有 ${section.items.length - 4} 項`));
+    }
+    if (board.owners.length) {
+      card.append(el("span", "event-section owners", "👤 邊個要做咩"));
+      for (const entry of board.owners) { const line = el("span", "event-line"); line.append(el("span", "", `${entry.owner}：${entry.open} 項`), el("small", "", entry.next ? `下一樣：${entry.next}` : "")); card.append(line); }
+    }
+    return card;
+  }));
+}
 document.getElementById("approvals").addEventListener("click", () => void window.office.open("/team-hub/ai-workspace/approvals"));
 
 // ---------- data ----------
@@ -424,6 +460,7 @@ async function refresh() {
   desksState = deriveAgents(snapshot);
   syncPeople();
   renderPanel();
+  renderEventBoards();
   setStatus("ok", `每 10 秒更新 · ${new Date().toLocaleTimeString("en-GB")}`);
 }
 
