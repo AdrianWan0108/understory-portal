@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const agentKeySchema = z.enum(["operations", "content", "research", "creative", "growth"]);
+export const agentKeySchema = z.enum(["operations", "content", "research", "creative", "growth", "events"]);
 export const providerSchema = z.enum(["anthropic", "openai", "perplexity", "worker"]);
 export const taskStatusSchema = z.enum(["queued", "running", "waiting_for_input", "waiting_for_approval", "completed", "failed", "cancelled"]);
 export const runStatusSchema = z.enum(["queued", "running", "completed", "failed", "partial", "refused", "timed_out"]);
@@ -84,6 +84,22 @@ export const videoEditBriefSchema = z.object({
   footage_gaps: z.array(z.string()), capcut_finishing_notes: z.array(z.string()), notes: z.array(z.string()),
   requires_human_review: z.literal(true),
 }).strict();
+// Event Planner check-in on one event plan. Counts and dates come from the
+// events tool; the model only writes the headline, summary and suggestions.
+const eventBriefItemSchema = z.object({
+  item_id: uuidSchema.nullable(), title: z.string().min(1).max(300), due_date: z.iso.date().nullable(),
+  owner: z.string().max(80).nullable(), note: z.string().max(500).nullable(),
+}).strict();
+export const eventBriefSchema = z.object({
+  schema_version: version, kind: z.literal("event_brief"),
+  plan_id: uuidSchema, plan_title: z.string().min(1).max(200), as_of: z.iso.date(), days_to_start: z.number().int(),
+  headline: z.string().min(1).max(300), summary: z.string().min(1).max(2000),
+  progress: z.object({ done: z.number().int().nonnegative(), total: z.number().int().nonnegative(), percent: z.number().int().min(0).max(100) }).strict(),
+  blockers: z.array(eventBriefItemSchema).max(30), overdue: z.array(eventBriefItemSchema).max(30),
+  due_soon: z.array(eventBriefItemSchema).max(30), your_todos: z.array(eventBriefItemSchema).max(30),
+  suggestions: z.array(z.string().min(1).max(500)).max(10),
+  requires_human_review: z.literal(true),
+}).strict();
 export const slackAgentResponseSchema = z.object({
   schema_version: version, kind: z.literal("slack_response"), task_id: uuidSchema, channel_id: z.string(), thread_ts: z.string().nullable(),
   summary: z.string().min(1).max(1200), portal_deep_link: z.string().startsWith("/team-hub/ai-workspace/tasks/"),
@@ -99,7 +115,7 @@ export const approvalRequestSchema = z.object({
 
 export const structuredOutputSchema = z.discriminatedUnion("kind", [
   extractedProjectTaskSchema, contentSuggestionSchema, researchResultSchema, creativeBriefSchema,
-  analyticsInsightSchema, operationsResultSchema, contentResultSchema, videoEditBriefSchema, slackAgentResponseSchema, approvalRequestSchema,
+  analyticsInsightSchema, operationsResultSchema, contentResultSchema, videoEditBriefSchema, eventBriefSchema, slackAgentResponseSchema, approvalRequestSchema,
 ]);
 
 export const createAiTaskSchema = z.object({
@@ -171,6 +187,33 @@ export const assetsToolRequestSchema = z.object({
   }).strict(),
 }).strict();
 
+// Event Planner read-only tool. With no plan_id it uses the task's
+// input_payload.plan_id, then every planning or live plan in scope.
+export const eventsToolRequestSchema = z.object({
+  schema_version: version,
+  task_id: uuidSchema,
+  run_id: uuidSchema,
+  filters: z.object({
+    plan_id: uuidSchema.nullable().optional(),
+    include_done: z.boolean().default(false),
+  }).strict().default({ include_done: false }),
+}).strict();
+
+const eventItemStatusSchema = z.enum(["todo", "in_progress", "waiting", "blocked", "done", "skipped"]);
+const eventItemKindSchema = z.enum(["task", "decision", "reminder", "milestone"]);
+// Blank text clears the field; a missing key leaves it unchanged.
+const optionalText = (max: number) => z.union([z.string().trim().max(max).transform((value) => value || null), z.null()]).optional();
+export const eventItemCreateSchema = z.object({
+  plan_id: uuidSchema, title: z.string().trim().min(1).max(300), phase: z.string().trim().min(1).max(80).default("General"),
+  kind: eventItemKindSchema.default("task"), owner: optionalText(80), due_date: z.iso.date().nullable().optional(),
+  status: eventItemStatusSchema.default("todo"), blocker: optionalText(500), waiting_on: optionalText(200), notes: optionalText(2000),
+}).strict();
+export const eventItemUpdateSchema = z.object({
+  title: z.string().trim().min(1).max(300).optional(), phase: z.string().trim().min(1).max(80).optional(),
+  kind: eventItemKindSchema.optional(), owner: optionalText(80), due_date: z.iso.date().nullable().optional(),
+  status: eventItemStatusSchema.optional(), blocker: optionalText(500), waiting_on: optionalText(200), notes: optionalText(2000),
+}).strict().refine((value) => Object.keys(value).length > 0, { message: "No changes supplied." });
+
 export const taskEventSchema = z.object({
   schema_version: version, event_id: uuidSchema, task_id: uuidSchema, run_id: uuidSchema, correlation_id: uuidSchema,
   idempotency_key: z.string().min(16), workflow_execution_id: z.string().max(300).optional(),
@@ -194,3 +237,5 @@ export type VideoEditBrief = z.infer<typeof videoEditBriefSchema>;
 export type TasksToolRequest = z.infer<typeof tasksToolRequestSchema>;
 export type ProjectsToolRequest = z.infer<typeof projectsToolRequestSchema>;
 export type AssetsToolRequest = z.infer<typeof assetsToolRequestSchema>;
+export type EventsToolRequest = z.infer<typeof eventsToolRequestSchema>;
+export type EventBrief = z.infer<typeof eventBriefSchema>;

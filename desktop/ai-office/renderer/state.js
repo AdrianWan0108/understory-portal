@@ -47,7 +47,38 @@
 
   const label = (value) => String(value ?? "").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
-  const api = { STATES, deriveAgents, ago, label };
+  // Event board cards for the side panel. Counts and dates come from the
+  // portal; this only picks the wording and what to show first.
+  function shortDate(value) {
+    return value ? `${Number(value.slice(5, 7))}/${Number(value.slice(8, 10))}` : "";
+  }
+  function countdownText(board) {
+    if (board.stage === "live") return "活動進行中";
+    if (board.stage === "after") return "活動完咗，記得 follow up";
+    if (board.days_to_start === 0) return "今日開始";
+    return `仲有 ${board.days_to_start} 日`;
+  }
+  function itemText(item, extra) {
+    return [item.title, [shortDate(item.due_date), item.owner, extra].filter(Boolean).join(" · ")];
+  }
+  function deriveEventBoards(snapshot) {
+    return (snapshot?.event_boards ?? []).map((board) => ({
+      id: board.plan_id,
+      title: board.title,
+      countdown: countdownText(board),
+      percent: board.progress?.percent ?? 0,
+      progressText: `${board.progress?.done ?? 0}/${board.progress?.total ?? 0} 完成`,
+      sections: [
+        { key: "blocked", title: "🔴 卡住", items: (board.blocked ?? []).map((item) => itemText(item, item.blocker)) },
+        { key: "overdue", title: "⚠️ 過咗期", items: (board.overdue ?? []).map((item) => itemText(item)) },
+        { key: "due_soon", title: "⏰ 3 日內到期", items: (board.due_soon ?? []).map((item) => itemText(item)) },
+        { key: "waiting", title: "⏳ 等緊人", items: (board.waiting ?? []).map((item) => itemText(item, item.waiting_on && `等 ${item.waiting_on}`)) },
+      ].filter((section) => section.items.length),
+      owners: (board.owners ?? []).map((entry) => ({ owner: entry.owner, open: entry.open, next: entry.next?.[0]?.title ?? "" })),
+    }));
+  }
+
+  const api = { STATES, deriveAgents, deriveEventBoards, ago, label };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.OfficeState = api;
 })(typeof window !== "undefined" ? window : globalThis);

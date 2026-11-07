@@ -2,11 +2,14 @@ import type { NextRequest } from "next/server";
 import { aiAdmin, aiError } from "@/lib/ai-workspace/server";
 import { verifyOfficeToken } from "@/lib/ai-workspace/office-token";
 import { isStaleTask } from "@/lib/ai-workspace/stale";
+import { loadEventBoards } from "@/lib/ai-workspace/event-server";
+import { officeEventBoard } from "@/lib/ai-workspace/event-board";
 
 export const runtime = "nodejs";
 
 // Read-only status snapshot for the desktop AI Office. It returns titles and
 // stages only: no objectives, outputs, client data, costs or approval content.
+// Event boards add item titles, owners, due dates and blocker notes.
 export async function GET(request: NextRequest) {
   if (!verifyOfficeToken(process.env.AI_OFFICE_TOKEN ?? "", request.headers.get("authorization"))) return aiError("Invalid office token.", 401);
   const admin = aiAdmin();
@@ -18,6 +21,8 @@ export async function GET(request: NextRequest) {
     admin.from("ai_approvals").select("id, task_id").eq("status", "pending"),
   ]);
   if (agents.error || configs.error || tasks.error || events.error || approvals.error) return aiError("Could not load AI Office.", 500);
+  // The event board is optional: an office without event tables still loads.
+  const eventBoards = await loadEventBoards().catch(() => []);
   const enabled = new Map((configs.data ?? []).map((config) => [config.agent_key, config.enabled]));
   return Response.json({
     schema_version: 1,
@@ -29,5 +34,6 @@ export async function GET(request: NextRequest) {
     tasks: (tasks.data ?? []).map((task) => isStaleTask(task) ? { ...task, status: "failed", current_stage: "stuck_no_progress" } : task),
     events: events.data ?? [],
     pending_approvals: (approvals.data ?? []).map((approval) => approval.task_id),
+    event_boards: eventBoards.map((board) => officeEventBoard(board.summary, board.items)),
   }, { headers: { "Cache-Control": "no-store" } });
 }
