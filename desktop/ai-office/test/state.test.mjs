@@ -56,3 +56,15 @@ test("event boards show the countdown, progress and only non-empty sections", ()
   assert.deepEqual(board.owners[0], { owner: "Karen", open: 18, next: "Call Giacomo" });
   assert.equal(deriveEventBoards({}).length, 0, "older portals without event boards show nothing");
 });
+
+test("the Event Planner reads as tracking an active event between checks", () => {
+  const boards = [{ plan_id: "p", title: "Anniversary", stage: "before", days_to_start: 14, blocked: [{}], overdue: [], due_soon: [{}, {}] }];
+  const [events, other] = deriveAgents({ agents: [agent("events"), agent("ops")], tasks: [], events: [], event_boards: boards });
+  assert.equal(events.state, "tracking");
+  assert.equal(events.focus, "跟緊 Anniversary · 仲有 14 日 · 1 個卡住 · 2 個 3 日內到期");
+  assert.equal(other.state, "idle");
+  const [running] = deriveAgents({ agents: [agent("events")], tasks: [task("t", "events", "running")], events: [], event_boards: boards });
+  assert.equal(running.state, "working", "a running check still shows as working");
+  const [after] = deriveAgents({ agents: [agent("events")], tasks: [], events: [], event_boards: [{ ...boards[0], stage: "after" }] });
+  assert.equal(after.state, "idle", "a finished event is not tracked");
+});

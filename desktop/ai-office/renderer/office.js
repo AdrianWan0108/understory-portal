@@ -133,7 +133,7 @@ function chair(x, z, rotation) {
   return group;
 }
 // A workstation faces -x: the agent sits on the +x side looking at the screen.
-const SCREEN = { off: "#1d2027", working: "#58c98a", waiting: "#f2c14e", queued: "#7fa7ff", failed: "#ff6b6b", idle: "#2b3a52", paused: "#1d2027" };
+const SCREEN = { off: "#1d2027", working: "#58c98a", waiting: "#f2c14e", queued: "#7fa7ff", failed: "#ff6b6b", tracking: "#3f8f84", idle: "#2b3a52", paused: "#1d2027" };
 function workstation(x, z, flipped = false) {
   const group = new THREE.Group(); group.position.set(x, 0, z); if (flipped) group.rotation.y = Math.PI; scene.add(group);
   box(1.0, 0.06, 1.7, M.deskTop, 0, 0.78, 0, group);
@@ -254,7 +254,7 @@ function routeTo(person, target) {
   person.room = target.room;
 }
 
-const BUBBLES = { working: "⌨ 做緊", waiting: "! 等你批", failed: "× 出錯", idle: "☕ 得閒", paused: "暫停" };
+const BUBBLES = { working: "⌨ 做緊", waiting: "! 等你批", failed: "× 出錯", tracking: "📋 跟緊", idle: "☕ 得閒", paused: "暫停" };
 function syncPeople() {
   const seen = new Set();
   desksState.forEach((info, index) => {
@@ -360,7 +360,7 @@ function showTooltip(info, x, y) {
   tooltip.replaceChildren();
   const title = document.createElement("strong"); title.textContent = `${info.name} · ${STATES[info.state].label}`;
   const body = document.createElement("div");
-  body.textContent = info.current ? `${info.current.title}${info.current.current_stage ? ` — ${label(info.current.current_stage)}` : ""}` : info.state === "paused" ? "暫停中" : "冇手頭嘢做";
+  body.textContent = info.current ? `${info.current.title}${info.current.current_stage ? ` — ${label(info.current.current_stage)}` : ""}` : info.state === "paused" ? "暫停中" : info.focus ?? "冇手頭嘢做";
   tooltip.append(title, body);
   const rect = host.getBoundingClientRect();
   tooltip.style.left = `${Math.min(x - rect.left + 16, rect.width - 280)}px`;
@@ -384,7 +384,7 @@ function renderPanel() {
     const button = el("button", `agent${selectedKey === info.key ? " selected" : ""}`); button.type = "button";
     const top = el("span", "agent-top"); top.append(el("span", "", info.name));
     const state = el("span", "agent-state"); const swatch = el("i"); swatch.style.background = STATES[info.state].color; state.append(swatch, STATES[info.state].label); top.append(state);
-    const taskLine = el("span", "agent-task", info.current ? info.current.title : info.state === "paused" ? "暫停中，唔會接新 task" : "冇手頭嘢做");
+    const taskLine = el("span", "agent-task", info.current ? info.current.title : info.state === "paused" ? "暫停中，唔會接新 task" : info.focus ?? "冇手頭嘢做");
     const meta = el("span", "agent-meta", [info.current?.current_stage ? label(info.current.current_stage) : null, `排隊 ${info.queued}`, `今日完成 ${info.doneToday}`].filter(Boolean).join(" · "));
     button.append(top, taskLine, meta);
     button.addEventListener("click", () => openAgent(info.key));
