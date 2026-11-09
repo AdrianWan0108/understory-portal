@@ -7,8 +7,22 @@
     queued: { label: "排緊隊", color: "#7fa7ff" },
     failed: { label: "出錯", color: "#ff6b6b" },
     paused: { label: "暫停", color: "#9a8aa8" },
+    tracking: { label: "跟緊", color: "#6cc7b8" },
     idle: { label: "得閒", color: "#c9b8d8" },
   };
+
+  // The Event Planner keeps watching an active event between its daily checks,
+  // so it reads as "tracking" with the event's headline numbers, not as idle.
+  function eventFocus(snapshot) {
+    const boards = (snapshot?.event_boards ?? []).filter((board) => board.stage !== "after");
+    if (!boards.length) return null;
+    const board = boards[0];
+    const parts = [`跟緊 ${board.title}`, countdownText(board)];
+    if (board.blocked?.length) parts.push(`${board.blocked.length} 個卡住`);
+    if (board.overdue?.length) parts.push(`${board.overdue.length} 個過咗期`);
+    if (board.due_soon?.length) parts.push(`${board.due_soon.length} 個 3 日內到期`);
+    return parts.join(" · ");
+  }
 
   function deriveAgents(snapshot, now = new Date()) {
     const tasks = snapshot?.tasks ?? [];
@@ -22,18 +36,20 @@
       const waiting = mine.find((task) => task.status === "waiting_for_approval" || task.status === "waiting_for_input" || pending.has(task.id) && task.status !== "completed");
       const queued = mine.filter((task) => task.status === "queued");
       const latest = mine[0];
+      const focus = agent.key === "events" ? eventFocus(snapshot) : null;
       const state = agent.enabled === false ? "paused"
         : running ? "working"
         : waiting ? "waiting"
         : queued.length ? "queued"
         : latest?.status === "failed" ? "failed"
+        : focus ? "tracking"
         : "idle";
       // The oldest queued task is the one that will be picked up next.
       const current = running ?? waiting ?? queued[queued.length - 1] ?? (state === "failed" ? latest : null);
       const ids = new Set(mine.map((task) => task.id));
       const lastEvent = events.find((event) => ids.has(event.task_id)) ?? null;
       const doneToday = mine.filter((task) => task.status === "completed" && task.completed_at && new Date(task.completed_at).toDateString() === today).length;
-      return { ...agent, state, current, queued: queued.length, lastEvent, doneToday };
+      return { ...agent, state, current, focus, queued: queued.length, lastEvent, doneToday };
     });
   }
 
