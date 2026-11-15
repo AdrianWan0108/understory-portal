@@ -1276,6 +1276,7 @@ export function SocialApprovalCalendar({
   canSendToClient = false,
   guestSchedulingOnly = false,
 }: Props) {
+  const canViewAssignees = !guestSchedulingOnly;
   const [resolvedClientId, setResolvedClientId] = useState<string | null>(null);
   const [resolvedClientName, setResolvedClientName] = useState(
     clientName ?? "Client",
@@ -1358,6 +1359,8 @@ export function SocialApprovalCalendar({
   const storyStripRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!canViewAssignees) return;
+
     let isActive = true;
 
     async function loadTeamDirectory() {
@@ -1383,7 +1386,7 @@ export function SocialApprovalCalendar({
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [canViewAssignees]);
 
   useEffect(() => {
     if (!resolvedClientId) return;
@@ -1526,10 +1529,11 @@ export function SocialApprovalCalendar({
             sent_to_client_by,
             posted_at,
             posted_by,
-            assigned_to,
-            assignee_usernames,
-            watcher_usernames,
-            mentioned_usernames,
+            ${
+              canViewAssignees
+                ? "assigned_to, assignee_usernames, watcher_usernames, mentioned_usernames,"
+                : ""
+            }
             requires_filming,
             filming_details,
             creative_drive_link,
@@ -1609,7 +1613,15 @@ export function SocialApprovalCalendar({
     // outside the dependency list prevents a render-only function identity
     // change from reloading the entire calendar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientName, clientSlug, initialPostId, mode, syncRevision, workspaceId]);
+  }, [
+    canViewAssignees,
+    clientName,
+    clientSlug,
+    initialPostId,
+    mode,
+    syncRevision,
+    workspaceId,
+  ]);
 
   const selectedPost =
     posts.find((post) => post.id === selectedId) ?? null;
@@ -2429,11 +2441,15 @@ export function SocialApprovalCalendar({
         posted_by: postedBy,
         scheduling_mode: contentDraft.schedulingMode,
         manual_reminder_sent_at: manualReminderSentAt,
-        assignee_usernames: contentDraft.assigneeUsernames,
-        assigned_to: assignedProfiles[0]?.name ?? null,
-        assignee: assignedProfiles[0]?.name ?? "Unassigned",
-        mentioned_usernames: nextMentionedUsernames,
-        watcher_usernames: nextWatcherUsernames,
+        ...(canViewAssignees
+          ? {
+              assignee_usernames: contentDraft.assigneeUsernames,
+              assigned_to: assignedProfiles[0]?.name ?? null,
+              assignee: assignedProfiles[0]?.name ?? "Unassigned",
+              mentioned_usernames: nextMentionedUsernames,
+              watcher_usernames: nextWatcherUsernames,
+            }
+          : {}),
         post_caption: postCaption,
         scheduled_at: scheduledAt,
       })
@@ -2481,10 +2497,14 @@ export function SocialApprovalCalendar({
       posted_by: postedBy,
       scheduling_mode: contentDraft.schedulingMode,
       manual_reminder_sent_at: manualReminderSentAt,
-      assignee_usernames: contentDraft.assigneeUsernames,
-      assigned_to: assignedProfiles[0]?.name ?? null,
-      mentioned_usernames: nextMentionedUsernames,
-      watcher_usernames: nextWatcherUsernames,
+      ...(canViewAssignees
+        ? {
+            assignee_usernames: contentDraft.assigneeUsernames,
+            assigned_to: assignedProfiles[0]?.name ?? null,
+            mentioned_usernames: nextMentionedUsernames,
+            watcher_usernames: nextWatcherUsernames,
+          }
+        : {}),
       post_caption: postCaption,
       scheduled_at: scheduledAt,
       task_slides: post.task_slides.map((slide) => ({
@@ -4091,13 +4111,14 @@ export function SocialApprovalCalendar({
                                       </span>
                                     )}
                                   </span>
-                                  {assignees.length > 0 ? (
-                                    <AssigneeAvatars members={assignees} />
-                                  ) : (
-                                    <span className="text-[8px] text-[var(--foreground)]/35">
-                                      Unassigned
-                                    </span>
-                                  )}
+                                  {canViewAssignees &&
+                                    (assignees.length > 0 ? (
+                                      <AssigneeAvatars members={assignees} />
+                                    ) : (
+                                      <span className="text-[8px] text-[var(--foreground)]/35">
+                                        Unassigned
+                                      </span>
+                                    ))}
                                 </span>
                                 <span
                                   className={`mt-2 inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[8px] font-semibold ${primaryStatusClass}`}
@@ -4154,20 +4175,22 @@ export function SocialApprovalCalendar({
                       className="mb-2"
                     />
                     <span className="text-sm font-semibold">{post.title}</span>
-                    <span className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-[var(--foreground)]/50">
-                      {assignees.length > 0 ? (
-                        <>
-                          <AssigneeAvatars members={assignees} size="detail" />
-                          <span className="truncate">
-                            {assignees
-                              .map((member) => member.full_name)
-                              .join(", ")}
-                          </span>
-                        </>
-                      ) : (
-                        <span>Unassigned</span>
-                      )}
-                    </span>
+                    {canViewAssignees && (
+                      <span className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-[var(--foreground)]/50">
+                        {assignees.length > 0 ? (
+                          <>
+                            <AssigneeAvatars members={assignees} size="detail" />
+                            <span className="truncate">
+                              {assignees
+                                .map((member) => member.full_name)
+                                .join(", ")}
+                            </span>
+                          </>
+                        ) : (
+                          <span>Unassigned</span>
+                        )}
+                      </span>
+                    )}
                     <span className="mt-2 flex items-center gap-1 text-xs font-semibold text-[var(--primary)]">
                       <WorkflowStatusIcon status={post.production_status} />
                       {
@@ -4722,20 +4745,22 @@ export function SocialApprovalCalendar({
                   ))}
                 </div>
               )}
-              {mode === "internal" && selectedAssignees.length > 0 && (
-                <div className="mt-2 flex items-center gap-2 text-xs text-[var(--foreground)]/50">
-                  <AssigneeAvatars
-                    members={selectedAssignees}
-                    size="detail"
-                  />
-                  <span>
-                    Assigned to{" "}
-                    {selectedAssignees
-                      .map((member) => member.full_name)
-                      .join(", ")}
-                  </span>
-                </div>
-              )}
+              {mode === "internal" &&
+                canViewAssignees &&
+                selectedAssignees.length > 0 && (
+                  <div className="mt-2 flex items-center gap-2 text-xs text-[var(--foreground)]/50">
+                    <AssigneeAvatars
+                      members={selectedAssignees}
+                      size="detail"
+                    />
+                    <span>
+                      Assigned to{" "}
+                      {selectedAssignees
+                        .map((member) => member.full_name)
+                        .join(", ")}
+                    </span>
+                  </div>
+                )}
 
               {mode === "internal" ? (
                 <div className="mt-6 grid gap-4">
@@ -6007,46 +6032,55 @@ export function SocialApprovalCalendar({
                             </p>
                           )}
                         </div>
-                        <fieldset>
-                          <legend className="text-xs font-semibold">Assignees</legend>
-                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                            {TEAM_MEMBER_PROFILES.map((profile) => (
-                              <label
-                                key={profile.username}
-                                className="flex items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-xs"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={contentDraft.assigneeUsernames.includes(
-                                    profile.username,
-                                  )}
-                                  onChange={() =>
-                                    setContentDraft({
-                                      ...contentDraft,
-                                      assigneeUsernames:
-                                        contentDraft.assigneeUsernames.includes(
-                                          profile.username,
-                                        )
-                                          ? contentDraft.assigneeUsernames.filter(
-                                              (username) =>
-                                                username !== profile.username,
-                                            )
-                                          : [
-                                              ...contentDraft.assigneeUsernames,
-                                              profile.username,
-                                            ],
-                                    })
-                                  }
-                                />
-                                {profile.name}
-                              </label>
-                            ))}
-                          </div>
-                        </fieldset>
-                        <p className="text-[11px] leading-5 text-[var(--foreground)]/50">
-                          Watchers: {selectedPost.watcher_usernames.join(", ") || "None"}
-                          <br />Mentions: {selectedPost.mentioned_usernames.join(", ") || "None"}
-                        </p>
+                        {canViewAssignees && (
+                          <fieldset>
+                            <legend className="text-xs font-semibold">
+                              Assignees
+                            </legend>
+                            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                              {TEAM_MEMBER_PROFILES.map((profile) => (
+                                <label
+                                  key={profile.username}
+                                  className="flex items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-xs"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={contentDraft.assigneeUsernames.includes(
+                                      profile.username,
+                                    )}
+                                    onChange={() =>
+                                      setContentDraft({
+                                        ...contentDraft,
+                                        assigneeUsernames:
+                                          contentDraft.assigneeUsernames.includes(
+                                            profile.username,
+                                          )
+                                            ? contentDraft.assigneeUsernames.filter(
+                                                (username) =>
+                                                  username !== profile.username,
+                                              )
+                                            : [
+                                                ...contentDraft.assigneeUsernames,
+                                                profile.username,
+                                              ],
+                                      })
+                                    }
+                                  />
+                                  {profile.name}
+                                </label>
+                              ))}
+                            </div>
+                          </fieldset>
+                        )}
+                        {canViewAssignees && (
+                          <p className="text-[11px] leading-5 text-[var(--foreground)]/50">
+                            Watchers:{" "}
+                            {selectedPost.watcher_usernames.join(", ") || "None"}
+                            <br />Mentions:{" "}
+                            {selectedPost.mentioned_usernames.join(", ") ||
+                              "None"}
+                          </p>
+                        )}
                         {(deriveInternalApprovalState(
                           selectedPost.internal_approvals,
                           INTERNAL_REVIEWER_KEYS,
