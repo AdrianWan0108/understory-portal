@@ -6,6 +6,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { clientBrandProfile } from "@/lib/client-branding";
 import { slugifyClientName } from "@/lib/client-management";
 import { supabase } from "@/lib/supabase";
 import { useTeamIdentity } from "../_components/TeamIdentity";
@@ -32,6 +33,7 @@ type ClientCard = ClientRow & {
   industry: string | null;
   overview: string | null;
   photoUrl: string | null;
+  resolvedLogoUrl: string | null;
 };
 
 export default function TeamHubClientInfoPage() {
@@ -89,6 +91,8 @@ export default function TeamHubClientInfoPage() {
           industry: profile?.industry ?? null,
           overview: profile?.overview ?? null,
           photoUrl: firstPhotoByClient.get(client.id) ?? null,
+          resolvedLogoUrl:
+            clientBrandProfile(client.slug)?.logoUrl ?? client.logo_url,
         };
       }),
     );
@@ -182,9 +186,9 @@ export default function TeamHubClientInfoPage() {
                 href={`/team-hub/client-info/${client.slug}`}
                 className="group overflow-hidden rounded-[24px] border border-[#D7CBE0] bg-white shadow-[0_8px_28px_rgba(40,21,79,0.055)] transition hover:-translate-y-1 hover:border-[#7D4698] hover:shadow-[0_14px_34px_rgba(40,21,79,0.11)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7D4698]"
               >
-                {client.photoUrl ? (
+                {client.photoUrl || client.resolvedLogoUrl ? (
                   <img
-                    src={client.photoUrl}
+                    src={client.photoUrl ?? client.resolvedLogoUrl ?? undefined}
                     alt={client.name}
                     className="aspect-[16/9] w-full object-cover"
                   />
@@ -195,9 +199,9 @@ export default function TeamHubClientInfoPage() {
                 )}
                 <div className="p-5">
                   <div className="flex items-center gap-2">
-                    {client.logo_url ? (
+                    {client.resolvedLogoUrl ? (
                       <img
-                        src={client.logo_url}
+                        src={client.resolvedLogoUrl}
                         alt=""
                         className="h-6 w-6 rounded-full border border-[#D7CBE0] bg-white object-contain"
                       />

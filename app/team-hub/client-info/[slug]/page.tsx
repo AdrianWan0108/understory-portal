@@ -6,6 +6,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { clientBrandProfile } from "@/lib/client-branding";
 import { supabase } from "@/lib/supabase";
 import { useTeamIdentity } from "../../_components/TeamIdentity";
 import { TeamButton, teamInputClass } from "../../_components/TeamHubUi";
@@ -627,6 +628,7 @@ export default function TeamHubClientInfoDetailPage() {
     profile?.owner_name || profile?.owner_role || profile?.owner_contact || profile?.owner_bio,
   );
   const ownerContactHref = profile?.owner_contact ? contactHref(profile.owner_contact) : null;
+  const clientBrand = clientBrandProfile(client.slug);
 
   return (
     <main className="px-5 py-10 sm:px-8 sm:py-14 lg:px-12">
@@ -649,7 +651,13 @@ export default function TeamHubClientInfoDetailPage() {
         )}
 
         {/* Hero */}
-        <section className="relative mt-3 overflow-hidden rounded-[28px] border border-[#D7CBE0] bg-gradient-to-br from-[#341F60] to-[#7D4698]">
+        <section
+          className={`relative mt-3 overflow-hidden rounded-[28px] border ${
+            clientBrand
+              ? "border-[#98A4B6] bg-gradient-to-br from-[#071B3D] via-[#102D5B] to-[#5F7392]"
+              : "border-[#D7CBE0] bg-gradient-to-br from-[#341F60] to-[#7D4698]"
+          }`}
+        >
           {coverPhoto && (
             <img
               src={coverPhoto.photo_url}
@@ -657,55 +665,78 @@ export default function TeamHubClientInfoDetailPage() {
               className="absolute inset-0 h-full w-full object-cover opacity-60"
             />
           )}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#1B1033] via-[#1B1033]/50 to-transparent" />
+          <div
+            className={`absolute inset-0 bg-gradient-to-t ${
+              clientBrand
+                ? "from-[#041126] via-[#071B3D]/55 to-transparent"
+                : "from-[#1B1033] via-[#1B1033]/50 to-transparent"
+            }`}
+          />
           <div className="relative flex min-h-[220px] flex-col justify-end gap-5 p-6 sm:p-10">
             <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#F4CE45]">
-                  Client info
-                </p>
-                <h1 className="mt-2 text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">
-                  {client.name}
-                </h1>
-                {businessChips.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {businessChips.map((chip) =>
-                      chip.href ? (
-                        <a
-                          key={chip.icon + chip.value}
-                          href={chip.href}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-[11px] font-medium text-white backdrop-blur transition hover:bg-white/20"
-                        >
-                          <InfoIcon name={chip.icon} className="size-3.5" />
-                          {chip.value}
-                        </a>
-                      ) : (
-                        <span
-                          key={chip.icon + chip.value}
-                          className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-[11px] font-medium text-white/90 backdrop-blur"
-                        >
-                          <InfoIcon name={chip.icon} className="size-3.5" />
-                          {chip.value}
-                        </span>
-                      ),
-                    )}
-                  </div>
+              <div className="flex items-end gap-4 sm:gap-5">
+                {clientBrand && (
+                  <img
+                    src={clientBrand.logoUrl}
+                    alt={`${clientBrand.name} logo`}
+                    className="size-20 shrink-0 rounded-2xl border border-white/25 object-cover shadow-2xl sm:size-24"
+                  />
                 )}
-                {profile?.updated_at && (
-                  <p className="mt-3 text-[11px] text-white/60">
-                    Last updated{" "}
-                    {new Date(profile.updated_at).toLocaleDateString("en-CA")}
-                    {profile.updated_by ? ` by ${profile.updated_by}` : ""}
+                <div>
+                  <p
+                    className={`text-[10px] font-bold uppercase tracking-[0.2em] ${
+                      clientBrand ? "text-[#D7DCE4]" : "text-[#F4CE45]"
+                    }`}
+                  >
+                    Client info
                   </p>
-                )}
+                  <h1 className="mt-2 text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">
+                    {client.name}
+                  </h1>
+                  {businessChips.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {businessChips.map((chip) =>
+                        chip.href ? (
+                          <a
+                            key={chip.icon + chip.value}
+                            href={chip.href}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-[11px] font-medium text-white backdrop-blur transition hover:bg-white/20"
+                          >
+                            <InfoIcon name={chip.icon} className="size-3.5" />
+                            {chip.value}
+                          </a>
+                        ) : (
+                          <span
+                            key={chip.icon + chip.value}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-[11px] font-medium text-white/90 backdrop-blur"
+                          >
+                            <InfoIcon name={chip.icon} className="size-3.5" />
+                            {chip.value}
+                          </span>
+                        ),
+                      )}
+                    </div>
+                  )}
+                  {profile?.updated_at && (
+                    <p className="mt-3 text-[11px] text-white/60">
+                      Last updated{" "}
+                      {new Date(profile.updated_at).toLocaleDateString("en-CA")}
+                      {profile.updated_by ? ` by ${profile.updated_by}` : ""}
+                    </p>
+                  )}
+                </div>
               </div>
               {!isEditing && !isGuest && (
                 <button
                   type="button"
                   onClick={startEditing}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-full bg-white px-4 py-2.5 text-xs font-semibold text-[#341F60] shadow-lg transition hover:bg-[#F4CE45]"
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-full bg-white px-4 py-2.5 text-xs font-semibold shadow-lg transition ${
+                    clientBrand
+                      ? "text-[#071B3D] hover:bg-[#D7DCE4]"
+                      : "text-[#341F60] hover:bg-[#F4CE45]"
+                  }`}
                 >
                   <InfoIcon name="edit" className="size-3.5" />
                   Edit info
@@ -714,6 +745,47 @@ export default function TeamHubClientInfoDetailPage() {
             </div>
           </div>
         </section>
+
+        {clientBrand && (
+          <section className="mt-6 rounded-[24px] border border-[#C9D1DD] bg-white p-5 shadow-[0_8px_28px_rgba(7,27,61,0.06)] sm:p-6">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-4">
+                <img
+                  src={clientBrand.logoUrl}
+                  alt={`${clientBrand.name} logo`}
+                  className="size-16 rounded-xl border border-[#C9D1DD] object-cover"
+                />
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#173E73]">
+                    Brand identity
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-[#071B3D]">
+                    {clientBrand.name}
+                  </h2>
+                  <p className="mt-1 text-xs text-[#647187]">
+                    Hardcoded brand assets used across the client workspace.
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {clientBrand.palette.map((color) => (
+                  <div key={color.hex} className="min-w-24">
+                    <span
+                      className="block h-9 rounded-lg border border-black/10"
+                      style={{ backgroundColor: color.hex }}
+                    />
+                    <p className="mt-1.5 text-[10px] font-semibold text-[#071B3D]">
+                      {color.name}
+                    </p>
+                    <p className="text-[9px] uppercase tracking-[0.08em] text-[#7C8798]">
+                      {color.hex}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
 
         {isEditing ? (
           <section className="mt-6 rounded-[24px] border border-[#D7CBE0] bg-white p-5 shadow-[0_8px_28px_rgba(40,21,79,0.055)] sm:p-6">

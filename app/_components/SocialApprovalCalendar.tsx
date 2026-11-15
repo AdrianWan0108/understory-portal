@@ -4,6 +4,7 @@ import { Fraunces } from "next/font/google";
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { extractGoogleDriveFileId } from "@/lib/google-drive";
+import { clientBrandProfile } from "@/lib/client-branding";
 import {
   frameIoPlaybackUrl,
   frameIoThumbnailUrl,
@@ -1222,7 +1223,7 @@ function FrameIoVideoPlayer({
   const [playerError, setPlayerError] = useState(false);
 
   return (
-    <div className="relative flex aspect-[9/16] items-center justify-center overflow-hidden rounded-2xl bg-black shadow-sm">
+    <div className="relative flex aspect-[9/16] items-center justify-center overflow-hidden rounded-2xl bg-black shadow-sm lg:min-h-0 lg:flex-1 lg:aspect-auto">
       <video
         aria-label={title}
         controls
@@ -1291,10 +1292,13 @@ export function SocialApprovalCalendar({
   const [selectedSlide, setSelectedSlide] = useState(0);
   const [activeModalPhase, setActiveModalPhase] =
     useState<ModalPhase>("planning");
+  const [showAdvancedFilming, setShowAdvancedFilming] = useState(false);
+  const [showOtherDetailSections, setShowOtherDetailSections] = useState(false);
   const [visibleMonth, setVisibleMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
+  const hasAppliedInitialCalendarMonth = useRef(false);
   const [platformCaptionDrafts, setPlatformCaptionDrafts] = useState<
     Record<string, string>
   >({});
@@ -1565,23 +1569,19 @@ export function SocialApprovalCalendar({
           initialPostId ??
           new URLSearchParams(window.location.search).get("post");
         const requestedPost = loaded.find((post) => post.id === requestedPostId);
-        if (requestedPost) {
+        if (requestedPost && !hasAppliedInitialCalendarMonth.current) {
           openPost(
             requestedPost,
             requiredSocialClientReviewerKeys(nextClientSlug),
             initialPostId ? false : "replace",
           );
+          const requestedDate = calendarPostTime(requestedPost);
+          if (requestedDate) {
+            const date = new Date(requestedDate);
+            setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+          }
         }
-        const initialCalendarPost =
-          loaded.find((post) => !post.posted_at && post.scheduled_at) ??
-          loaded.findLast((post) => post.scheduled_at || post.posted_at);
-        const initialCalendarDate = initialCalendarPost
-          ? initialCalendarPost.scheduled_at ?? initialCalendarPost.posted_at
-          : null;
-        if (initialCalendarDate) {
-          const date = new Date(initialCalendarDate);
-          setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
-        }
+        hasAppliedInitialCalendarMonth.current = true;
       }
       setIsLoading(false);
     }
@@ -1626,8 +1626,8 @@ export function SocialApprovalCalendar({
   const currentWorkflowPhase = selectedPost
     ? deriveSocialWorkflowPhase(selectedPost, clientReviewerKeys)
     : "planning";
-  const currentWorkflowPhaseOption = MODAL_PHASES.find(
-    (phase) => phase.value === currentWorkflowPhase,
+  const activeModalPhaseOption = MODAL_PHASES.find(
+    (phase) => phase.value === activeModalPhase,
   );
   const productionDeadlineEstimate = useMemo(() => {
     if (!selectedPost || !contentDraft) return null;
@@ -1784,6 +1784,8 @@ export function SocialApprovalCalendar({
     const channels = socialChannelsFromValue(post.platform);
     setSelectedId(post.id);
     setActiveModalPhase(deriveSocialWorkflowPhase(post, reviewerKeys));
+    setShowAdvancedFilming(false);
+    setShowOtherDetailSections(false);
     setPlatformCaptionDrafts(platformCaptionDraftsForPost(post));
     setCaptionChannel(channels[0]);
     setReelCoverChannel(channels[0]);
@@ -1860,6 +1862,8 @@ export function SocialApprovalCalendar({
 
   function closePost() {
     setSelectedId(null);
+    setShowAdvancedFilming(false);
+    setShowOtherDetailSections(false);
     if (mode !== "internal") return;
 
     const url = new URL(window.location.href);
@@ -2029,6 +2033,18 @@ export function SocialApprovalCalendar({
     const date = new Date(post.scheduled_at!);
     return date.getFullYear() === year && date.getMonth() === month;
   });
+  const postsForVisibleMonth = visiblePosts.filter((post) => {
+    const value = calendarPostTime(post);
+    if (!value) return false;
+    const date = new Date(value);
+    return date.getFullYear() === year && date.getMonth() === month;
+  });
+  const today = new Date();
+  const isShowingCurrentMonth =
+    today.getFullYear() === year && today.getMonth() === month;
+  const todayDateKey = `${today.getFullYear()}-${String(
+    today.getMonth() + 1,
+  ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
   function updatePost(postId: string, patch: Partial<ApprovalPost>) {
     setPosts((current) =>
@@ -3363,29 +3379,42 @@ export function SocialApprovalCalendar({
     month: "long",
     year: "numeric",
   }).format(visibleMonth);
+  const activeClientBrand = clientBrandProfile(resolvedClientSlug);
 
   return (
     <main className="min-h-screen px-5 py-10 text-[var(--foreground)] sm:px-8 sm:py-14 lg:px-10">
       <div className="mx-auto max-w-[1800px]">
         <header className="flex flex-col gap-6 border-b border-[var(--border)] pb-8 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--primary)]">
-              {mode === "internal"
-                ? "Social media · Content planning"
-                : "Projects · Social media"}
-            </p>
-            <h1
-              className={`${fraunces.className} text-4xl font-medium leading-tight tracking-tight sm:text-5xl`}
-            >
-              {mode === "internal"
-                ? "Social Content Calendar"
-                : "Social media calendar"}
-            </h1>
-            <p
-              className={`${fraunces.className} mt-2 italic text-lg text-[var(--foreground)]/55`}
-            >
-              {resolvedClientName}
-            </p>
+          <div className="flex items-center gap-4 sm:gap-5">
+            {activeClientBrand && (
+              <Image
+                src={activeClientBrand.logoUrl}
+                alt={`${activeClientBrand.name} logo`}
+                width={80}
+                height={80}
+                className="size-16 shrink-0 rounded-xl border border-[var(--border)] object-cover shadow-sm sm:size-20"
+                priority
+              />
+            )}
+            <div>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--primary)]">
+                {mode === "internal"
+                  ? "Social media · Content planning"
+                  : "Projects · Social media"}
+              </p>
+              <h1
+                className={`${fraunces.className} text-4xl font-medium leading-tight tracking-tight sm:text-5xl`}
+              >
+                {mode === "internal"
+                  ? "Social Content Calendar"
+                  : "Social media calendar"}
+              </h1>
+              <p
+                className={`${fraunces.className} mt-2 italic text-lg text-[var(--foreground)]/55`}
+              >
+                {resolvedClientName}
+              </p>
+            </div>
           </div>
           {mode === "internal" && (
             <div className="flex flex-wrap gap-2">
@@ -3456,10 +3485,10 @@ export function SocialApprovalCalendar({
           </nav>
         )}
 
-        <div className="mt-10 grid gap-6 2xl:grid-cols-[minmax(0,2fr)_minmax(380px,1fr)] 2xl:items-start">
+        <div className="mt-10 grid gap-6 xl:grid-cols-[minmax(760px,2fr)_minmax(320px,0.8fr)] xl:items-start">
           <section
             aria-labelledby="approval-grid-heading"
-            className="order-2 w-full max-w-[440px] justify-self-end 2xl:sticky 2xl:top-6 2xl:max-w-none"
+            className="order-2 w-full max-w-[440px] justify-self-end xl:sticky xl:top-6 xl:max-w-none"
           >
             {storyPosts.length > 0 && (
               <section aria-labelledby="story-strip-heading" className="mb-8">
@@ -3723,67 +3752,78 @@ export function SocialApprovalCalendar({
             aria-labelledby="approval-calendar-heading"
             className="order-1 min-w-0"
           >
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <h2
-                id="approval-calendar-heading"
-                className={`${fraunces.className} text-2xl font-medium`}
-              >
-                {monthLabel}
-              </h2>
-              <p className="mt-1 text-xs text-[var(--foreground)]/50">
-                {mode === "internal"
-                  ? "Open a post to plan its date, time, caption, and final confirmation. Posted content stays on its original publish date."
-                  : "Open a post to review the final creative and caption."}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              {mode === "internal" && canSendToClient && (
-                <button
-                  type="button"
-                  disabled={!readyUnsentForMonth.length || isSending}
-                  onClick={() => void sendPostsToClient(readyUnsentForMonth)}
-                  className="rounded-full bg-[var(--primary)] px-5 py-2.5 text-xs font-semibold text-[var(--primary-foreground)] shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {isSending
-                    ? "Sending…"
-                    : `Send ${monthLabel} to client${
-                        readyUnsentForMonth.length
-                          ? ` (${readyUnsentForMonth.length})`
-                          : ""
-                      }`}
-                </button>
-              )}
+          <div className="mb-4 flex flex-col gap-3 border-b border-[var(--border)] pb-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-2">
               <button
                 type="button"
                 aria-label="Previous month"
                 onClick={() =>
                   setVisibleMonth(new Date(year, month - 1, 1))
                 }
-                className="flex size-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--card)]"
+                className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--card)] text-base transition hover:bg-[var(--muted)]"
               >
                 ←
               </button>
+              <h2
+                id="approval-calendar-heading"
+                className="min-w-0 text-xl font-semibold tracking-tight"
+              >
+                {monthLabel}
+              </h2>
               <button
                 type="button"
                 aria-label="Next month"
                 onClick={() =>
                   setVisibleMonth(new Date(year, month + 1, 1))
                 }
-                className="flex size-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--card)]"
+                className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--card)] text-base transition hover:bg-[var(--muted)]"
               >
                 →
               </button>
+              {!isShowingCurrentMonth && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setVisibleMonth(
+                      new Date(today.getFullYear(), today.getMonth(), 1),
+                    )
+                  }
+                  className="rounded-lg px-2.5 py-2 text-xs font-semibold text-[var(--primary)] transition hover:bg-[var(--muted)]"
+                >
+                  Today
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              <span className="text-xs text-[var(--foreground)]/45">
+                {postsForVisibleMonth.length}{" "}
+                {postsForVisibleMonth.length === 1 ? "post" : "posts"}
+              </span>
+              {mode === "internal" && canSendToClient && (
+                <button
+                  type="button"
+                  disabled={!readyUnsentForMonth.length || isSending}
+                  onClick={() => void sendPostsToClient(readyUnsentForMonth)}
+                  className="inline-flex items-center gap-2 rounded-lg bg-[var(--foreground)] px-3.5 py-2.5 text-xs font-semibold text-[var(--background)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  <span>{isSending ? "Sending…" : "Send for client review"}</span>
+                  {!isSending && readyUnsentForMonth.length > 0 && (
+                    <span className="flex size-5 items-center justify-center rounded-md bg-[var(--background)]/15 text-[10px]">
+                      {readyUnsentForMonth.length}
+                    </span>
+                  )}
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-2xl border border-[var(--border)] bg-[var(--card)]">
-            <div className="min-w-[900px] 2xl:min-w-0">
-              <div className="grid grid-cols-7 border-b border-[var(--border)] bg-[var(--muted)]">
+          <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-[0_1px_2px_rgba(30,50,40,0.04)]">
+            <div className="min-w-[900px] xl:min-w-0">
+              <div className="grid grid-cols-7 border-b border-[var(--border)] bg-[var(--card)]">
                 {WEEKDAYS.map((day) => (
                   <div
                     key={day}
-                    className="px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--foreground)]/45"
+                    className="px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--foreground)]/40"
                   >
                     {day}
                   </div>
@@ -3835,14 +3875,24 @@ export function SocialApprovalCalendar({
                         setDraggingPostId(null);
                         if (post) void reschedulePost(post, dateKey);
                       }}
-                      className={`min-h-36 border-b border-r border-[var(--border)] p-2 transition ${
+                      className={`min-h-36 border-b border-r border-[var(--border)] p-2.5 transition ${
+                        day
+                          ? "bg-[var(--card)] hover:bg-[var(--muted)]/25"
+                          : "bg-[var(--muted)]/20"
+                      } ${
                         isDragTarget
                           ? "bg-[var(--primary)]/10 ring-2 ring-inset ring-[var(--primary)]/40"
                           : ""
                       }`}
                     >
                       {day && (
-                        <span className="text-[11px] font-semibold text-[var(--foreground)]/45">
+                        <span
+                          className={`flex size-6 items-center justify-center rounded-md text-[11px] font-semibold ${
+                            dateKey === todayDateKey
+                              ? "bg-[var(--foreground)] text-[var(--background)]"
+                              : "text-[var(--foreground)]/45"
+                          }`}
+                        >
                           {day}
                         </span>
                       )}
@@ -3862,51 +3912,46 @@ export function SocialApprovalCalendar({
                             clientReviewerKeys,
                             post.sent_to_client_at,
                           );
-                          const approvalLabel =
-                            clientState === "changes_requested"
-                              ? "Client changes requested"
-                              : clientState === "pending"
-                                ? "Client reviewing"
-                                : clientState === "approved"
-                                  ? "Client approved"
-                                  : internalState === "pending"
-                                    ? "Reviewing"
-                                    : internalState === "changes_requested"
-                                      ? "Internal changes requested"
-                                      : internalState === "approved"
-                                        ? "Internal approved"
-                                        : null;
-                          const approvalIconStatus:
-                            | SocialProductionStatus
-                            | "reviewing"
-                            | null =
-                            clientState === "changes_requested" ||
-                            internalState === "changes_requested"
-                              ? "changes_required"
-                              : clientState === "pending" ||
-                                  internalState === "pending"
-                                ? "reviewing"
-                                : clientState === "approved" ||
-                                    internalState === "approved"
-                                  ? "complete"
-                                  : null;
-                          const approvalPillClass =
-                            clientState === "changes_requested"
-                              ? "border border-[#D99A8A] bg-[#FBE9E4] text-[#8B3E32]"
-                              : clientState === "pending"
-                                ? "border border-[#E5C76B] bg-[#FFF3C4] text-[#755500]"
-                                : clientState === "approved"
-                                  ? "border border-[#9CC8A9] bg-[#E5F5E9] text-[#2F6B43]"
-                                  : internalState === "changes_requested"
-                                    ? "border border-[#D99A8A] bg-[#FBE9E4] text-[#8B3E32]"
-                                    : internalState === "pending"
-                                      ? "border border-[#E5C76B] bg-[#FFF3C4] text-[#755500]"
-                                      : internalState === "approved"
-                                        ? "border border-[#9CC8A9] bg-[#E5F5E9] text-[#2F6B43]"
-                                        : "border border-[var(--border)] bg-[var(--muted)] text-[var(--foreground)]/65";
                           const previewUrl = postVisualPreviewUrl(post);
                           const postingSchedules =
                             platformScheduleEntries(post);
+                          const channels = socialChannelsFromValue(post.platform);
+                          const hasChanges =
+                            clientState === "changes_requested" ||
+                            internalState === "changes_requested" ||
+                            post.production_status === "changes_required";
+                          const isReviewing =
+                            clientState === "pending" ||
+                            internalState === "pending";
+                          const isApproved =
+                            clientState === "approved" ||
+                            internalState === "approved";
+                          const primaryStatusLabel = post.posted_at
+                            ? "Posted"
+                            : post.publishing_status === "scheduled"
+                              ? "Scheduled"
+                              : hasChanges
+                                ? "Changes requested"
+                                : isReviewing
+                                  ? "Reviewing"
+                                  : isApproved
+                                    ? clientState === "approved"
+                                      ? "Client approved"
+                                      : "Internal approved"
+                                    : SOCIAL_PRODUCTION_STATUS_LABELS[
+                                        post.production_status
+                                      ];
+                          const primaryStatusClass = post.posted_at
+                            ? "border-[#9CC8A9] bg-[#E5F5E9] text-[#2F6B43]"
+                            : post.publishing_status === "scheduled"
+                              ? "border-[#A9CDD5] bg-[#E8F4F7] text-[#2F6470]"
+                              : hasChanges
+                                ? "border-[#D99A8A] bg-[#FBE9E4] text-[#8B3E32]"
+                                : isReviewing
+                                  ? "border-[#E5C76B] bg-[#FFF3C4] text-[#755500]"
+                                  : isApproved
+                                    ? "border-[#9CC8A9] bg-[#E5F5E9] text-[#2F6B43]"
+                                    : "border-[var(--border)] bg-[var(--muted)] text-[var(--foreground)]/65";
                           return (
                             <button
                               key={post.id}
@@ -3962,98 +4007,39 @@ export function SocialApprovalCalendar({
                                 <span className="line-clamp-2 text-[10px] font-semibold leading-[1.25]">
                                   {post.title}
                                 </span>
-                                <span className="mt-1 flex min-w-0 flex-wrap items-center gap-1 text-[9px] leading-tight text-[var(--foreground)]/45">
-                                  <span className="shrink-0">
-                                    {formatLabel(post.format)} ·
+                                <span className="mt-2 flex min-w-0 items-center justify-between gap-2">
+                                  <span className="flex min-w-0 items-center gap-1">
+                                    {channels.slice(0, 3).map((channel) => (
+                                      <SocialChannelIcon
+                                        key={channel}
+                                        channel={channel}
+                                        className={`size-3 shrink-0 ${socialChannelColor(channel)}`}
+                                      />
+                                    ))}
+                                    {channels.length > 3 && (
+                                      <span className="text-[8px] font-semibold text-[var(--foreground)]/45">
+                                        +{channels.length - 3}
+                                      </span>
+                                    )}
+                                    {postingSchedules[0] && (
+                                      <span className="ml-1 truncate text-[9px] text-[var(--foreground)]/50">
+                                        {formatTime(postingSchedules[0].scheduledAt)}
+                                      </span>
+                                    )}
                                   </span>
                                   {assignees.length > 0 ? (
-                                    <>
-                                      <AssigneeAvatars members={assignees} />
-                                      <span>
-                                        {assignees
-                                          .map((member) => member.full_name)
-                                          .join(", ")}
-                                      </span>
-                                    </>
+                                    <AssigneeAvatars members={assignees} />
                                   ) : (
-                                    <span>Unassigned</span>
+                                    <span className="text-[8px] text-[var(--foreground)]/35">
+                                      Unassigned
+                                    </span>
                                   )}
                                 </span>
-                                {postingSchedules.length > 0 && (
-                                  <span className="mt-2 grid gap-1.5">
-                                    {postingSchedules.map(
-                                      ({ channel, scheduledAt, isScheduled }) => (
-                                        <span
-                                          key={channel}
-                                          className="flex min-w-0 items-center gap-1.5 rounded-full border border-[var(--border)] bg-white px-2 py-1 text-[8px] font-semibold leading-tight text-[var(--foreground)] shadow-sm"
-                                          title={`${channel}: ${formatTime(scheduledAt)}`}
-                                        >
-                                          <SocialChannelIcon
-                                            channel={channel}
-                                            className={`size-2.5 shrink-0 ${socialChannelColor(channel)}`}
-                                          />
-                                          <span className="min-w-0 flex-1 truncate">
-                                            {channel}
-                                          </span>
-                                          <span className="shrink-0 font-medium text-[var(--foreground)]/55">
-                                            {formatTime(scheduledAt)}
-                                          </span>
-                                          <span
-                                            className={`ml-auto shrink-0 font-bold ${
-                                              isScheduled
-                                                ? "text-[#267149]"
-                                                : "text-[var(--foreground)]/35"
-                                            }`}
-                                            aria-label={
-                                              isScheduled
-                                                ? `${channel} scheduled`
-                                                : `${channel} not scheduled`
-                                            }
-                                          >
-                                            {isScheduled ? "✓" : "○"}
-                                          </span>
-                                        </span>
-                                      ),
-                                    )}
-                                  </span>
-                                )}
-                                <span className="mt-2 flex min-w-0 flex-wrap items-center gap-1 text-[9px] font-semibold leading-tight text-[var(--primary)]">
-                                  <WorkflowStatusIcon
-                                    status={post.production_status}
-                                  />
-                                  <span className="shrink-0">
-                                    {
-                                      SOCIAL_PRODUCTION_STATUS_LABELS[
-                                        post.production_status
-                                      ]
-                                    }
-                                  </span>
-                                  <span aria-hidden="true">·</span>
-                                  <span>
-                                    {post.publishing_status === "scheduled"
-                                      ? guestSchedulingOnly
-                                        ? "Scheduled"
-                                        : post.scheduling_mode === "manual"
-                                        ? "Manual"
-                                        : "Automatic"
-                                      : SOCIAL_PUBLISHING_STATUS_LABELS[
-                                          post.publishing_status
-                                        ]}
-                                  </span>
+                                <span
+                                  className={`mt-2 inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[8px] font-semibold ${primaryStatusClass}`}
+                                >
+                                  <span className="truncate">{primaryStatusLabel}</span>
                                 </span>
-                                {approvalLabel && (
-                                  <span
-                                    className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[8px] font-semibold ${approvalPillClass}`}
-                                  >
-                                    {approvalIconStatus && (
-                                      <WorkflowStatusIcon
-                                        status={approvalIconStatus}
-                                        className="size-2.5"
-                                      />
-                                    )}
-                                    {approvalLabel}
-                                  </span>
-                                )}
                               </div>
                             </button>
                           );
@@ -4284,7 +4270,7 @@ export function SocialApprovalCalendar({
       )}
 
       {selectedPost && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
           <button
             type="button"
             aria-label="Close post details"
@@ -4295,7 +4281,7 @@ export function SocialApprovalCalendar({
             role="dialog"
             aria-modal="true"
             aria-labelledby="approval-post-title"
-            className="relative z-10 grid max-h-[94vh] w-full max-w-6xl overflow-y-auto rounded-[24px] bg-[var(--card)] shadow-2xl md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
+            className="relative z-10 grid max-h-[96vh] w-full max-w-[1600px] overflow-y-auto rounded-[24px] bg-[var(--card)] shadow-2xl lg:h-[96vh] lg:grid-cols-[minmax(380px,0.85fr)_minmax(560px,1.15fr)] lg:overflow-hidden"
           >
             <button
               type="button"
@@ -4306,7 +4292,7 @@ export function SocialApprovalCalendar({
               ×
             </button>
 
-            <div className="relative bg-[var(--muted)] p-4 sm:p-6">
+            <div className="relative overflow-y-auto bg-[var(--muted)] p-4 sm:p-6 lg:sticky lg:top-0 lg:flex lg:h-[96vh] lg:flex-col lg:overflow-hidden">
               {selectedFrameIoPlaybackUrl && selectedReelMedia ? (
                 <FrameIoVideoPlayer
                   mediaUrl={selectedFrameIoPlaybackUrl}
@@ -4315,7 +4301,7 @@ export function SocialApprovalCalendar({
                   title={`${selectedPost.title} Reel video`}
                 />
               ) : selectedReelVideoUrls ? (
-                <div className="relative flex aspect-[9/16] items-center justify-center overflow-hidden rounded-2xl bg-black shadow-sm">
+                <div className="relative flex aspect-[9/16] items-center justify-center overflow-hidden rounded-2xl bg-black shadow-sm lg:min-h-0 lg:flex-1 lg:aspect-auto">
                   <iframe
                     src={selectedReelVideoUrls.previewUrl}
                     title={`${selectedPost.title} Reel video`}
@@ -4333,8 +4319,8 @@ export function SocialApprovalCalendar({
                   className={`relative flex items-center justify-center overflow-hidden rounded-2xl bg-[var(--background)] bg-center shadow-sm ${
                     selectedPost.format === "story" ||
                     selectedPost.format === "reel"
-                      ? "aspect-[9/16] bg-contain bg-no-repeat"
-                      : "aspect-[4/5] bg-cover"
+                      ? "aspect-[9/16] bg-contain bg-no-repeat lg:min-h-0 lg:flex-1 lg:aspect-auto"
+                      : "aspect-[4/5] bg-cover lg:min-h-0 lg:flex-1 lg:aspect-auto lg:bg-contain lg:bg-no-repeat"
                   }`}
                   style={
                     selectedVisualPreviewUrl
@@ -4388,7 +4374,7 @@ export function SocialApprovalCalendar({
               )}
               {selectedPost.format !== "reel" &&
                 selectedPost.task_slides.length > 1 && (
-                <div className="mt-3 grid grid-cols-4 gap-2">
+                <div className="mt-3 grid shrink-0 grid-cols-4 gap-2">
                   {selectedPost.task_slides.map((slide, index) => (
                     <button
                       key={slide.id}
@@ -4406,7 +4392,7 @@ export function SocialApprovalCalendar({
                 </div>
               )}
               {mode === "internal" && selectedPost.format !== "reel" && (
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 flex shrink-0 flex-wrap gap-2">
                   <button
                     type="button"
                     disabled={selectedSlide === 0 || isSaving}
@@ -4440,7 +4426,7 @@ export function SocialApprovalCalendar({
                 <PostedStamp className="absolute right-8 top-8 z-10 px-4 py-2 text-xs" />
               )}
               {(selectedCreativeLink || hasAnyReelCover) && (
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 flex shrink-0 flex-wrap gap-2">
                   {selectedPost.format === "reel" &&
                     selectedDraftChannels.length > 1 && (
                       <select
@@ -4489,39 +4475,100 @@ export function SocialApprovalCalendar({
               )}
             </div>
 
-            <div className="p-5 sm:p-7 md:p-8">
+            <div className="overflow-y-auto p-5 sm:p-7 lg:h-[96vh] lg:p-8">
               {mode === "internal" && (
-                <div className="sticky top-0 z-10 mb-5 mr-12 grid gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)]/95 p-3 shadow-sm backdrop-blur sm:grid-cols-2">
-                  <div
-                    aria-live="polite"
-                    className="rounded-xl bg-[var(--muted)] px-3 py-2.5"
-                  >
-                    <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]/50">
-                      Current phase
-                    </span>
-                    <span className="mt-1.5 flex items-center gap-2 text-sm font-semibold">
-                      <span className="size-2 rounded-full bg-[var(--primary)]" />
-                      {currentWorkflowPhaseOption?.label ?? "1. Planning"}
-                    </span>
+                <div className="sticky top-0 z-10 mb-5 mr-12 rounded-2xl border border-[var(--border)] bg-[var(--card)]/95 p-2 shadow-sm backdrop-blur">
+                  <div className="grid grid-cols-3 gap-1" aria-label="Post detail sections">
+                    {[
+                      ["creative", "Creative"],
+                      ["approval", "Approval"],
+                      ["details", "Details"],
+                    ].map(([view, label]) => {
+                      const isActive =
+                        view === "creative"
+                          ? activeModalPhase === "creative"
+                          : view === "approval"
+                            ? activeModalPhase === "approval"
+                            : activeModalPhase !== "creative" &&
+                              activeModalPhase !== "approval";
+                      return (
+                        <button
+                          key={view}
+                          type="button"
+                          aria-pressed={isActive}
+                          onClick={() => {
+                            setShowOtherDetailSections(false);
+                            setActiveModalPhase(
+                              view === "creative"
+                                ? "creative"
+                                : view === "approval"
+                                  ? "approval"
+                                  : currentWorkflowPhase === "creative" ||
+                                      currentWorkflowPhase === "approval"
+                                    ? "planning"
+                                    : currentWorkflowPhase,
+                            );
+                          }}
+                          className={`rounded-xl px-3 py-2.5 text-xs font-semibold transition ${
+                            isActive
+                              ? "bg-[var(--foreground)] text-[var(--background)]"
+                              : "text-[var(--foreground)]/55 hover:bg-[var(--muted)]"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
                   </div>
-                  <label>
-                    <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]/50">
-                      View section
-                    </span>
-                    <select
-                      value={activeModalPhase}
-                      onChange={(event) =>
-                        setActiveModalPhase(event.target.value as ModalPhase)
-                      }
-                      className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-semibold"
-                    >
-                      {MODAL_PHASES.map((phase) => (
-                        <option key={phase.value} value={phase.value}>
-                          {phase.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {activeModalPhase !== "creative" &&
+                    activeModalPhase !== "approval" && (
+                    <div className="mt-2">
+                      <div className="flex items-center justify-between gap-3 rounded-xl bg-[var(--muted)] px-3 py-2.5">
+                        <span className="text-xs font-semibold">
+                          {activeModalPhaseOption?.label.replace(/^\d+\.\s*/, "") ??
+                            "Planning"}
+                        </span>
+                        <button
+                          type="button"
+                          aria-expanded={showOtherDetailSections}
+                          onClick={() =>
+                            setShowOtherDetailSections((current) => !current)
+                          }
+                          className="text-[10px] font-semibold text-[var(--primary)] underline underline-offset-2"
+                        >
+                          {showOtherDetailSections
+                            ? "Hide other sections"
+                            : "Other sections"}
+                        </button>
+                      </div>
+                      {showOtherDetailSections && (
+                        <div className="mt-2 grid grid-cols-2 gap-1">
+                          {MODAL_PHASES.filter(
+                            (phase) =>
+                              phase.value !== "creative" &&
+                              phase.value !== "approval",
+                          ).map((phase) => (
+                            <button
+                              key={phase.value}
+                              type="button"
+                              aria-pressed={activeModalPhase === phase.value}
+                              onClick={() => {
+                                setActiveModalPhase(phase.value);
+                                setShowOtherDetailSections(false);
+                              }}
+                              className={`rounded-lg px-3 py-2 text-left text-xs font-semibold transition ${
+                                activeModalPhase === phase.value
+                                  ? "bg-[var(--foreground)] text-[var(--background)]"
+                                  : "bg-[var(--background)] text-[var(--foreground)]/60 hover:bg-[var(--muted)]"
+                              }`}
+                            >
+                              {phase.label.replace(/^\d+\.\s*/, "")}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               <div className="flex flex-wrap items-center gap-2">
@@ -5270,9 +5317,10 @@ export function SocialApprovalCalendar({
                       >
                         <label className="flex items-center justify-between gap-3 text-xs font-semibold">
                           <span>
-                            Filming
+                            Filming required
                             <span className="mt-1 block font-normal text-[var(--foreground)]/45">
-                              Keep raw footage separate from the final deliverable.
+                              Only add the essentials here. Detailed production
+                              notes are optional.
                             </span>
                           </span>
                           <input
@@ -5288,8 +5336,7 @@ export function SocialApprovalCalendar({
                           />
                         </label>
                         {contentDraft.requiresFilming && (
-                          <div className="grid gap-3">
-                            <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="grid gap-3 rounded-xl bg-[var(--muted)] p-3 sm:grid-cols-2">
                               <label className="text-xs font-semibold">
                                 Filming date
                                 <input
@@ -5327,7 +5374,30 @@ export function SocialApprovalCalendar({
                                   className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"
                                 />
                               </label>
-                            </div>
+                          </div>
+                        )}
+                        {(contentDraft.format === "reel" ||
+                          contentDraft.requiresFilming) && (
+                          <button
+                            type="button"
+                            aria-expanded={showAdvancedFilming}
+                            onClick={() =>
+                              setShowAdvancedFilming((current) => !current)
+                            }
+                            className="flex w-full items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-left text-xs font-semibold"
+                          >
+                            <span>More filming details</span>
+                            <span aria-hidden="true">
+                              {showAdvancedFilming ? "−" : "+"}
+                            </span>
+                          </button>
+                        )}
+                        {showAdvancedFilming &&
+                          (contentDraft.format === "reel" ||
+                            contentDraft.requiresFilming) && (
+                          <div className="grid gap-3 rounded-xl border border-[var(--border)] p-3">
+                            {contentDraft.requiresFilming && (
+                              <>
                             <label className="flex items-center gap-2 text-xs font-semibold">
                               <input
                                 type="checkbox"
@@ -5387,10 +5457,8 @@ export function SocialApprovalCalendar({
                               />
                               Filmed
                             </label>
-                          </div>
-                        )}
-                        {(contentDraft.format === "reel" ||
-                          contentDraft.requiresFilming) && (
+                              </>
+                            )}
                           <label className="text-xs font-semibold">
                             Raw footage / source links
                             <textarea
@@ -5429,6 +5497,7 @@ export function SocialApprovalCalendar({
                               kept separate from the final Reel deliverable.
                             </span>
                           </label>
+                          </div>
                         )}
                       </section>
 

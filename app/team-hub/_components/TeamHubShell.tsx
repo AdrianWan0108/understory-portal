@@ -114,7 +114,7 @@ function TeamIcon({
   name,
   className = "size-5",
 }: {
-  name: NavIcon | "menu" | "close";
+  name: NavIcon | "menu" | "close" | "collapse" | "expand";
   className?: string;
 }) {
   const paths = {
@@ -202,6 +202,8 @@ function TeamIcon({
     ),
     menu: <path d="M4 7h16M4 12h16M4 17h16" />,
     close: <path d="M18 6 6 18M6 6l12 12" />,
+    collapse: <path d="m15 18-6-6 6-6" />,
+    expand: <path d="m9 18 6-6-6-6" />,
   };
 
   return (
@@ -295,10 +297,12 @@ function TeamNavigation({
   pathname,
   accessLevel,
   onNavigate,
+  compact = false,
 }: {
   pathname: string;
   accessLevel: TeamAccessLevel;
   onNavigate?: () => void;
+  compact?: boolean;
 }) {
   return (
     <nav aria-label="Team Hub navigation" className="space-y-1.5">
@@ -318,7 +322,10 @@ function TeamNavigation({
               href={item.href}
               onClick={onNavigate}
               aria-current={isActive ? "page" : undefined}
-              className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7D4698] ${
+              title={compact ? item.label : undefined}
+              className={`flex items-center rounded-xl py-3 text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7D4698] ${
+                compact ? "justify-center px-2" : "gap-3 px-3.5"
+              } ${
                 isActive
                   ? "bg-[#341F60] text-white shadow-[0_8px_24px_rgba(40,21,79,0.16)]"
                   : "text-[#5F3378] hover:bg-white hover:text-[#28154F]"
@@ -330,7 +337,9 @@ function TeamNavigation({
                   isActive ? "text-[#F4CE45]" : "text-[#7D4698]"
                 }`}
               />
-              {item.label}
+              <span className={compact ? "sr-only" : undefined}>
+                {item.label}
+              </span>
             </Link>
           );
         })}
@@ -343,6 +352,8 @@ function TeamHubShellContent({ children }: { children: React.ReactNode }) {
   const isAiWorkspacePath = pathname === "/team-hub/ai-workspace" || pathname.startsWith("/team-hub/ai-workspace/");
   const router = useRouter();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isDesktopNavCollapsed, setIsDesktopNavCollapsed] =
+    useState(true);
   const {
     identity,
     accessLevel,
@@ -383,19 +394,53 @@ function TeamHubShellContent({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-[#F4EEF8] text-[#28154F]">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[230px] flex-col border-r border-[#D7CBE0] bg-[#EEE3FA] px-4 py-5 md:flex">
-        <div className="px-1">
-          <Brand />
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-[#D7CBE0] bg-[#EEE3FA] py-5 transition-[width,padding] duration-200 md:flex ${
+          isDesktopNavCollapsed ? "w-[72px] px-3" : "w-[230px] px-4"
+        }`}
+      >
+        <button
+          type="button"
+          aria-label={
+            isDesktopNavCollapsed
+              ? "Expand Team Hub navigation"
+              : "Collapse Team Hub navigation"
+          }
+          aria-expanded={!isDesktopNavCollapsed}
+          onClick={() =>
+            setIsDesktopNavCollapsed((current) => !current)
+          }
+          className="absolute -right-3.5 top-6 flex size-7 items-center justify-center rounded-full border border-[#CDBAD9] bg-white text-[#5F3378] shadow-sm transition hover:bg-[#F6F0FA] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7D4698]"
+        >
+          <TeamIcon
+            name={isDesktopNavCollapsed ? "expand" : "collapse"}
+            className="size-4"
+          />
+        </button>
+        <div className={isDesktopNavCollapsed ? "flex justify-center" : "px-1"}>
+          {isDesktopNavCollapsed ? (
+            <Image
+              src={understoryLogo}
+              alt="Understory"
+              className="size-10 rounded-xl"
+              priority
+            />
+          ) : (
+            <Brand />
+          )}
         </div>
         <div className="mt-7 flex-1">
           <TeamNavigation
             pathname={pathname}
             accessLevel={accessLevel}
+            compact={isDesktopNavCollapsed}
           />
         </div>
-        <p className="border-t border-[#D7CBE0] px-2 pt-4 text-[10px] leading-4 text-[#8B7895]">
-          Understory · Internal workspace
-        </p>
+        {!isDesktopNavCollapsed && (
+          <p className="border-t border-[#D7CBE0] px-2 pt-4 text-[10px] leading-4 text-[#8B7895]">
+            Understory · Internal workspace
+          </p>
+        )}
       </aside>
 
       <header className="sticky top-0 z-50 border-b border-[#D7CBE0] bg-white/95 px-4 py-3 backdrop-blur md:hidden">
@@ -435,7 +480,11 @@ function TeamHubShellContent({ children }: { children: React.ReactNode }) {
         )}
       </header>
 
-      <div className="min-h-screen md:pl-[230px]">
+      <div
+        className={`min-h-screen transition-[padding] duration-200 ${
+          isDesktopNavCollapsed ? "md:pl-[72px]" : "md:pl-[230px]"
+        }`}
+      >
         <div className="sticky top-0 z-30 hidden border-b border-[#D7CBE0] bg-white/90 px-8 py-3 backdrop-blur md:flex md:justify-end">
           <IdentityIndicator identity={identity} />
         </div>
