@@ -5020,6 +5020,94 @@ export function SocialApprovalCalendar({
                             add the next one.
                           </p>
                         </div>
+                        {(contentDraft.format === "carousel" ||
+                          contentDraft.format === "image" ||
+                          contentDraft.format === "story") &&
+                        selectedPost.task_slides[selectedSlide] ? (
+                          <label className="text-xs font-semibold">
+                            {selectedPost.task_slides.length > 1
+                              ? `Slide ${selectedSlide + 1} Google Drive deliverable link`
+                              : "Google Drive deliverable link"}
+                            <input
+                              type="url"
+                              value={
+                                slideImageDrafts[
+                                  selectedPost.task_slides[selectedSlide].id
+                                ] ?? ""
+                              }
+                              onChange={(event) => {
+                                const slideId =
+                                  selectedPost.task_slides[selectedSlide].id;
+                                setSlideImageDrafts((current) => ({
+                                  ...current,
+                                  [slideId]: event.target.value,
+                                }));
+                              }}
+                              placeholder="https://drive.google.com/..."
+                              className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-normal"
+                            />
+                            <span className="mt-2 block text-[11px] font-normal leading-5 text-[var(--foreground)]/50">
+                              {selectedPost.task_slides.length > 1
+                                ? `This link is for Slide ${selectedSlide + 1} only. Select another slide above to add its own deliverable.`
+                                : "Paste the final creative file link and make sure “Anyone with the link can view” is enabled."}
+                            </span>
+                          </label>
+                        ) : (
+                          <label className="text-xs font-semibold">
+                            {contentDraft.format === "reel"
+                              ? "Creative delivery link (Google Drive or Frame.io)"
+                              : "Creative delivery link (Google Drive)"}
+                            <input
+                              type="url"
+                              value={contentDraft.creativeDriveLink}
+                              onChange={(event) =>
+                                setContentDraft({
+                                  ...contentDraft,
+                                  creativeDriveLink: event.target.value,
+                                })
+                              }
+                              placeholder={
+                                contentDraft.format === "reel"
+                                  ? "https://f.io/... or https://drive.google.com/..."
+                                  : "https://drive.google.com/..."
+                              }
+                              className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-normal"
+                            />
+                            <span className="mt-2 block text-[11px] font-normal leading-5 text-[var(--foreground)]/50">
+                              {contentDraft.format === "reel"
+                                ? "Paste a shareable Google Drive or Frame.io link for the final Reel."
+                                : "Paste the final creative file or folder link and make sure “Anyone with the link can view” is enabled."}
+                            </span>
+                          </label>
+                        )}
+                        {contentDraft.format === "reel" && (
+                          <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3">
+                            <span>
+                              <span className="block text-xs font-semibold">
+                                Show in main grid
+                              </span>
+                              <span className="mt-1 block text-[11px] font-normal leading-5 text-[var(--foreground)]/50">
+                                Turn this off to keep the Reel in the Reels
+                                preview without showing its card in the main
+                                Feed grid.
+                              </span>
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={contentDraft.reelDetails.showInFeed}
+                              onChange={(event) =>
+                                setContentDraft({
+                                  ...contentDraft,
+                                  reelDetails: {
+                                    ...contentDraft.reelDetails,
+                                    showInFeed: event.target.checked,
+                                  },
+                                })
+                              }
+                              className="size-5 shrink-0 accent-[var(--primary)]"
+                            />
+                          </label>
+                        )}
                       </section>
 
                       <section
@@ -5305,31 +5393,6 @@ export function SocialApprovalCalendar({
                                 Switch channel above to add a different final
                                 Reel cover for each selected platform.
                               </span>
-                            </label>
-                            <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3">
-                              <span>
-                                <span className="block text-xs font-semibold">
-                                  Show Reel in Feed preview
-                                </span>
-                                <span className="mt-1 block text-[11px] font-normal leading-5 text-[var(--foreground)]/50">
-                                  Turn this off when the Instagram Reel should
-                                  appear in Reels but not on the profile Feed.
-                                </span>
-                              </span>
-                              <input
-                                type="checkbox"
-                                checked={contentDraft.reelDetails.showInFeed}
-                                onChange={(event) =>
-                                  setContentDraft({
-                                    ...contentDraft,
-                                    reelDetails: {
-                                      ...contentDraft.reelDetails,
-                                      showInFeed: event.target.checked,
-                                    },
-                                  })
-                                }
-                                className="size-5 shrink-0 accent-[var(--primary)]"
-                              />
                             </label>
                           </div>
                         )}
@@ -5944,66 +6007,6 @@ export function SocialApprovalCalendar({
                             </p>
                           )}
                         </div>
-                        {(contentDraft.format === "carousel" ||
-                          contentDraft.format === "image" ||
-                          contentDraft.format === "story") &&
-                        selectedPost.task_slides[selectedSlide] ? (
-                          <label className="text-xs font-semibold">
-                            {selectedPost.task_slides.length > 1
-                              ? `Slide ${selectedSlide + 1} Google Drive deliverable link`
-                              : "Google Drive deliverable link"}
-                            <input
-                              type="url"
-                              value={
-                                slideImageDrafts[
-                                  selectedPost.task_slides[selectedSlide].id
-                                ] ?? ""
-                              }
-                              onChange={(event) => {
-                                const slideId =
-                                  selectedPost.task_slides[selectedSlide].id;
-                                setSlideImageDrafts((current) => ({
-                                  ...current,
-                                  [slideId]: event.target.value,
-                                }));
-                              }}
-                              placeholder="https://drive.google.com/..."
-                              className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-normal"
-                            />
-                            <span className="mt-2 block text-[11px] font-normal leading-5 text-[var(--foreground)]/50">
-                              {selectedPost.task_slides.length > 1
-                                ? `This link is for Slide ${selectedSlide + 1} only. Select another slide above to add its own deliverable.`
-                                : "Paste the final creative file link and make sure “Anyone with the link can view” is enabled."}
-                            </span>
-                          </label>
-                        ) : (
-                          <label className="text-xs font-semibold">
-                            {contentDraft.format === "reel"
-                              ? "Creative link (Google Drive or Frame.io)"
-                              : "Creative Google Drive link"}
-                            <input
-                              type="url"
-                              value={contentDraft.creativeDriveLink}
-                              onChange={(event) =>
-                                setContentDraft({
-                                  ...contentDraft,
-                                  creativeDriveLink: event.target.value,
-                                })
-                              }
-                              placeholder={
-                                contentDraft.format === "reel"
-                                  ? "https://f.io/... or https://drive.google.com/..."
-                                  : "https://drive.google.com/..."
-                              }
-                              className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-normal"
-                            />
-                            <span className="mt-2 block text-[11px] font-normal leading-5 text-[var(--foreground)]/50">
-                              {contentDraft.format === "reel"
-                                ? "Paste a shareable Google Drive or Frame.io link for the final Reel."
-                                : "Paste the final creative file or folder link and make sure “Anyone with the link can view” is enabled."}
-                            </span>
-                          </label>
-                        )}
                         <fieldset>
                           <legend className="text-xs font-semibold">Assignees</legend>
                           <div className="mt-2 grid gap-2 sm:grid-cols-2">
