@@ -519,6 +519,31 @@ export function shouldShowSocialPostInFeed(
 
 export type SocialPlatformSchedules = Record<string, string>;
 export type SocialPlatformCaptions = Record<string, string>;
+
+export function normalizeSocialHashtags(values: string[]): string[] {
+  return Array.from(
+    new Set(
+      values
+        .flatMap((value) => value.split(/[\s,]+/))
+        .map((value) => value.trim().replace(/^#+/, ""))
+        .filter(Boolean)
+        .map((value) => `#${value}`),
+    ),
+  );
+}
+
+export function normalizeSocialCollaboratorUsernames(
+  values: string[],
+): string[] {
+  return Array.from(
+    new Set(
+      values
+        .flatMap((value) => value.split(/[\s,]+/))
+        .map((value) => value.trim().replace(/^@+/, ""))
+        .filter(Boolean),
+    ),
+  );
+}
 export type SocialPlatformScheduleStatuses = Record<string, boolean>;
 
 function socialChannelsFromStoredValue(platform?: string | null) {

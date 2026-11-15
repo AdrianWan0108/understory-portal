@@ -8,6 +8,8 @@ import {
   earliestSocialPlatformSchedule,
   estimateSocialProductionDeadline,
   normalizeSocialFilmingDetails,
+  normalizeSocialCollaboratorUsernames,
+  normalizeSocialHashtags,
   normalizeSocialPlatformCaptions,
   normalizeSocialPlatformScheduleStatuses,
   normalizeSocialPostStatus,
@@ -32,6 +34,20 @@ import {
   SOCIAL_POST_STATUS_LABELS,
   SOCIAL_POST_FORMATS,
 } from "../lib/social-content.ts";
+
+test("creative hashtags and collaborator usernames normalize into unique tags", () => {
+  assert.deepEqual(
+    normalizeSocialHashtags(["launch, #BehindTheScenes", "#launch"]),
+    ["#launch", "#BehindTheScenes"],
+  );
+  assert.deepEqual(
+    normalizeSocialCollaboratorUsernames([
+      "@creator_one",
+      "creator_two, @creator_one",
+    ]),
+    ["creator_one", "creator_two"],
+  );
+});
 
 test("platform captions normalize per channel and preserve old shared captions", () => {
   assert.deepEqual(

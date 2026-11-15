@@ -22,7 +22,9 @@ import {
   estimateSocialProductionDeadline,
   legacyStatusForSocialDimensions,
   normalizeReelDetails,
+  normalizeSocialCollaboratorUsernames,
   normalizeSocialFilmingDetails,
+  normalizeSocialHashtags,
   normalizeSocialPlatformCaptions,
   normalizeSocialPlatformScheduleStatuses,
   normalizeSocialPostStatus,
@@ -129,6 +131,9 @@ type ApprovalPost = {
   story_interaction: StoryInteraction;
   reel_details: ReelDetails;
   post_caption: string;
+  hook: string;
+  hashtags: string[];
+  collaborator_usernames: string[];
   platform_captions: SocialPlatformCaptions;
   purpose: string | null;
   content_pillar: string | null;
@@ -232,6 +237,9 @@ type PostContentDraft = {
   contentPillar: string;
   targetAudience: string;
   cta: string;
+  hook: string;
+  hashtags: string;
+  collaboratorUsernames: string[];
   dueDate: string;
   brief: string;
   visualNote: string;
@@ -469,6 +477,9 @@ function mapPost(row: TaskRow): ApprovalPost {
       row.filming_details,
       row.reel_details,
     ),
+    hook: row.hook ?? "",
+    hashtags: row.hashtags ?? [],
+    collaborator_usernames: row.collaborator_usernames ?? [],
     assignee_usernames: row.assignee_usernames ?? [],
     watcher_usernames: row.watcher_usernames ?? [],
     mentioned_usernames: row.mentioned_usernames ?? [],
@@ -1322,6 +1333,7 @@ export function SocialApprovalCalendar({
   const [contentDraft, setContentDraft] = useState<PostContentDraft | null>(
     null,
   );
+  const [collaboratorDraft, setCollaboratorDraft] = useState("");
   const [scheduleDraft, setScheduleDraft] = useState("");
   const [platformScheduleDrafts, setPlatformScheduleDrafts] = useState<
     Record<string, string>
@@ -1489,6 +1501,9 @@ export function SocialApprovalCalendar({
             story_interaction,
             reel_details,
             post_caption,
+            hook,
+            hashtags,
+            collaborator_usernames,
             platform_captions,
             purpose,
             content_pillar,
@@ -1758,6 +1773,34 @@ export function SocialApprovalCalendar({
     }
   }, [importDraft]);
 
+  function addCollaboratorUsername() {
+    if (!contentDraft) return;
+    const draftUsernames = normalizeSocialCollaboratorUsernames([
+      collaboratorDraft,
+    ]);
+    if (draftUsernames.length === 0) return;
+    const collaboratorUsernames = normalizeSocialCollaboratorUsernames([
+      ...contentDraft.collaboratorUsernames,
+      ...draftUsernames,
+    ]);
+    if (
+      collaboratorUsernames.length > contentDraft.collaboratorUsernames.length
+    ) {
+      setContentDraft({ ...contentDraft, collaboratorUsernames });
+    }
+    setCollaboratorDraft("");
+  }
+
+  function removeCollaboratorUsername(username: string) {
+    if (!contentDraft) return;
+    setContentDraft({
+      ...contentDraft,
+      collaboratorUsernames: contentDraft.collaboratorUsernames.filter(
+        (value) => value !== username,
+      ),
+    });
+  }
+
   function openPost(
     post: ApprovalPost,
     reviewerKeys: string[],
@@ -1820,6 +1863,9 @@ export function SocialApprovalCalendar({
       contentPillar: post.content_pillar ?? "",
       targetAudience: post.target_audience ?? "",
       cta: post.cta ?? "",
+      hook: post.hook,
+      hashtags: post.hashtags.join(" "),
+      collaboratorUsernames: post.collaborator_usernames,
       dueDate: post.due_date ?? "",
       brief: post.brief,
       visualNote: post.visual_note ?? "",
@@ -1833,6 +1879,7 @@ export function SocialApprovalCalendar({
       schedulingMode: post.scheduling_mode,
       assigneeUsernames: post.assignee_usernames,
     });
+    setCollaboratorDraft("");
     setIsProductionDeadlineAutomatic(
       !post.due_date ||
         post.due_date === deadlineEstimate.date ||
@@ -2168,6 +2215,11 @@ export function SocialApprovalCalendar({
     )?.[0];
     const primaryChannel = socialChannelsFromValue(contentDraft.platform)[0];
     const reelCoverUrl = reelCoverUrls[primaryChannel] ?? "";
+    const hashtags = normalizeSocialHashtags([contentDraft.hashtags]);
+    const collaboratorUsernames = normalizeSocialCollaboratorUsernames([
+      ...contentDraft.collaboratorUsernames,
+      collaboratorDraft,
+    ]);
     if (
       creativeDriveLink &&
       !isGoogleDriveUrl(creativeDriveLink) &&
@@ -2195,9 +2247,9 @@ export function SocialApprovalCalendar({
       contentDraft.platform,
       platformScheduleDrafts,
     );
-    const platformCaptions = serializePlatformCaptionDrafts(
+    const platformCaptions = platformCaptionsAtSharedText(
       contentDraft.platform,
-      platformCaptionDrafts,
+      platformCaptionDrafts[primaryChannel],
     );
     const platformScheduleStatuses = serializePlatformScheduleStatusDrafts(
       contentDraft.platform,
@@ -2348,6 +2400,9 @@ export function SocialApprovalCalendar({
         content_pillar: contentDraft.contentPillar.trim() || null,
         target_audience: contentDraft.targetAudience.trim() || null,
         cta: contentDraft.cta.trim() || null,
+        hook: contentDraft.hook.trim(),
+        hashtags,
+        collaborator_usernames: collaboratorUsernames,
         due_date: productionDeadlineValue || null,
         brief: contentDraft.brief.trim(),
         visual_note: contentDraft.visualNote.trim() || null,
@@ -2400,6 +2455,9 @@ export function SocialApprovalCalendar({
       content_pillar: contentDraft.contentPillar.trim() || null,
       target_audience: contentDraft.targetAudience.trim() || null,
       cta: contentDraft.cta.trim() || null,
+      hook: contentDraft.hook.trim(),
+      hashtags,
+      collaborator_usernames: collaboratorUsernames,
       due_date: productionDeadlineValue || null,
       brief: contentDraft.brief.trim(),
       visual_note: contentDraft.visualNote.trim() || null,
@@ -3199,6 +3257,9 @@ export function SocialApprovalCalendar({
         format: "image",
         platform: "Instagram",
         platform_captions: {},
+        hook: "",
+        hashtags: [],
+        collaborator_usernames: [],
         platform_schedule_statuses: {},
         platform_schedules: {},
         post_caption: "",
@@ -3274,6 +3335,9 @@ export function SocialApprovalCalendar({
         visual_note: post.visualDirection || null,
         story_interaction: post.storyInteraction,
         post_caption: post.caption,
+        hook: post.reelDetails.hook,
+        hashtags: [],
+        collaborator_usernames: [],
         reel_details: post.format === "reel" ? post.reelDetails : null,
         requires_filming: post.requiresFilming,
         filming_details: post.filmingDetails,
@@ -4831,9 +4895,135 @@ export function SocialApprovalCalendar({
                       </section>
 
                       <section
-                        className={`grid gap-3 rounded-2xl border border-[var(--border)] p-4 ${
+                        className={`grid gap-4 rounded-2xl border border-[var(--border)] p-4 ${
                           activeModalPhase === "creative" ? "" : "hidden"
                         }`}
+                      >
+                        <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--primary)]">
+                          Creative
+                        </h3>
+                        <label className="text-xs font-semibold">
+                          Hook
+                          <textarea
+                            rows={3}
+                            value={contentDraft.hook}
+                            onChange={(event) =>
+                              setContentDraft({
+                                ...contentDraft,
+                                hook: event.target.value,
+                              })
+                            }
+                            className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-normal"
+                          />
+                        </label>
+                        <label className="text-xs font-semibold">
+                          Caption
+                          <textarea
+                            rows={8}
+                            disabled={
+                              Boolean(selectedPost.posted_at) ||
+                              selectedPost.publishing_status === "scheduled"
+                            }
+                            value={
+                              platformCaptionDrafts[selectedDraftChannels[0]] ??
+                              ""
+                            }
+                            onChange={(event) =>
+                              setPlatformCaptionDrafts(
+                                Object.fromEntries(
+                                  selectedDraftChannels.map((channel) => [
+                                    channel,
+                                    event.target.value,
+                                  ]),
+                                ),
+                              )
+                            }
+                            className="mt-2 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-normal leading-6"
+                          />
+                        </label>
+                        <label className="text-xs font-semibold">
+                          Hashtags
+                          <input
+                            value={contentDraft.hashtags}
+                            onChange={(event) =>
+                              setContentDraft({
+                                ...contentDraft,
+                                hashtags: event.target.value,
+                              })
+                            }
+                            placeholder="#campaign #behindthescenes"
+                            className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-normal"
+                          />
+                        </label>
+                        <div>
+                          <label
+                            htmlFor="creative-collaborator-username"
+                            className="text-xs font-semibold"
+                          >
+                            Collaborators / tags
+                          </label>
+                          {contentDraft.collaboratorUsernames.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {contentDraft.collaboratorUsernames.map(
+                                (username) => (
+                                  <span
+                                    key={username}
+                                    className="inline-flex items-center gap-1.5 rounded-full bg-[var(--muted)] px-3 py-1.5 text-xs font-semibold"
+                                  >
+                                    @{username}
+                                    <button
+                                      type="button"
+                                      aria-label={`Remove @${username}`}
+                                      onClick={() =>
+                                        removeCollaboratorUsername(username)
+                                      }
+                                      className="text-base leading-none text-[var(--foreground)]/45 hover:text-[var(--foreground)]"
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ),
+                              )}
+                            </div>
+                          )}
+                          <div className="mt-2 flex gap-2">
+                            <input
+                              id="creative-collaborator-username"
+                              value={collaboratorDraft}
+                              onChange={(event) =>
+                                setCollaboratorDraft(event.target.value)
+                              }
+                              onKeyDown={(event) => {
+                                if (
+                                  event.key === "Enter" ||
+                                  event.key === ","
+                                ) {
+                                  event.preventDefault();
+                                  addCollaboratorUsername();
+                                }
+                              }}
+                              placeholder="username"
+                              autoCapitalize="none"
+                              autoCorrect="off"
+                              className="h-11 min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-normal"
+                            />
+                            <button
+                              type="button"
+                              onClick={addCollaboratorUsername}
+                              className="rounded-xl border border-[var(--border)] px-4 text-xs font-semibold"
+                            >
+                              Add
+                            </button>
+                          </div>
+                          <p className="mt-2 text-[11px] leading-5 text-[var(--foreground)]/50">
+                            Add one username at a time. Press Enter or comma to
+                            add the next one.
+                          </p>
+                        </div>
+                      </section>
+
+                      <section
+                        className="hidden"
                       >
                         <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--primary)]">
                           Creative direction
@@ -5146,14 +5336,14 @@ export function SocialApprovalCalendar({
                       </section>
                     </>
                   )}
-                  {activeModalPhase === "creative" &&
-                    (selectedPost.format === "carousel" ||
-                      selectedPost.format === "image" ||
-                      selectedPost.format === "story") &&
-                    selectedPost.task_slides[selectedSlide] && (
+                  {selectedPost && false && activeModalPhase === "creative" &&
+                    (selectedPost!.format === "carousel" ||
+                      selectedPost!.format === "image" ||
+                      selectedPost!.format === "story") &&
+                    selectedPost!.task_slides[selectedSlide] && (
                       <section className="grid gap-3 rounded-2xl border border-[var(--primary)]/25 bg-[var(--muted)]/55 p-4">
                         <h3 className="text-xs font-semibold">
-                          {selectedPost.format === "carousel"
+                          {selectedPost!.format === "carousel"
                             ? `Slide ${selectedSlide + 1}`
                             : "Image creative"}
                         </h3>
@@ -5163,12 +5353,12 @@ export function SocialApprovalCalendar({
                             rows={3}
                             value={
                               slideTextDrafts[
-                                selectedPost.task_slides[selectedSlide].id
+                                selectedPost!.task_slides[selectedSlide].id
                               ] ?? ""
                             }
                             onChange={(event) => {
                               const slideId =
-                                selectedPost.task_slides[selectedSlide].id;
+                                selectedPost!.task_slides[selectedSlide].id;
                               setSlideTextDrafts((current) => ({
                                 ...current,
                                 [slideId]: event.target.value,
@@ -5183,12 +5373,12 @@ export function SocialApprovalCalendar({
                             rows={3}
                             value={
                               slideVisualDrafts[
-                                selectedPost.task_slides[selectedSlide].id
+                                selectedPost!.task_slides[selectedSlide].id
                               ] ?? ""
                             }
                             onChange={(event) => {
                               const slideId =
-                                selectedPost.task_slides[selectedSlide].id;
+                                selectedPost!.task_slides[selectedSlide].id;
                               setSlideVisualDrafts((current) => ({
                                 ...current,
                                 [slideId]: event.target.value,
@@ -5203,12 +5393,12 @@ export function SocialApprovalCalendar({
                             rows={4}
                             value={
                               slideCaptionDrafts[
-                                selectedPost.task_slides[selectedSlide].id
+                                selectedPost!.task_slides[selectedSlide].id
                               ] ?? ""
                             }
                             onChange={(event) => {
                               const slideId =
-                                selectedPost.task_slides[selectedSlide].id;
+                                selectedPost!.task_slides[selectedSlide].id;
                               setSlideCaptionDrafts((current) => ({
                                 ...current,
                                 [slideId]: event.target.value,
@@ -5220,7 +5410,7 @@ export function SocialApprovalCalendar({
                         <div>
                           <p className="text-xs font-semibold">References</p>
                           <div className="mt-2 flex flex-wrap gap-2">
-                            {selectedPost.task_slides[
+                            {selectedPost!.task_slides[
                               selectedSlide
                             ].slide_references.map((reference) => (
                               <a
@@ -5248,8 +5438,8 @@ export function SocialApprovalCalendar({
                               type="button"
                               onClick={() =>
                                 void addSlideReference(
-                                  selectedPost,
-                                  selectedPost.task_slides[selectedSlide],
+                                  selectedPost!,
+                                  selectedPost!.task_slides[selectedSlide],
                                 )
                               }
                               className="rounded-xl border border-[var(--border)] px-3 text-xs font-semibold"
@@ -5262,9 +5452,7 @@ export function SocialApprovalCalendar({
                     )}
                   {contentDraft && (
                     <div
-                      className={`grid gap-3 rounded-2xl border border-[var(--border)] p-4 ${
-                        activeModalPhase === "creative" ? "" : "hidden"
-                      }`}
+                      className="hidden"
                     >
                       <label className="text-xs font-semibold">
                         Caption channel
