@@ -2080,8 +2080,6 @@ export function SocialApprovalCalendar({
               right.title.localeCompare(left.title, "en-CA"),
           )
       : feedPosts;
-  const previewPostLimit = socialPreviewMode === "reels" ? 9 : 12;
-  const displayedPreviewPosts = previewPosts.slice(0, previewPostLimit);
   const readyUnsent = posts.filter(
     (post) =>
       !post.posted_at &&
@@ -3743,14 +3741,14 @@ export function SocialApprovalCalendar({
                 role="region"
                 aria-label={`${socialPreviewMode === "reels" ? "Reels" : "Feed"} preview posts`}
                 tabIndex={0}
-                className={`overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] ${
+                className={`overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl border border-[var(--border)] bg-[var(--border)] ${
                   socialPreviewMode === "reels"
                     ? "aspect-[9/16]"
                     : "aspect-[3/4]"
                 }`}
               >
                 <div className="grid grid-cols-3 gap-0.5 sm:gap-px">
-                  {displayedPreviewPosts.map((post) => {
+                  {previewPosts.map((post) => {
                     const previewUrl = postVisualPreviewUrl(
                       post,
                       socialPreviewMode === "reels"
